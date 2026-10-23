@@ -1208,15 +1208,25 @@ window.__ModuleLoader__.load({
           }
         }
 
-        /** 页面上所有带批注附件的用户消息行。 */
+        /**
+         * 页面上所有带批注附件的用户消息行。
+         *
+         * 从附件行往上找锚点，而不是先筛 `data-chat-flow-kind="user"`：锚点属性与 flow-kind
+         * 是 DSH 内部实现，多一道取值假设就多一种落空的方式。只要卡片里写着「批注.json」，
+         * 上面能找到锚点键，就认。
+         */
         function collectAnnotationRows() {
           const rows = []
-          for (const element of document.querySelectorAll('[data-chat-anchor-key]')) {
-            if (element.getAttribute('data-chat-flow-kind') !== 'user') continue
-            const attachmentRow = element.querySelector('[data-message-attachments]')
-            if (attachmentRow === null) continue
+          for (const attachmentRow of document.querySelectorAll('[data-message-attachments]')) {
             if (!/批注\.json/.test(attachmentRow.textContent ?? '')) continue
-            rows.push({ row: element, attachmentRow, anchorKey: element.getAttribute('data-chat-anchor-key') ?? '' })
+            const row =
+              attachmentRow.closest('[data-chat-anchor-key]') ??
+              attachmentRow.closest('[data-chat-flow-key]') ??
+              attachmentRow.parentElement
+            if (row === null) continue
+            const anchorKey = row.getAttribute('data-chat-anchor-key') ?? row.getAttribute('data-chat-flow-key') ?? ''
+            if (anchorKey === '') continue
+            rows.push({ row, attachmentRow, anchorKey })
           }
           return rows
         }
@@ -2374,27 +2384,26 @@ window.__ModuleLoader__.load({
           const box = el('div', 'sa-settings')
           const sessionId = currentSessionId()
           const records = typeof sessionId === 'string' ? loadSent(sessionId).size : 0
-          let anchorRows = 0
-          let userRows = 0
           let attachmentRows = 0
           let namedRows = 0
+          let keyedRows = 0
           let sample = ''
           safe(() => {
-            for (const row of document.querySelectorAll('[data-chat-anchor-key]')) {
-              anchorRows += 1
-              if (row.getAttribute('data-chat-flow-kind') === 'user') userRows += 1
-              const attachment = row.querySelector('[data-message-attachments]')
-              if (attachment === null) continue
+            for (const attachment of document.querySelectorAll('[data-message-attachments]')) {
               attachmentRows += 1
               const text = (attachment.textContent ?? '').replace(/\s+/g, ' ').trim()
-              if (/批注\.json/.test(text)) namedRows += 1
               if (sample === '' && text !== '') sample = text.slice(0, 42)
+              if (!/批注\.json/.test(text)) continue
+              namedRows += 1
+              if (attachment.closest('[data-chat-anchor-key]') !== null || attachment.closest('[data-chat-flow-key]') !== null) {
+                keyedRows += 1
+              }
             }
           })
           const origin = safe(() => window.location.origin) ?? '(无)'
           const tail = typeof sessionId === 'string' ? sessionId.slice(-8) : '(无)'
           box.appendChild(el('div', 'sa-hint', `诊断：会话 ${tail}｜记录 ${records}｜批注消息 ${namedRows}`))
-          box.appendChild(el('div', 'sa-hint', `锚点行 ${anchorRows}（user ${userRows}）｜附件行 ${attachmentRows}｜待配对 ${pendingSent.length}`))
+          box.appendChild(el('div', 'sa-hint', `附件行 ${attachmentRows}｜批注 ${namedRows}｜可锚定 ${keyedRows}｜待配对 ${pendingSent.length}`))
           box.appendChild(el('div', 'sa-hint', `origin ${origin}${sample === '' ? '' : '｜附件样例 ' + sample}`))
           return box
         }
