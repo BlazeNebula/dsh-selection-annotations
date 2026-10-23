@@ -28,6 +28,14 @@ window.__ModuleLoader__.load({
     const MAX_IMAGES_PER_ANNOTATION = 4
     /** 单张图片的字节上限，超过就拒绝（避免把一条消息撑爆）。 */
     const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+    /** 图片设置键：压缩开关、质量、触发压缩的最小边。 */
+    const IMAGE_SETTINGS_KEY = 'dsh-selection-annotations:image-settings'
+    /** 默认设置：80% 质量、最短边超过 100 像素才重编码。 */
+    const DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100 }
+    /** 草稿在本地存储里的体积上限；超了先丢最旧批注的图片。 */
+    const DRAFT_MAX_BYTES = 3.5 * 1024 * 1024
+    /** 鼠标停在已批注原文上多久打开编辑框。 */
+    const HOVER_OPEN_DELAY_MS = 500
     /** 选区稳定后再弹工具条，避免拖选过程中抖动。 */
     const SETTLE_MS = 220
     /** 批注集合变化后合并上传，避免每敲一个字都发一次请求。 */
@@ -116,6 +124,15 @@ window.__ModuleLoader__.load({
 .sa-pop-image-remove { position: absolute; top: 0; right: 0; width: 16px; height: 16px; padding: 0; line-height: 1;
   cursor: pointer; border: none; border-radius: 0 0 0 6px; font-size: 11px; color: #fff; background: rgb(0 0 0 / 0.55); }
 .sa-pop-images-hint { font-size: 11px; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-item-images { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.sa-item-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px;
+  border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
+.sa-settings { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
+.sa-settings-head { display: flex; align-items: center; gap: 8px; }
+.sa-setting { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px;
+  color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-setting-value { min-width: 34px; font-variant-numeric: tabular-nums; }
+.sa-setting-number { width: 68px; }
 .sa-sent { margin: 6px 0 0; max-width: min(520px, 100%); }
 .sa-sent-head { font: inherit; font-size: 11px; line-height: 1; padding: 4px 8px; cursor: pointer;
   color: var(--dsw-alias-brand-primary, #247bbf); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 10%, transparent);
@@ -191,6 +208,8 @@ window.__ModuleLoader__.load({
         let pendingSent = []
         /** 最后一次成功挂附件时页面上已有的批注消息锚点键；发送后据此区分新消息与旧历史。 */
         let lastAnnotatedKeys = new Set()
+        /** 图片设置缓存；第一次用到时从本地存储读。 */
+        let imageSettings
         /** 批注附件是否已被 composer 确认挂上（用来区分「还没同步」与「已被发送消费」）。 */
         let draftSeen = false
         /** 本插件正在自己摘/挂附件时为真：这段发布不能被当成「消息已发送」。 */
@@ -429,6 +448,107 @@ window.__ModuleLoader__.load({
 
         /* --------------------------------------------------------- 未提交批注的会话草稿 */
 
+        /* --------------------------------------------------------------- 图片处理 */
+
+        /** 图片设置：读坏了回落到默认值。 */
+        function loadImageSettings() {
+          const settings = { ...DEFAULT_IMAGE_SETTINGS }
+          const storage = draftStorage()
+          if (storage === undefined) return settings
+          const parsed = safe(() => JSON.parse(storage.getItem(IMAGE_SETTINGS_KEY) ?? 'null'))
+          if (parsed === null || typeof parsed !== 'object') return settings
+          settings.compress = parsed.compress !== false
+          const quality = Number(parsed.quality)
+          if (Number.isFinite(quality)) settings.quality = Math.min(1, Math.max(0.1, quality))
+          const minSize = Number(parsed.minSize)
+          if (Number.isFinite(minSize)) settings.minSize = Math.min(4096, Math.max(0, Math.round(minSize)))
+          return settings
+        }
+
+        function imageSettingsOf() {
+          if (imageSettings === undefined) imageSettings = loadImageSettings()
+          return imageSettings
+        }
+
+        function persistImageSettings() {
+          const storage = draftStorage()
+          if (storage === undefined) return
+          safe(() => storage.setItem(IMAGE_SETTINGS_KEY, JSON.stringify(imageSettingsOf())))
+        }
+
+        function jpegName(name) {
+          const base = typeof name === 'string' && name !== '' ? name : 'image'
+          return `${base.replace(/\.[^.]+$/, '')}.jpg`
+        }
+
+        /**
+         * 按设置把图片重编码成 JPEG。透明区域先填白 —— JPEG 没有 alpha，不填会变黑。
+         * 压缩没变小、或不需要压缩时保留原文件，避免把小图越压越大。
+         */
+        async function compressImage(file) {
+          const settings = imageSettingsOf()
+          if (!settings.compress) return file
+          if (typeof createImageBitmap !== 'function') return file
+          let bitmap
+          try {
+            bitmap = await createImageBitmap(file)
+          } catch {
+            return file
+          }
+          try {
+            if (Math.max(bitmap.width, bitmap.height) <= settings.minSize) return file
+            const canvas = document.createElement('canvas')
+            canvas.width = bitmap.width
+            canvas.height = bitmap.height
+            const painter = canvas.getContext('2d')
+            if (painter === null) return file
+            painter.fillStyle = '#ffffff'
+            painter.fillRect(0, 0, canvas.width, canvas.height)
+            painter.drawImage(bitmap, 0, 0)
+            const blob = await new Promise((resolve) => {
+              try {
+                canvas.toBlob(resolve, 'image/jpeg', settings.quality)
+              } catch {
+                resolve(null)
+              }
+            })
+            if (blob === null || blob.size >= file.size) return file
+            return new File([blob], jpegName(file.name), { type: 'image/jpeg' })
+          } finally {
+            safe(() => bitmap.close?.())
+          }
+        }
+
+        function fileToDataUrl(file) {
+          return new Promise((resolve) => {
+            try {
+              const reader = new FileReader()
+              reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : undefined)
+              reader.onerror = () => resolve(undefined)
+              reader.readAsDataURL(file)
+            } catch {
+              resolve(undefined)
+            }
+          })
+        }
+
+        /** 从本地存储恢复的图片只有 data URL：重新构造 File 才能在发送时带上字节。 */
+        function dataUrlToFile(image) {
+          if (typeof image?.dataUrl !== 'string' || image.dataUrl === '') return undefined
+          return safe(() => {
+            const comma = image.dataUrl.indexOf(',')
+            if (comma < 0) return undefined
+            const header = image.dataUrl.slice(0, comma)
+            const match = header.match(/^data:([^;]+)/)
+            const mime = match?.[1] ?? 'image/jpeg'
+            const binary = atob(image.dataUrl.slice(comma + 1))
+            const bytes = new Uint8Array(binary.length)
+            for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+            const name = typeof image.name === 'string' && image.name !== '' ? image.name : 'image.jpg'
+            return new File([bytes], name, { type: mime })
+          })
+        }
+
         /** localStorage 在受限上下文里可能不可用：取不到就退回纯内存，绝不让保存路径抛错。 */
         function draftStorage() {
           return safe(() => {
@@ -450,6 +570,10 @@ window.__ModuleLoader__.load({
             note: item.note,
             source: item.source,
             createdAt: item.createdAt,
+            // 图片只存压缩后的 data URL：File 与对象 URL 都带不过本地存储。
+            images: (Array.isArray(item.images) ? item.images : [])
+              .filter((image) => typeof image?.dataUrl === 'string' && image.dataUrl !== '')
+              .map((image) => ({ id: image.id, name: image.name, dataUrl: image.dataUrl, bytes: image.bytes })),
           }))
         }
 
@@ -459,6 +583,20 @@ window.__ModuleLoader__.load({
         }
 
         function restoreDraftItem(item) {
+          const images = (Array.isArray(item.images) ? item.images : [])
+            .filter((image) => typeof image?.dataUrl === 'string' && image.dataUrl !== '')
+            .map((image) => {
+              const file = dataUrlToFile(image)
+              return {
+                id: typeof image.id === 'string' ? image.id : `img-${Math.random().toString(36).slice(2, 8)}`,
+                name: typeof image.name === 'string' ? image.name : '图片',
+                dataUrl: image.dataUrl,
+                bytes: Number(image.bytes) || 0,
+                file,
+                // 恢复后没有对象 URL：直接用 data URL 当缩略图来源。
+                url: image.dataUrl,
+              }
+            })
           return {
             id: typeof item.id === 'string' && item.id !== '' ? item.id : `sa-restored-${Math.random().toString(36).slice(2, 10)}`,
             number: Number.isFinite(item.number) ? item.number : 0,
@@ -466,13 +604,28 @@ window.__ModuleLoader__.load({
             note: typeof item.note === 'string' ? item.note : '',
             source: item.source ?? { kind: 'dom' },
             createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
+            images,
           }
+        }
+
+        /** 超出体积上限时，从最旧的批注开始丢图片（文字永远保留）。 */
+        function fitDraftSize(items) {
+          let text = JSON.stringify({ version: 1, items })
+          if (text.length <= DRAFT_MAX_BYTES) return items
+          const next = items.map((item) => ({ ...item, images: Array.isArray(item.images) ? item.images.slice() : [] }))
+          for (let i = 0; i < next.length && text.length > DRAFT_MAX_BYTES; i += 1) {
+            if (next[i].images.length === 0) continue
+            next[i] = { ...next[i], images: [] }
+            text = JSON.stringify({ version: 1, items: next })
+          }
+          if (text.length > DRAFT_MAX_BYTES) log('[selection-annotations] 草稿超出本地存储预算，图片已丢弃、文字保留')
+          return next
         }
 
         /** 存一份草稿；批注被清空时把这一键一起删掉。 */
         function saveDraft(sessionId) {
           if (typeof sessionId !== 'string' || sessionId === '') return
-          const items = draftItems(annotations)
+          const items = fitDraftSize(draftItems(annotations))
           if (items.length === 0) draftSessions.delete(sessionId)
           else draftSessions.set(sessionId, items)
           const storage = draftStorage()
@@ -1441,6 +1594,7 @@ window.__ModuleLoader__.load({
 
         function repaint() {
           overlay.textContent = ''
+          highlightHits = []
           // 历史回看先于高亮：新消息行刚出现时在这里完成配对，卡片随即补上。
           scanSentMessages()
           renderSentCards()
@@ -1449,6 +1603,7 @@ window.__ModuleLoader__.load({
             const range = locateRange(item)
             if (range === undefined) continue
             const rects = safe(() => [...range.getClientRects()]) ?? []
+            if (rects.length > 0) highlightHits.push({ id: item.id, rects })
             let badged = false
             for (const rect of rects) {
               if (rect.width <= 0 || rect.height <= 0) continue
@@ -1506,6 +1661,17 @@ window.__ModuleLoader__.load({
         /** 输入框默认跟随内容长高；用户一旦手动拖过高度，就不再覆盖他的选择。 */
         let popInputAutoHeight = true
         let popInputAutoValue = 0
+        /** 已批注原文的高亮矩形缓存，供鼠标悬停命中检测。 */
+        let highlightHits = []
+        /** 悬停打开编辑框的定时器与目标。 */
+        let hoverOpenTimer = null
+        let hoverTargetId = null
+        /** 悬停关闭的定时器。 */
+        let hoverCloseTimer = null
+        /** 鼠标是否停在弹层上。 */
+        let popoverHovered = false
+        /** 用户是否已经在这条弹层里动过手（点击或输入）——动过就不再自动关。 */
+        let popoverTouched = false
         const popActions = document.createElement('div')
         popActions.className = 'sa-pop-actions'
         /** 当前正在编辑的这条批注挂的图片；只在内存里（二进制进不了 localStorage）。 */
@@ -1629,33 +1795,33 @@ window.__ModuleLoader__.load({
           renderPopImages()
         }
 
-        /** 接收一批浏览器文件，只留受支持的图片，并限制条数与体积。 */
-        function addPopImages(files) {
-          let added = 0
-          let rejected = 0
+        /** 接收一批浏览器文件：压缩、取 data URL、限制条数与体积。 */
+        async function addPopImages(files) {
+          const picked = []
           for (const file of files) {
             if (file === null || typeof file !== 'object') continue
             if (typeof file.type !== 'string' || !file.type.startsWith('image/')) continue
-            if (popInputImages.length >= MAX_IMAGES_PER_ANNOTATION) {
-              rejected += 1
-              continue
-            }
-            if (Number(file.size) > MAX_IMAGE_BYTES) {
-              rejected += 1
-              continue
-            }
-            const url = safe(() => URL.createObjectURL(file))
+            if (popInputImages.length + picked.length >= MAX_IMAGES_PER_ANNOTATION) continue
+            if (Number(file.size) > MAX_IMAGE_BYTES) continue
+            picked.push(file)
+          }
+          const rejected = files.length > 0 ? files.length - picked.length : 0
+          for (const file of picked) {
+            const processed = await compressImage(file)
+            const dataUrl = await fileToDataUrl(processed)
+            const url = safe(() => URL.createObjectURL(processed))
             popInputImages.push({
               id: `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-              file,
-              name: typeof file.name === 'string' && file.name !== '' ? file.name : '图片',
+              file: processed,
+              name: typeof processed.name === 'string' && processed.name !== '' ? processed.name : '图片',
               url: typeof url === 'string' ? url : undefined,
+              dataUrl,
+              bytes: Number(processed.size) || 0,
             })
-            added += 1
+            renderPopImages()
           }
-          if (added > 0) renderPopImages()
           if (rejected > 0) log(`[selection-annotations] 已忽略 ${rejected} 张图片（每图最多 ${MAX_IMAGES_PER_ANNOTATION} 张、单张不超过 ${MAX_IMAGE_BYTES} 字节）`)
-          return added
+          return picked.length
         }
 
         /** 换一条批注编辑时重置图片列表；对象 URL 交给浏览器回收，不主动 revoke 免伤已保存的引用。 */
@@ -1694,6 +1860,10 @@ window.__ModuleLoader__.load({
           popDelete.style.display = options.mode === 'edit' ? '' : 'none'
           hideToolbar()
           resetPopInputHeight()
+          popoverTouched = false
+          popoverHovered = false
+          cancelHoverOpen()
+          cancelHoverClose()
           popover.dataset.open = '1'
           if (options.rect !== undefined && options.rect !== null) placeAt(popover, options.rect, 10)
           syncPopInputHeight()
@@ -1886,7 +2056,7 @@ window.__ModuleLoader__.load({
           const images = files.filter((file) => typeof file?.type === 'string' && file.type.startsWith('image/'))
           if (images.length === 0) return
           event.preventDefault()
-          addPopImages(images)
+          void addPopImages(images)
         })
         popover.addEventListener('dragover', (event) => {
           if (event.dataTransfer === null || event.dataTransfer === undefined) return
@@ -1896,8 +2066,101 @@ window.__ModuleLoader__.load({
           const files = [...(event.dataTransfer?.files ?? [])]
           if (files.length === 0) return
           event.preventDefault()
-          addPopImages(files)
+          void addPopImages(files)
         })
+
+        /* --------------------------------------------------------------- 悬停预览 */
+
+        function cancelHoverOpen() {
+          if (hoverOpenTimer !== null) window.clearTimeout(hoverOpenTimer)
+          hoverOpenTimer = null
+          hoverTargetId = null
+        }
+
+        function cancelHoverClose() {
+          if (hoverCloseTimer !== null) window.clearTimeout(hoverCloseTimer)
+          hoverCloseTimer = null
+        }
+
+        /** 没进入交互就自动收起；收起前按确认保存，已输入的内容不会丢。 */
+        function scheduleHoverClose() {
+          if (hoverCloseTimer !== null) return
+          if (popoverTouched || popoverHovered) return
+          hoverCloseTimer = window.setTimeout(() => {
+            hoverCloseTimer = null
+            if (popover.dataset.open !== '1') return
+            if (popoverTouched || popoverHovered) return
+            commitPopover()
+          }, 250)
+        }
+
+        function hitHighlight(x, y) {
+          for (const entry of highlightHits) {
+            for (const rect of entry.rects) {
+              if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return entry
+            }
+          }
+          return undefined
+        }
+
+        function onHoverMove(event) {
+          const open = popover.dataset.open === '1'
+          const hit = highlightHits.length === 0 ? undefined : hitHighlight(event.clientX, event.clientY)
+          if (open) {
+            // 已经动过手、或鼠标正停在弹层上：不自动关。
+            if (popoverTouched || popoverHovered) return
+            if (hit !== undefined) return
+            scheduleHoverClose()
+            return
+          }
+          if (hit === undefined) {
+            cancelHoverOpen()
+            return
+          }
+          if (hoverTargetId === hit.id) return
+          cancelHoverOpen()
+          hoverTargetId = hit.id
+          hoverOpenTimer = window.setTimeout(() => {
+            hoverOpenTimer = null
+            hoverTargetId = null
+            if (popover.dataset.open === '1') return
+            const target = annotations.find((item) => item.id === hit.id)
+            if (target === undefined) return
+            const rect = hit.rects[0]
+            openEditPopover(target.id, { getBoundingClientRect: () => rect })
+          }, HOVER_OPEN_DELAY_MS)
+        }
+
+        popover.addEventListener('mouseenter', () => {
+          popoverHovered = true
+          cancelHoverClose()
+        })
+        popover.addEventListener('mouseleave', () => {
+          popoverHovered = false
+          scheduleHoverClose()
+        })
+        popover.addEventListener(
+          'pointerdown',
+          () => {
+            popoverTouched = true
+            cancelHoverClose()
+          },
+          true,
+        )
+        popInput.addEventListener('input', () => {
+          popoverTouched = true
+        })
+        let hoverMoveAt = 0
+        document.addEventListener(
+          'mousemove',
+          (event) => {
+            const now = Date.now()
+            if (now - hoverMoveAt < 60) return
+            hoverMoveAt = now
+            onHoverMove(event)
+          },
+          true,
+        )
         document.addEventListener('pointerdown', (event) => {
           if (popover.dataset.open !== '1') return
           const target = elementOf(event.target)
@@ -1939,6 +2202,8 @@ window.__ModuleLoader__.load({
 
         let panelOpen = false
         let panelAnchor = null
+        /** 面板底部的图片设置是否展开。 */
+        let imageSettingsOpen = false
 
         function el(tag, className, text) {
           const created = document.createElement(tag)
@@ -1987,6 +2252,19 @@ window.__ModuleLoader__.load({
             row.appendChild(head)
             if (item.quote !== '') row.appendChild(el('div', 'sa-item-quote', item.quote))
             if (item.note !== '') row.appendChild(el('div', 'sa-item-note', item.note))
+            if (Array.isArray(item.images) && item.images.length > 0) {
+              const gallery = el('div', 'sa-item-images')
+              for (const image of item.images) {
+                if (typeof image?.url !== 'string' || image.url === '') continue
+                const thumb = document.createElement('img')
+                thumb.className = 'sa-item-thumb'
+                thumb.src = image.url
+                thumb.alt = typeof image.name === 'string' ? image.name : '图片'
+                thumb.title = typeof image.name === 'string' ? image.name : '图片'
+                gallery.appendChild(thumb)
+              }
+              if (gallery.childNodes.length > 0) row.appendChild(gallery)
+            }
             if (typeof item.refineReason === 'string' && item.refineReason !== '') {
               const why = el('div', 'sa-item-why', `位置精修未生效：${item.refineReason}`)
               why.style.fontSize = '11px'
@@ -2003,6 +2281,72 @@ window.__ModuleLoader__.load({
           if (annotations.length > 0) foot.appendChild(button('sa-link', '清空', () => clearAnnotations()))
           foot.appendChild(el('span', 'sa-hint', '发送时批注作为独立块随消息提交'))
           panelEl.appendChild(foot)
+          panelEl.appendChild(imageSettingsRow())
+        }
+
+        /** 面板底部的图片设置：压缩开关、JPEG 质量、触发压缩的最短边。 */
+        function imageSettingsRow() {
+          const settings = imageSettingsOf()
+          const box = el('div', 'sa-settings')
+          const head = el('div', 'sa-settings-head')
+          const toggle = button('sa-link', imageSettingsOpen ? '收起图片设置' : '图片设置', () => {
+            imageSettingsOpen = !imageSettingsOpen
+            renderPanel()
+          })
+          head.appendChild(toggle)
+          head.appendChild(
+            el('span', 'sa-hint', settings.compress ? `压缩为 JPEG ${Math.round(settings.quality * 100)}%` : '不压缩，原样发送'),
+          )
+          box.appendChild(head)
+          if (!imageSettingsOpen) return box
+
+          const compressRow = el('label', 'sa-setting')
+          const compress = document.createElement('input')
+          compress.type = 'checkbox'
+          compress.checked = settings.compress
+          compress.addEventListener('change', () => {
+            imageSettingsOf().compress = compress.checked
+            persistImageSettings()
+            renderPanel()
+          })
+          compressRow.append(compress, document.createTextNode(' 压缩图片（JPEG）'))
+          box.appendChild(compressRow)
+
+          const qualityRow = el('label', 'sa-setting')
+          const quality = document.createElement('input')
+          quality.type = 'range'
+          quality.min = '0.5'
+          quality.max = '1'
+          quality.step = '0.05'
+          quality.value = String(settings.quality)
+          const qualityText = el('span', 'sa-setting-value', `${Math.round(settings.quality * 100)}%`)
+          quality.addEventListener('input', () => {
+            imageSettingsOf().quality = Number(quality.value)
+            qualityText.textContent = `${Math.round(Number(quality.value) * 100)}%`
+            persistImageSettings()
+          })
+          qualityRow.append(document.createTextNode('质量 '), quality, qualityText)
+          box.appendChild(qualityRow)
+
+          const sizeRow = el('label', 'sa-setting')
+          const size = document.createElement('input')
+          size.type = 'number'
+          size.className = 'sa-setting-number'
+          size.min = '0'
+          size.max = '4096'
+          size.step = '10'
+          size.value = String(settings.minSize)
+          size.addEventListener('change', () => {
+            const next = Number(size.value)
+            imageSettingsOf().minSize = Number.isFinite(next)
+              ? Math.min(4096, Math.max(0, Math.round(next)))
+              : DEFAULT_IMAGE_SETTINGS.minSize
+            persistImageSettings()
+          })
+          sizeRow.append(document.createTextNode('最短边超过 '), size, document.createTextNode(' 像素才压缩'))
+          box.appendChild(sizeRow)
+
+          return box
         }
 
         function openPanel(anchor) {
@@ -2097,6 +2441,8 @@ window.__ModuleLoader__.load({
             saveDraft(annotationsSession)
             window.removeEventListener('beforeunload', onUnload)
             window.removeEventListener('pagehide', onUnload)
+            cancelHoverOpen()
+            cancelHoverClose()
             // 历史卡片是我们插进消息行里的节点，插件卸载时要一并摘掉。
             for (const node of document.querySelectorAll('[data-sa-ui="sent"]')) node.remove()
             style.remove()

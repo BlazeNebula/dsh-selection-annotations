@@ -1103,3 +1103,27 @@ test('多条批注的图片顺序按批注顺序连续编号', () => {
     { order: 3, name: 'three.png' },
   ])
 })
+
+test('图片以 data URL 落进本地存储，恢复后仍是可发送的文件', () => {
+  const storage = makeMemoryStorage()
+  const dataUrl = `data:image/jpeg;base64,${Buffer.from('fake-jpeg-bytes').toString('base64')}`
+
+  const first = makeHarness({ localStorage: storage })
+  first.debug._internals.adoptSession('s1')
+  first.debug.add({
+    quote: '带图的一条',
+    note: '说明',
+    images: [{ id: 'i1', name: 'shot.jpg', dataUrl, url: dataUrl, bytes: 15 }],
+    source: { kind: 'dom' },
+  })
+  assert.ok(storage.length >= 1, '带图的草稿也要落进本地存储')
+
+  const second = makeHarness({ localStorage: storage })
+  second.debug._internals.adoptSession('s1')
+  const restored = second.debug._internals.loadDraft('s1')
+  assert.equal(restored.length, 1)
+  assert.equal(restored[0].images.length, 1, '恢复后图片还在')
+  assert.equal(restored[0].images[0].name, 'shot.jpg')
+  assert.ok(restored[0].images[0].file instanceof File, '恢复的图片要重新构造成文件，才能随消息发出')
+  assert.equal(restored[0].images[0].file.type, 'image/jpeg')
+})
