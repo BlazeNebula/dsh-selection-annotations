@@ -132,7 +132,7 @@ window.__ModuleLoader__.load({
      */
     const log = (message, ...rest) => {
       try {
-        log(message, ...rest)
+        console.log(message, ...rest)
       } catch {
         /* 日志失败无所谓 */
       }
