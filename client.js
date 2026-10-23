@@ -1464,6 +1464,9 @@ window.__ModuleLoader__.load({
         const popInput = document.createElement('textarea')
         popInput.className = 'sa-pop-input'
         popInput.placeholder = '写点什么（可以留空，只标记原文）'
+        /** 输入框默认跟随内容长高；用户一旦手动拖过高度，就不再覆盖他的选择。 */
+        let popInputAutoHeight = true
+        let popInputAutoValue = 0
         const popActions = document.createElement('div')
         popActions.className = 'sa-pop-actions'
         const popDelete = document.createElement('button')
@@ -1541,6 +1544,24 @@ window.__ModuleLoader__.load({
         let popoverAnchor = null
         let popoverTargetId = null
 
+        /** 每次打开弹层都从「跟随内容」开始，并清掉上一次拖拽留下的固定高度。 */
+        function resetPopInputHeight() {
+          popInputAutoHeight = true
+          popInputAutoValue = 0
+          popInput.style.height = ''
+        }
+
+        /** 按内容行数长高；用户拖过高度之后这里什么都不做。 */
+        function syncPopInputHeight() {
+          if (!popInputAutoHeight) return
+          const min = 62
+          const max = Math.max(min, Math.round(window.innerHeight * 0.6))
+          popInput.style.height = 'auto'
+          const next = Math.max(min, Math.min(popInput.scrollHeight, max))
+          popInput.style.height = `${next}px`
+          popInputAutoValue = next
+        }
+
         function showPopover(options) {
           popTitle.textContent = options.title
           popQuote.textContent = options.quote.length > 400 ? `${options.quote.slice(0, 400)}…` : options.quote
@@ -1551,8 +1572,10 @@ window.__ModuleLoader__.load({
           popoverTargetId = options.targetId ?? null
           popDelete.style.display = options.mode === 'edit' ? '' : 'none'
           hideToolbar()
+          resetPopInputHeight()
           popover.dataset.open = '1'
           if (options.rect !== undefined && options.rect !== null) placeAt(popover, options.rect, 10)
+          syncPopInputHeight()
           safe(() => popInput.focus())
           safe(() => popInput.setSelectionRange(popInput.value.length, popInput.value.length))
         }
@@ -1713,11 +1736,20 @@ window.__ModuleLoader__.load({
           if (event.key === 'Escape') closePopover()
           if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) commitPopover()
         })
+        popInput.addEventListener('input', () => {
+          syncPopInputHeight()
+        })
+        // 原生 resize 手柄拖过之后，实际高度会与自动值不同 —— 从此不再覆盖用户的选择。
+        popInput.addEventListener('pointerup', () => {
+          if (!popInputAutoHeight) return
+          if (Math.abs(popInput.offsetHeight - popInputAutoValue) > 2) popInputAutoHeight = false
+        })
         document.addEventListener('pointerdown', (event) => {
           if (popover.dataset.open !== '1') return
           const target = elementOf(event.target)
           if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return
-          closePopover()
+          // 点框外算确认这次编辑：已经写下的内容不能因为一次误点就丢掉。
+          commitPopover()
         }, true)
         document.addEventListener('keydown', (event) => {
           if (event.key === 'Escape') {
