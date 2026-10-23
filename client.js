@@ -103,6 +103,18 @@ window.__ModuleLoader__.load({
   cursor: pointer; background: none; border: none; border-radius: 6px; color: var(--dsw-alias-label-primary, CanvasText); }
 .sa-result:hover { background: var(--dsw-alias-bg-layer-2, ButtonFace); }
 .sa-hint { font-size: 11px; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-sent { margin: 6px 0 0; max-width: min(520px, 100%); }
+.sa-sent-head { font: inherit; font-size: 11px; line-height: 1; padding: 4px 8px; cursor: pointer;
+  color: var(--dsw-alias-brand-primary, #247bbf); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 32%, transparent); border-radius: 999px; }
+.sa-sent-head[data-open="1"] { background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 20%, transparent); }
+.sa-sent-body { margin-top: 6px; padding: 6px 8px; box-sizing: border-box; border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: var(--dsw-alias-bg-layer-1, Canvas); }
+.sa-sent-item { display: flex; gap: 6px; padding: 3px 0; font-size: 12px; line-height: 1.5; }
+.sa-sent-num { flex: none; min-width: 14px; font-weight: 600; color: var(--dsw-alias-brand-primary, #247bbf); }
+.sa-sent-text { min-width: 0; }
+.sa-sent-quote { color: var(--dsw-alias-label-primary, CanvasText); white-space: pre-wrap; word-break: break-word; }
+.sa-sent-note { margin-top: 2px; color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
 `
 
     return {
@@ -146,8 +158,26 @@ window.__ModuleLoader__.load({
         /** 由槽位标准 props 注入的 composer 动作与当前会话 id —— 比自行解析 scope 更稳。 */
         let latestInputActions = undefined
         let latestSessionId = undefined
-        /** 批注集合归属的会话；切换会话即清空，避免批注跑到别的会话里。 */
+        /** 批注集合归属的会话；切换会话时按会话换入换出草稿，避免批注跑到别的会话里。 */
         let annotationsSession = undefined
+        /** 未提交批注草稿的本地存储前缀：按会话分键，切走再回来、刷新页面都还能接着改。 */
+        const DRAFT_STORAGE_PREFIX = 'dsh-selection-annotations:draft:'
+        /** 最多保留多少个会话的草稿；超出按保存时间淘汰最旧的。 */
+        const DRAFT_MAX_SESSIONS = 24
+        /** 单个会话最多保存多少条草稿批注，避免异常数据把存储写满。 */
+        const DRAFT_MAX_ITEMS = 200
+        /** 已载入会话的草稿（sessionId → 可序列化条目），切换会话时先在内存里换入换出。 */
+        const draftSessions = new Map()
+        /** 已提交批注的本地台账前缀：按会话分键，用消息锚点键索引，供对话历史回看。 */
+        const SENT_STORAGE_PREFIX = 'dsh-selection-annotations:sent:'
+        /** 每个会话最多保留多少条已提交记录。 */
+        const SENT_MAX_ENTRIES = 120
+        /** 已提交批注台账（sessionId → Map(anchorKey → 记录)）。 */
+        const sentBySession = new Map()
+        /** 刚随消息发出、还在等对应消息行出现的负载。 */
+        let pendingSent = []
+        /** 最后一次成功挂附件时页面上已有的批注消息锚点键；发送后据此区分新消息与旧历史。 */
+        let lastAnnotatedKeys = new Set()
         /** 批注附件是否已被 composer 确认挂上（用来区分「还没同步」与「已被发送消费」）。 */
         let draftSeen = false
         /** 本插件正在自己摘/挂附件时为真：这段发布不能被当成「消息已发送」。 */
@@ -302,6 +332,16 @@ window.__ModuleLoader__.load({
           const until = Date.now() + STRAY_GUARD_MS
           for (const id of ids) strayIds.set(id, until)
           if (annotations.length === 0) return
+          // 发送前留一份负载与「挂附件时页面上已有的批注消息行」：新消息行出现后再按锚点键落台账。
+          const payload = safe(() => JSON.parse(buildPayload(annotations)))
+          if (payload !== null && typeof payload === 'object' && Array.isArray(payload.annotations)) {
+            pendingSent.push({
+              items: payload.annotations,
+              known: lastAnnotatedKeys,
+              at: Date.now(),
+            })
+            lastAnnotatedKeys = new Set()
+          }
           annotations = []
           emit()
           scheduleRepaint()
@@ -374,20 +414,125 @@ window.__ModuleLoader__.load({
           }
         }
 
-        /** 会话切换：清空上一会话的批注与附件。 */
+        /* --------------------------------------------------------- 未提交批注的会话草稿 */
+
+        /** localStorage 在受限上下文里可能不可用：取不到就退回纯内存，绝不让保存路径抛错。 */
+        function draftStorage() {
+          return safe(() => {
+            const storage = window.localStorage
+            return storage !== null && storage !== undefined && typeof storage.getItem === 'function' ? storage : undefined
+          })
+        }
+
+        function draftKey(sessionId) {
+          return `${DRAFT_STORAGE_PREFIX}${sessionId}`
+        }
+
+        /** 草稿只保留可序列化字段：liveRange 是活 DOM 对象，恢复时按锚点与引文重建。 */
+        function draftItems(items) {
+          return items.map((item) => ({
+            id: item.id,
+            number: item.number,
+            quote: item.quote,
+            note: item.note,
+            source: item.source,
+            createdAt: item.createdAt,
+          }))
+        }
+
+        function isDraftItem(value) {
+          if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+          return typeof value.quote === 'string' || typeof value.note === 'string'
+        }
+
+        function restoreDraftItem(item) {
+          return {
+            id: typeof item.id === 'string' && item.id !== '' ? item.id : `sa-restored-${Math.random().toString(36).slice(2, 10)}`,
+            number: Number.isFinite(item.number) ? item.number : 0,
+            quote: typeof item.quote === 'string' ? item.quote : '',
+            note: typeof item.note === 'string' ? item.note : '',
+            source: item.source ?? { kind: 'dom' },
+            createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
+          }
+        }
+
+        /** 存一份草稿；批注被清空时把这一键一起删掉。 */
+        function saveDraft(sessionId) {
+          if (typeof sessionId !== 'string' || sessionId === '') return
+          const items = draftItems(annotations)
+          if (items.length === 0) draftSessions.delete(sessionId)
+          else draftSessions.set(sessionId, items)
+          const storage = draftStorage()
+          if (storage === undefined) return
+          try {
+            if (items.length === 0) {
+              storage.removeItem(draftKey(sessionId))
+              return
+            }
+            storage.setItem(draftKey(sessionId), JSON.stringify({ version: 1, savedAt: Date.now(), items }))
+            pruneDrafts(storage)
+          } catch {
+            /* 配额满或写入被禁：降级为仅内存保存 */
+          }
+        }
+
+        /** 只保留最近 DRAFT_MAX_SESSIONS 个会话的草稿。 */
+        function pruneDrafts(storage) {
+          const keys = []
+          for (let i = 0; i < storage.length; i += 1) {
+            const key = safe(() => storage.key(i))
+            if (typeof key === 'string' && key.startsWith(DRAFT_STORAGE_PREFIX)) keys.push(key)
+          }
+          if (keys.length <= DRAFT_MAX_SESSIONS) return
+          const dated = keys.map((key) => {
+            const savedAt = safe(() => Number(JSON.parse(storage.getItem(key) ?? '{}')?.savedAt) || 0)
+            return { key, savedAt: savedAt ?? 0 }
+          })
+          dated.sort((a, b) => a.savedAt - b.savedAt)
+          for (const entry of dated.slice(0, dated.length - DRAFT_MAX_SESSIONS)) {
+            safe(() => storage.removeItem(entry.key))
+          }
+        }
+
+        /** 读一份草稿：内存优先，其次本地存储；读坏了当没有。 */
+        function loadDraft(sessionId) {
+          const memory = draftSessions.get(sessionId)
+          if (memory !== undefined) return memory.map(restoreDraftItem)
+          const storage = draftStorage()
+          if (storage === undefined) return []
+          const items = safe(() => {
+            const raw = storage.getItem(draftKey(sessionId))
+            if (raw === null) return []
+            const parsed = JSON.parse(raw)
+            if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.items)) return []
+            return parsed.items.filter(isDraftItem).slice(0, DRAFT_MAX_ITEMS).map(restoreDraftItem)
+          })
+          if (items === undefined || items.length === 0) return []
+          draftSessions.set(sessionId, draftItems(items))
+          return items
+        }
+
+        /**
+         * 会话切换：先把上一会话的草稿存起来，再换入这一会话的草稿。
+         * 换回来的批注会重新挂上批注附件 —— 用户切回来通常就是为了继续改并发送。
+         */
         function adoptSession(sessionId) {
           if (typeof sessionId !== 'string' || sessionId === '') return
-          if (annotationsSession === undefined) {
-            annotationsSession = sessionId
+          const first = annotationsSession === undefined
+          if (!first && annotationsSession === sessionId) return
+          if (!first) saveDraft(annotationsSession)
+          annotationsSession = sessionId
+          // 首次挂载时内存里可能已有批注（测试台或热换前注入的），直接归到这个会话。
+          if (first && annotations.length > 0) {
+            saveDraft(sessionId)
             return
           }
-          if (annotationsSession === sessionId) return
-          annotationsSession = sessionId
-          annotations = []
+          annotations = loadDraft(sessionId)
           draftIds = []
           draftSeen = false
           emit()
           scheduleRepaint()
+          if (annotations.length > 0) scheduleSync()
         }
 
         function toBase64(bytes) {
@@ -801,6 +946,7 @@ window.__ModuleLoader__.load({
           emit()
           scheduleSync()
           scheduleRepaint()
+          saveDraft(annotationsSession)
           return item
         }
 
@@ -817,6 +963,7 @@ window.__ModuleLoader__.load({
           emit()
           scheduleSync()
           scheduleRepaint()
+          saveDraft(annotationsSession)
         }
 
         function removeAnnotation(id) {
@@ -825,6 +972,7 @@ window.__ModuleLoader__.load({
           emit()
           scheduleSync()
           scheduleRepaint()
+          saveDraft(annotationsSession)
         }
 
         function clearAnnotations() {
@@ -833,6 +981,160 @@ window.__ModuleLoader__.load({
           emit()
           scheduleSync()
           scheduleRepaint()
+          saveDraft(annotationsSession)
+        }
+
+        /** 刚发出的负载在页面上等多久；超时就放弃关联（用户可能只是移除了附件）。 */
+        const SENT_PENDING_TTL_MS = 60000
+
+        /* ------------------------------------------------- 已提交批注的历史回看 */
+
+        function isSentItem(value) {
+          if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+          return typeof value.quote === 'string' || typeof value.note === 'string'
+        }
+
+        /** 读一个会话的已提交台账（anchorKey → { savedAt, items }）。 */
+        function loadSent(sessionId) {
+          const memory = sentBySession.get(sessionId)
+          if (memory !== undefined) return memory
+          const table = new Map()
+          const storage = draftStorage()
+          if (storage !== undefined) {
+            const parsed = safe(() => JSON.parse(storage.getItem(`${SENT_STORAGE_PREFIX}${sessionId}`) ?? 'null'))
+            if (parsed !== null && typeof parsed === 'object' && parsed.entries !== null && typeof parsed.entries === 'object') {
+              for (const [key, value] of Object.entries(parsed.entries)) {
+                if (typeof key !== 'string' || key === '') continue
+                if (value === null || typeof value !== 'object' || !Array.isArray(value.items)) continue
+                const items = value.items.filter(isSentItem).slice(0, DRAFT_MAX_ITEMS)
+                if (items.length === 0) continue
+                table.set(key, { savedAt: Number(value.savedAt) || 0, items })
+              }
+            }
+          }
+          sentBySession.set(sessionId, table)
+          return table
+        }
+
+        function saveSent(sessionId, table) {
+          const storage = draftStorage()
+          const ordered = [...table.entries()].sort((a, b) => a[1].savedAt - b[1].savedAt)
+          const kept = ordered.slice(Math.max(0, ordered.length - SENT_MAX_ENTRIES))
+          const trimmed = new Map(kept)
+          sentBySession.set(sessionId, trimmed)
+          if (storage === undefined) return
+          const entries = {}
+          for (const [key, value] of kept) entries[key] = value
+          try {
+            storage.setItem(`${SENT_STORAGE_PREFIX}${sessionId}`, JSON.stringify({ version: 1, entries }))
+          } catch {
+            /* 配额满：只保留内存台账 */
+          }
+        }
+
+        /** 页面上所有带批注附件的用户消息行。 */
+        function collectAnnotationRows() {
+          const rows = []
+          for (const element of document.querySelectorAll('[data-chat-anchor-key]')) {
+            if (element.getAttribute('data-chat-flow-kind') !== 'user') continue
+            const attachmentRow = element.querySelector('[data-message-attachments]')
+            if (attachmentRow === null) continue
+            if (!/批注\.json/.test(attachmentRow.textContent ?? '')) continue
+            rows.push({ row: element, attachmentRow, anchorKey: element.getAttribute('data-chat-anchor-key') ?? '' })
+          }
+          return rows
+        }
+
+        /** 当前页面上已有的批注消息锚点键。 */
+        function captureAnnotatedKeys() {
+          return new Set(collectAnnotationRows().map((entry) => entry.anchorKey).filter((key) => key !== ''))
+        }
+
+        function recordSent(sessionId, anchorKey, items) {          const table = loadSent(sessionId)
+          table.set(anchorKey, { savedAt: Date.now(), items })
+          saveSent(sessionId, table)
+        }
+
+        /** 把新出现的批注消息行与刚发出的负载按出现顺序配对。 */
+        function scanSentMessages() {
+          if (pendingSent.length === 0) return
+          const now = Date.now()
+          pendingSent = pendingSent.filter((entry) => now - entry.at < SENT_PENDING_TTL_MS)
+          if (pendingSent.length === 0) return
+          const sessionId = currentSessionId()
+          if (sessionId === undefined) return
+          for (const entry of collectAnnotationRows()) {
+            if (entry.anchorKey === '') continue
+            if (loadSent(sessionId).has(entry.anchorKey)) continue
+            const index = pendingSent.findIndex((pending) => !pending.known.has(entry.anchorKey))
+            if (index === -1) continue
+            const pending = pendingSent.splice(index, 1)[0]
+            recordSent(sessionId, entry.anchorKey, pending.items)
+          }
+        }
+
+        function truncateQuote(value) {
+          const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
+          return text.length > 140 ? `${text.slice(0, 140)}…` : text
+        }
+
+        /** 一条已提交批注在历史里的卡片：默认收起，点开看引文与批注文字。 */
+        function buildSentCard(record) {
+          const card = document.createElement('div')
+          card.className = 'sa-sent'
+          card.setAttribute('data-sa-ui', 'sent')
+          const head = document.createElement('button')
+          head.type = 'button'
+          head.className = 'sa-sent-head'
+          head.textContent = `已发送的批注 ×${record.items.length}`
+          const body = document.createElement('div')
+          body.className = 'sa-sent-body'
+          body.style.display = 'none'
+          for (const item of record.items) {
+            const line = document.createElement('div')
+            line.className = 'sa-sent-item'
+            const num = document.createElement('span')
+            num.className = 'sa-sent-num'
+            num.textContent = Number.isFinite(item.index) ? String(item.index) : ''
+            const text = document.createElement('div')
+            text.className = 'sa-sent-text'
+            const quote = document.createElement('div')
+            quote.className = 'sa-sent-quote'
+            quote.textContent = truncateQuote(item.quote)
+            text.appendChild(quote)
+            if (typeof item.note === 'string' && item.note.trim() !== '') {
+              const note = document.createElement('div')
+              note.className = 'sa-sent-note'
+              note.textContent = item.note
+              text.appendChild(note)
+            }
+            line.append(num, text)
+            body.appendChild(line)
+          }
+          head.addEventListener('click', (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            const collapsed = body.style.display === 'none'
+            body.style.display = collapsed ? '' : 'none'
+            head.dataset.open = collapsed ? '1' : '0'
+          })
+          card.append(head, body)
+          return card
+        }
+
+        /** 在历史消息行里补出已提交批注卡片；同一行只补一次。 */
+        function renderSentCards() {
+          const sessionId = currentSessionId()
+          if (sessionId === undefined) return
+          const table = loadSent(sessionId)
+          if (table.size === 0) return
+          for (const entry of collectAnnotationRows()) {
+            if (entry.row.querySelector('[data-sa-ui="sent"]') !== null) continue
+            const record = table.get(entry.anchorKey)
+            if (record === undefined || record.items.length === 0) continue
+            const stack = entry.attachmentRow.parentElement ?? entry.row
+            stack.appendChild(buildSentCard(record))
+          }
         }
 
         /* ------------------------------------------------------- 原生附件块（随消息发送） */
@@ -1073,6 +1375,8 @@ window.__ModuleLoader__.load({
               releaseDrafts(ids, shell)
               return
             }
+            // 发出去之前页面上已有的批注消息行：发送后据此区分「新消息」与「旧历史」。
+            lastAnnotatedKeys = captureAnnotatedKeys()
             log(`[selection-annotations] 批注块已挂到本条消息（${annotations.length} 条）`)
           } catch (err) {
             warn('[selection-annotations] 批注附件同步失败：', err)
@@ -1098,6 +1402,9 @@ window.__ModuleLoader__.load({
 
         function repaint() {
           overlay.textContent = ''
+          // 历史回看先于高亮：新消息行刚出现时在这里完成配对，卡片随即补上。
+          scanSentMessages()
+          renderSentCards()
           if (annotations.length === 0) return
           for (const item of annotations) {
             const range = locateRange(item)
@@ -1596,7 +1903,16 @@ window.__ModuleLoader__.load({
             const shell = inputShell()
             if (shell !== undefined) sweepOrphans(shell)
           }, ORPHAN_SWEEP_MS)
+          // 页面刷新、关闭或插件卸载前再存一次：只靠状态变更时保存会丢掉最后几秒的编辑。
+          const onUnload = () => saveDraft(annotationsSession)
+          window.addEventListener('beforeunload', onUnload)
+          window.addEventListener('pagehide', onUnload)
           return () => {
+            saveDraft(annotationsSession)
+            window.removeEventListener('beforeunload', onUnload)
+            window.removeEventListener('pagehide', onUnload)
+            // 历史卡片是我们插进消息行里的节点，插件卸载时要一并摘掉。
+            for (const node of document.querySelectorAll('[data-sa-ui="sent"]')) node.remove()
             style.remove()
             if (orphanTimer !== null) window.clearInterval(orphanTimer)
             orphanTimer = null
@@ -1662,7 +1978,7 @@ window.__ModuleLoader__.load({
           clear: clearAnnotations,
           update: (id, note) => updateAnnotation(id, note),
           add: (input) => addAnnotation(input),
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition },
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, renderSentCards },
         }
       },
     }

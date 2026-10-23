@@ -150,7 +150,25 @@ function positionOf(root, target, offset) {
 /** 轮询定时器不能撑住测试进程：unref 后仍会触发，但不阻止 node --test 退出。 */
 const nodeSetInterval = setInterval
 
-function makeEnvironment() {
+/** 内存版的 localStorage：形状与浏览器一致，用来验证草稿能跨实例恢复。 */
+function makeMemoryStorage() {
+  const entries = new Map()
+  return {
+    getItem: (key) => (entries.has(key) ? entries.get(key) : null),
+    setItem: (key, value) => {
+      entries.set(String(key), String(value))
+    },
+    removeItem: (key) => {
+      entries.delete(key)
+    },
+    key: (index) => [...entries.keys()][index] ?? null,
+    get length() {
+      return entries.size
+    },
+  }
+}
+
+function makeEnvironment(options = {}) {
   let rangeRoot = null
 
   class FakeRange {
@@ -229,6 +247,8 @@ function makeEnvironment() {
     removeEventListener() {},
     innerWidth: 1200,
     innerHeight: 800,
+    // 草稿持久化走真实形状的 storage；测试可传入共享实例模拟「刷新页面」。
+    localStorage: options.localStorage ?? makeMemoryStorage(),
     getSelection: () => ({ rangeCount: 0, isCollapsed: true, getRangeAt: () => null, removeAllRanges() {} }),
   }
 
@@ -313,7 +333,7 @@ function createStore(initial) {
  * dsh-client-ui-conversation 官方附件链路的形状（拖拽/粘贴附件走的那条）。
  */
 function makeHarness(options = {}) {
-  const env = makeEnvironment()
+  const env = makeEnvironment(options)
   const mod = loadBundle(env)
 
   const uploads = []
@@ -985,4 +1005,60 @@ test('出处捕获：助手消息锚点 + 文件路径与行号', () => {
   assert.equal(fileSource.lineStart, 12)
   assert.equal(fileSource.charStart, 4)
   assert.equal(fileSource.charEnd, 9)
+})
+
+test('未提交批注按会话暂存：切走再切回仍在，附件重新挂上', async () => {
+  const harness = makeHarness()
+  const internals = harness.debug._internals
+  internals.adoptSession('s1')
+  harness.debug.add({ quote: '第一句', note: '草稿一', source: { kind: 'dom' } })
+  assert.equal(harness.debug.list().length, 1)
+
+  internals.adoptSession('s2')
+  assert.equal(harness.debug.list().length, 0, '别的会话不该看到上一会话的草稿')
+
+  internals.adoptSession('s1')
+  const items = harness.debug.list()
+  assert.equal(items.length, 1, '切回来要恢复草稿')
+  assert.equal(items[0].quote, '第一句')
+  assert.equal(items[0].note, '草稿一')
+  await settle()
+  assert.ok(harness.uploads.length >= 1, '恢复后的批注要重新挂上附件')
+})
+
+test('草稿落进本地存储：新实例（模拟刷新）也能恢复', () => {
+  const storage = makeMemoryStorage()
+  const first = makeHarness({ localStorage: storage })
+  first.debug._internals.adoptSession('s1')
+  first.debug.add({ quote: '刷新前', note: '要留住', source: { kind: 'dom' } })
+  assert.ok(storage.length >= 1, '保存草稿必须落进 localStorage')
+
+  const second = makeHarness({ localStorage: storage })
+  second.debug._internals.adoptSession('s1')
+  const items = second.debug.list()
+  assert.equal(items.length, 1, '新实例要读到同一份草稿')
+  assert.equal(items[0].quote, '刷新前')
+})
+
+test('清空批注后存储里不留草稿', () => {
+  const storage = makeMemoryStorage()
+  const harness = makeHarness({ localStorage: storage })
+  harness.debug._internals.adoptSession('s1')
+  harness.debug.add({ quote: 'x', note: '', source: { kind: 'dom' } })
+  assert.ok(storage.length >= 1)
+  harness.debug.clear()
+  assert.equal(harness.debug.list().length, 0)
+  assert.equal(storage.length, 0, '清空后不该留下存储键')
+})
+
+test('已提交批注按消息锚点落台账，可从历史消息行查回', () => {
+  const storage = makeMemoryStorage()
+  const harness = makeHarness({ localStorage: storage })
+  const internals = harness.debug._internals
+  internals.adoptSession('s1')
+  internals.recordSent('s1', '3:user', [{ index: 1, quote: '原文', note: '批注' }])
+  const table = internals.loadSent('s1')
+  assert.equal(table.size, 1)
+  assert.equal(table.get('3:user').items[0].note, '批注')
+  assert.ok(storage.length >= 1, '已提交台账要落进 localStorage')
 })
