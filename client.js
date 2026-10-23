@@ -72,11 +72,18 @@ window.__ModuleLoader__.load({
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 7px;
   box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .sa-btn:hover { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
-.sa-popover { position: fixed; display: none; z-index: 62; width: 340px; max-width: calc(100vw - 24px);
+.sa-popover { position: fixed; display: block; z-index: 62; width: 340px; max-width: calc(100vw - 24px);
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-overlay, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
-  box-shadow: 0 10px 32px rgba(0,0,0,.24); }
-.sa-popover[data-open="1"] { display: block; }
+  box-shadow: 0 10px 32px rgba(0,0,0,.24);
+  opacity: 0; visibility: hidden; transform: translateY(-2px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms; }
+.sa-popover[data-open="1"] { opacity: 1; visibility: visible; transform: none; }
+.sa-viewer { position: fixed; inset: 0; z-index: 80; display: none; align-items: center; justify-content: center;
+  background: rgb(0 0 0 / 0.72); cursor: zoom-out; }
+.sa-viewer[data-open="1"] { display: flex; }
+.sa-viewer-img { max-width: 92vw; max-height: 88vh; box-sizing: border-box; border-radius: 6px;
+  background: #fff; box-shadow: 0 12px 48px rgb(0 0 0 / 0.5); }
 .sa-pop-title { font-size: 12px; font-weight: 600; margin: 0 0 6px; }
 .sa-pop-quote { max-height: 120px; overflow: auto; margin: 0 0 8px; padding: 6px 8px; font-size: 12px;
   white-space: pre-wrap; word-break: break-word; color: var(--dsw-alias-label-secondary, GrayText);
@@ -1672,6 +1679,8 @@ window.__ModuleLoader__.load({
         let popoverHovered = false
         /** 用户是否已经在这条弹层里动过手（点击或输入）——动过就不再自动关。 */
         let popoverTouched = false
+        /** 弹层是谁打开的：主动点开，还是悬停预览。只有悬停的会被自动关。 */
+        let popoverSource = 'manual'
         const popActions = document.createElement('div')
         popActions.className = 'sa-pop-actions'
         /** 当前正在编辑的这条批注挂的图片；只在内存里（二进制进不了 localStorage）。 */
@@ -1681,6 +1690,31 @@ window.__ModuleLoader__.load({
         const popImagesHint = document.createElement('div')
         popImagesHint.className = 'sa-pop-images-hint'
         popImagesHint.textContent = '可粘贴或拖入图片，随本条批注一起发出'
+
+        /** 全屏查看批注图片：点缩略图放大，点任意处或 Esc 关闭。 */
+        const imageViewer = document.createElement('div')
+        imageViewer.className = 'sa-viewer'
+        imageViewer.setAttribute('data-sa-ui', 'viewer')
+        imageViewer.dataset.open = '0'
+        const imageViewerImg = document.createElement('img')
+        imageViewerImg.className = 'sa-viewer-img'
+        imageViewerImg.alt = '批注图片'
+        imageViewer.appendChild(imageViewerImg)
+
+        function openImageViewer(url, name) {
+          if (typeof url !== 'string' || url === '') return
+          imageViewerImg.src = url
+          imageViewerImg.alt = typeof name === 'string' && name !== '' ? name : '批注图片'
+          imageViewer.dataset.open = '1'
+        }
+
+        function closeImageViewer() {
+          if (imageViewer.dataset.open !== '1') return
+          imageViewer.dataset.open = '0'
+          imageViewerImg.removeAttribute('src')
+        }
+
+        imageViewer.addEventListener('click', () => closeImageViewer())
         const popDelete = document.createElement('button')
         popDelete.type = 'button'
         popDelete.className = 'sa-link sa-pop-delete'
@@ -1767,6 +1801,13 @@ window.__ModuleLoader__.load({
               thumb.className = 'sa-pop-thumb'
               thumb.src = image.url
               thumb.alt = image.name
+              thumb.title = '点击查看大图'
+              thumb.style.cursor = 'zoom-in'
+              thumb.addEventListener('click', (event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                openImageViewer(image.url, image.name)
+              })
               box.appendChild(thumb)
             } else {
               const fallback = document.createElement('span')
@@ -1862,6 +1903,7 @@ window.__ModuleLoader__.load({
           resetPopInputHeight()
           popoverTouched = false
           popoverHovered = false
+          popoverSource = options.source === 'hover' ? 'hover' : 'manual'
           cancelHoverOpen()
           cancelHoverClose()
           popover.dataset.open = '1'
@@ -1893,7 +1935,7 @@ window.__ModuleLoader__.load({
          * @param id - 目标批注 id。
          * @param anchor - 用来定位弹层的元素（角标或列表里的「编辑」按钮）。
          */
-        function openEditPopover(id, anchor) {
+        function openEditPopover(id, anchor, source = 'manual') {
           const item = annotations.find((candidate) => candidate.id === id)
           if (item === undefined) return
           const measured = safe(() => anchor?.getBoundingClientRect())
@@ -1917,6 +1959,7 @@ window.__ModuleLoader__.load({
             rect,
             mode: 'edit',
             targetId: id,
+            source,
           })
         }
 
@@ -1979,7 +2022,19 @@ window.__ModuleLoader__.load({
           return guarded
         }
 
-        function commitPopover() {
+        /** 新划出来但既没写文字也没加图：被动确认（点框外、悬停收起）时应当丢弃。 */
+        function shouldDiscardEmpty(mode, note, images) {
+          if (mode === 'edit') return false
+          if (typeof note === 'string' && note.trim() !== '') return false
+          return !Array.isArray(images) || images.length === 0
+        }
+
+        /**
+         * 保存并关闭弹层。
+         * @param discardEmpty - 「被动确认」传 true（点框外、悬停收起）：新划出来但既没写文字也没加图的批注直接丢弃，
+         *   避免每次误点都留下一条空批注。显式点「保存」时仍然允许空批注（只标记原文）。
+         */
+        function commitPopover(discardEmpty = false) {
           if (popoverMode === 'edit') {
             const target = popoverTargetId
             const images = popInputImages
@@ -1992,6 +2047,10 @@ window.__ModuleLoader__.load({
           if (anchor === null) return
           const note = popInput.value
           const images = popInputImages
+          if (discardEmpty && shouldDiscardEmpty(popoverMode, note, images)) {
+            closePopover()
+            return
+          }
           closePopover()
           // 先创建：这一段绝不能依赖任何可能失败的东西。
           const created = addAnnotation({
@@ -2084,13 +2143,15 @@ window.__ModuleLoader__.load({
 
         /** 没进入交互就自动收起；收起前按确认保存，已输入的内容不会丢。 */
         function scheduleHoverClose() {
+          if (popoverSource !== 'hover') return
           if (hoverCloseTimer !== null) return
           if (popoverTouched || popoverHovered) return
           hoverCloseTimer = window.setTimeout(() => {
             hoverCloseTimer = null
             if (popover.dataset.open !== '1') return
+            if (popoverSource !== 'hover') return
             if (popoverTouched || popoverHovered) return
-            commitPopover()
+            commitPopover(true)
           }, 250)
         }
 
@@ -2107,7 +2168,8 @@ window.__ModuleLoader__.load({
           const open = popover.dataset.open === '1'
           const hit = highlightHits.length === 0 ? undefined : hitHighlight(event.clientX, event.clientY)
           if (open) {
-            // 已经动过手、或鼠标正停在弹层上：不自动关。
+            // 主动点开的弹层不会被悬停逻辑关掉；只有悬停预览才自动收。
+            if (popoverSource !== 'hover') return
             if (popoverTouched || popoverHovered) return
             if (hit !== undefined) return
             scheduleHoverClose()
@@ -2127,7 +2189,7 @@ window.__ModuleLoader__.load({
             const target = annotations.find((item) => item.id === hit.id)
             if (target === undefined) return
             const rect = hit.rects[0]
-            openEditPopover(target.id, { getBoundingClientRect: () => rect })
+            openEditPopover(target.id, { getBoundingClientRect: () => rect }, 'hover')
           }, HOVER_OPEN_DELAY_MS)
         }
 
@@ -2165,13 +2227,15 @@ window.__ModuleLoader__.load({
           if (popover.dataset.open !== '1') return
           const target = elementOf(event.target)
           if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return
-          // 点框外算确认这次编辑：已经写下的内容不能因为一次误点就丢掉。
-          commitPopover()
+          // 点框外算确认这次编辑：已经写下的内容不能因为一次误点就丢掉；
+          // 但一个字都没写、也没加图的新批注属于「划完就反悔」，直接丢掉。
+          commitPopover(true)
         }, true)
         document.addEventListener('keydown', (event) => {
           if (event.key === 'Escape') {
             hideToolbar()
             closePopover()
+            closeImageViewer()
           }
         })
         /* ------------------------------------------- 批注按钮 + 悬浮批注面板 */
@@ -2260,7 +2324,13 @@ window.__ModuleLoader__.load({
                 thumb.className = 'sa-item-thumb'
                 thumb.src = image.url
                 thumb.alt = typeof image.name === 'string' ? image.name : '图片'
-                thumb.title = typeof image.name === 'string' ? image.name : '图片'
+                thumb.title = '点击查看大图'
+                thumb.style.cursor = 'zoom-in'
+                thumb.addEventListener('click', (event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  openImageViewer(image.url, image.name)
+                })
                 gallery.appendChild(thumb)
               }
               if (gallery.childNodes.length > 0) row.appendChild(gallery)
@@ -2427,7 +2497,7 @@ window.__ModuleLoader__.load({
           style.setAttribute('data-selection-annotations', '')
           style.textContent = CSS
           document.head.appendChild(style)
-          document.body.append(overlay, toolbar, popover, panelRoot)
+          document.body.append(overlay, toolbar, popover, panelRoot, imageViewer)
           // 独立于批注集合：即使现在一条批注都没有，也要能摘掉重载前遗留的孤儿附件。
           orphanTimer = window.setInterval(() => {
             const shell = inputShell()
@@ -2456,6 +2526,7 @@ window.__ModuleLoader__.load({
             toolbar.remove()
             popover.remove()
             panelRoot.remove()
+            imageViewer.remove()
           }
         })
 
@@ -2510,7 +2581,7 @@ window.__ModuleLoader__.load({
           clear: clearAnnotations,
           update: (id, note) => updateAnnotation(id, note),
           add: (input) => addAnnotation(input),
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, renderSentCards },
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, renderSentCards, shouldDiscardEmpty, loadImageSettings },
         }
       },
     }

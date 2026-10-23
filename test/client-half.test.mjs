@@ -560,7 +560,7 @@ test('apply 之后：悬挂 UI 建成、批注按钮注册进发送按钮旁的�
   assert.equal(harness.registrations[0].opts.id, 'selection-annotations')
   assert.equal(typeof harness.registrations[0].Component, 'function')
   assert.ok(harness.mod.inject.includes('remote'), '声明 remote 才能拿到 ctx.remote 读工作区原文')
-  assert.equal(harness.env.document.body.childNodes.length, 4, '覆盖层 / 工具条 / 批注弹层 / 悬浮面板都要挂上')
+  assert.equal(harness.env.document.body.childNodes.length, 5, '覆盖层 / 工具条 / 批注弹层 / 悬浮面板 / 图片查看层都要挂上')
 
   const ui = harness.env.document.head.childNodes[0]
   assert.equal(ui.tagName, 'STYLE')
@@ -1104,8 +1104,7 @@ test('多条批注的图片顺序按批注顺序连续编号', () => {
   ])
 })
 
-test('图片以 data URL 落进本地存储，恢复后仍是可发送的文件', () => {
-  const storage = makeMemoryStorage()
+test('图片以 data URL 落进本地存储，恢复后仍是可发送的文件', () => {  const storage = makeMemoryStorage()
   const dataUrl = `data:image/jpeg;base64,${Buffer.from('fake-jpeg-bytes').toString('base64')}`
 
   const first = makeHarness({ localStorage: storage })
@@ -1126,4 +1125,22 @@ test('图片以 data URL 落进本地存储，恢复后仍是可发送的文件'
   assert.equal(restored[0].images[0].name, 'shot.jpg')
   assert.ok(restored[0].images[0].file instanceof File, '恢复的图片要重新构造成文件，才能随消息发出')
   assert.equal(restored[0].images[0].file.type, 'image/jpeg')
+})
+
+test('点框外丢弃空批注：只有新划且没有文字、没有图片才丢', () => {
+  const harness = makeHarness()
+  const { shouldDiscardEmpty } = harness.debug._internals
+  assert.equal(shouldDiscardEmpty('create', '', []), true, '什么都没写的新批注应当丢弃')
+  assert.equal(shouldDiscardEmpty('create', '   ', []), true, '只有空白也算没写')
+  assert.equal(shouldDiscardEmpty('create', '有内容', []), false)
+  assert.equal(shouldDiscardEmpty('create', '', [{ id: 'i1' }]), false, '只加了图也算有内容')
+  assert.equal(shouldDiscardEmpty('edit', '', []), false, '编辑既有批注时清空文字属于合法修改')
+})
+
+test('图片设置默认开启压缩：JPEG 80%、最短边超过 100 像素才压', () => {
+  const harness = makeHarness()
+  const settings = harness.debug._internals.loadImageSettings()
+  assert.equal(settings.compress, true)
+  assert.equal(settings.quality, 0.8)
+  assert.equal(settings.minSize, 100)
 })
