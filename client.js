@@ -76,8 +76,8 @@ window.__ModuleLoader__.load({
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-overlay, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
   box-shadow: 0 10px 32px rgba(0,0,0,.24);
-  opacity: 0; visibility: hidden; transform: translateY(-2px);
-  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms; }
+  opacity: 0; visibility: hidden; transform: translateY(-6px) scale(0.98);
+  transition: opacity 180ms ease, transform 180ms ease, visibility 180ms; }
 .sa-popover[data-open="1"] { opacity: 1; visibility: visible; transform: none; }
 .sa-viewer { position: fixed; inset: 0; z-index: 80; display: none; align-items: center; justify-content: center;
   background: rgb(0 0 0 / 0.72); cursor: zoom-out; }
@@ -2351,7 +2351,24 @@ window.__ModuleLoader__.load({
           if (annotations.length > 0) foot.appendChild(button('sa-link', '清空', () => clearAnnotations()))
           foot.appendChild(el('span', 'sa-hint', '发送时批注作为独立块随消息提交'))
           panelEl.appendChild(foot)
+          panelEl.appendChild(diagnosticsRow())
           panelEl.appendChild(imageSettingsRow())
+        }
+
+        /** 诊断行：定位「历史卡片不出现」这类问题（记录条数 / 页面识别到的批注消息 / 待配对）。 */
+        function diagnosticsRow() {
+          const box = el('div', 'sa-settings')
+          const sessionId = currentSessionId()
+          const records = typeof sessionId === 'string' ? loadSent(sessionId).size : 0
+          let rows = 0
+          safe(() => {
+            rows = collectAnnotationRows().length
+          })
+          const origin = safe(() => window.location.origin) ?? '(无)'
+          const tail = typeof sessionId === 'string' ? sessionId.slice(-8) : '(无)'
+          box.appendChild(el('div', 'sa-hint', `诊断：会话 ${tail}｜记录 ${records} 条｜页面批注消息 ${rows} 条｜待配对 ${pendingSent.length}`))
+          box.appendChild(el('div', 'sa-hint', `origin ${origin}`))
+          return box
         }
 
         /** 面板底部的图片设置：压缩开关、JPEG 质量、触发压缩的最短边。 */
