@@ -141,7 +141,7 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-setting-value { min-width: 34px; font-variant-numeric: tabular-nums; }
 .sa-setting-number { width: 68px; }
-.sa-sent { margin: 6px 0 0; max-width: min(520px, 100%); }
+.sa-sent { margin: 6px 0 0; max-width: min(520px, 100%); flex-basis: 100%; }
 .sa-sent-head { font: inherit; font-size: 11px; line-height: 1; padding: 4px 8px; cursor: pointer;
   color: var(--dsw-alias-brand-primary, #247bbf); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 32%, transparent); border-radius: 999px; }
@@ -1209,39 +1209,35 @@ window.__ModuleLoader__.load({
         }
 
         /**
-         * 页面上所有带批注附件的用户消息行。
+         * 页面上所有用户消息行（锚点键）。
          *
-         * 从附件行往上找锚点，而不是先筛 `data-chat-flow-kind="user"`：锚点属性与 flow-kind
-         * 是 DSH 内部实现，多一道取值假设就多一种落空的方式。只要卡片里写着「批注.json」，
-         * 上面能找到锚点键，就认。
+         * 不能等附件卡片做锚点：实测会话日志里用户消息**不含 file 块**，页面上也就没有
+         * 「批注.json」卡片。所以锚点直接取消息行本身。
          */
-        function collectAnnotationRows() {
+        function collectUserRows() {
           const rows = []
-          for (const attachmentRow of document.querySelectorAll('[data-message-attachments]')) {
-            if (!/批注\.json/.test(attachmentRow.textContent ?? '')) continue
-            const row =
-              attachmentRow.closest('[data-chat-anchor-key]') ??
-              attachmentRow.closest('[data-chat-flow-key]') ??
-              attachmentRow.parentElement
-            if (row === null) continue
-            const anchorKey = row.getAttribute('data-chat-anchor-key') ?? row.getAttribute('data-chat-flow-key') ?? ''
+          for (const element of document.querySelectorAll('[data-chat-anchor-key]')) {
+            const kind = element.getAttribute('data-chat-flow-kind') ?? ''
+            if (kind !== 'user' && kind !== 'steering') continue
+            const anchorKey = element.getAttribute('data-chat-anchor-key') ?? ''
             if (anchorKey === '') continue
-            rows.push({ row, attachmentRow, anchorKey })
+            rows.push({ row: element, anchorKey })
           }
           return rows
         }
 
-        /** 当前页面上已有的批注消息锚点键。 */
-        function captureAnnotatedKeys() {
-          return new Set(collectAnnotationRows().map((entry) => entry.anchorKey).filter((key) => key !== ''))
+        /** 当前页面上已有的用户消息锚点键。 */
+        function captureUserKeys() {
+          return new Set(collectUserRows().map((entry) => entry.anchorKey))
         }
 
-        function recordSent(sessionId, anchorKey, items) {          const table = loadSent(sessionId)
+        function recordSent(sessionId, anchorKey, items) {
+          const table = loadSent(sessionId)
           table.set(anchorKey, { savedAt: Date.now(), items })
           saveSent(sessionId, table)
         }
 
-        /** 把新出现的批注消息行与刚发出的负载按出现顺序配对。 */
+        /** 把新出现的用户消息行与刚发出的批注负载按出现顺序配对。 */
         function scanSentMessages() {
           if (pendingSent.length === 0) return
           const now = Date.now()
@@ -1249,8 +1245,7 @@ window.__ModuleLoader__.load({
           if (pendingSent.length === 0) return
           const sessionId = currentSessionId()
           if (sessionId === undefined) return
-          for (const entry of collectAnnotationRows()) {
-            if (entry.anchorKey === '') continue
+          for (const entry of collectUserRows()) {
             if (loadSent(sessionId).has(entry.anchorKey)) continue
             const index = pendingSent.findIndex((pending) => !pending.known.has(entry.anchorKey))
             if (index === -1) continue
@@ -1308,18 +1303,17 @@ window.__ModuleLoader__.load({
           return card
         }
 
-        /** 在历史消息行里补出已提交批注卡片；同一行只补一次。 */
+        /** 在历史用户消息行里补出已提交批注卡片；同一行只补一次。 */
         function renderSentCards() {
           const sessionId = currentSessionId()
           if (sessionId === undefined) return
           const table = loadSent(sessionId)
           if (table.size === 0) return
-          for (const entry of collectAnnotationRows()) {
+          for (const entry of collectUserRows()) {
             if (entry.row.querySelector('[data-sa-ui="sent"]') !== null) continue
             const record = table.get(entry.anchorKey)
             if (record === undefined || record.items.length === 0) continue
-            const stack = entry.attachmentRow.parentElement ?? entry.row
-            stack.appendChild(buildSentCard(record))
+            entry.row.appendChild(buildSentCard(record))
           }
         }
 
@@ -1586,7 +1580,7 @@ window.__ModuleLoader__.load({
               return
             }
             // 发出去之前页面上已有的批注消息行：发送后据此区分「新消息」与「旧历史」。
-            lastAnnotatedKeys = captureAnnotatedKeys()
+            lastAnnotatedKeys = captureUserKeys()
             log(`[selection-annotations] 批注块已挂到本条消息（${annotations.length} 条）`)
           } catch (err) {
             warn('[selection-annotations] 批注附件同步失败：', err)
@@ -2384,27 +2378,22 @@ window.__ModuleLoader__.load({
           const box = el('div', 'sa-settings')
           const sessionId = currentSessionId()
           const records = typeof sessionId === 'string' ? loadSent(sessionId).size : 0
-          let attachmentRows = 0
-          let namedRows = 0
-          let keyedRows = 0
-          let sample = ''
+          let userRows = 0
+          let otherRows = 0
+          let kinds = new Set()
           safe(() => {
-            for (const attachment of document.querySelectorAll('[data-message-attachments]')) {
-              attachmentRows += 1
-              const text = (attachment.textContent ?? '').replace(/\s+/g, ' ').trim()
-              if (sample === '' && text !== '') sample = text.slice(0, 42)
-              if (!/批注\.json/.test(text)) continue
-              namedRows += 1
-              if (attachment.closest('[data-chat-anchor-key]') !== null || attachment.closest('[data-chat-flow-key]') !== null) {
-                keyedRows += 1
-              }
+            for (const element of document.querySelectorAll('[data-chat-anchor-key]')) {
+              const kind = element.getAttribute('data-chat-flow-kind') ?? '(无)'
+              kinds.add(kind)
+              if (kind === 'user' || kind === 'steering') userRows += 1
+              else otherRows += 1
             }
           })
           const origin = safe(() => window.location.origin) ?? '(无)'
           const tail = typeof sessionId === 'string' ? sessionId.slice(-8) : '(无)'
-          box.appendChild(el('div', 'sa-hint', `诊断：会话 ${tail}｜记录 ${records}｜批注消息 ${namedRows}`))
-          box.appendChild(el('div', 'sa-hint', `附件行 ${attachmentRows}｜批注 ${namedRows}｜可锚定 ${keyedRows}｜待配对 ${pendingSent.length}`))
-          box.appendChild(el('div', 'sa-hint', `origin ${origin}${sample === '' ? '' : '｜附件样例 ' + sample}`))
+          box.appendChild(el('div', 'sa-hint', `诊断：会话 ${tail}｜记录 ${records}｜待配对 ${pendingSent.length}`))
+          box.appendChild(el('div', 'sa-hint', `消息行 ${userRows + otherRows}（用户 ${userRows}）｜flow-kind ${[...kinds].slice(0, 4).join('/')}`))
+          box.appendChild(el('div', 'sa-hint', `origin ${origin}`))
           return box
         }
 
