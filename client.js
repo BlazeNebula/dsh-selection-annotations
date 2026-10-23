@@ -24,6 +24,10 @@ window.__ModuleLoader__.load({
     const PAYLOAD_KIND = 'dsh-selection-annotations'
     const MAX_QUOTE = 1600
     const MAX_NOTE = 4000
+    /** 单条批注最多能挂几张图；再多会明显拖慢消息序列化。 */
+    const MAX_IMAGES_PER_ANNOTATION = 4
+    /** 单张图片的字节上限，超过就拒绝（避免把一条消息撑爆）。 */
+    const MAX_IMAGE_BYTES = 8 * 1024 * 1024
     /** 选区稳定后再弹工具条，避免拖选过程中抖动。 */
     const SETTLE_MS = 220
     /** 批注集合变化后合并上传，避免每敲一个字都发一次请求。 */
@@ -103,6 +107,15 @@ window.__ModuleLoader__.load({
   cursor: pointer; background: none; border: none; border-radius: 6px; color: var(--dsw-alias-label-primary, CanvasText); }
 .sa-result:hover { background: var(--dsw-alias-bg-layer-2, ButtonFace); }
 .sa-hint { font-size: 11px; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-pop-images { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.sa-pop-image { position: relative; width: 56px; height: 56px; border-radius: 6px; overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: var(--dsw-alias-bg-layer-2, ButtonFace); }
+.sa-pop-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sa-pop-thumb-fallback { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+  box-sizing: border-box; padding: 2px; font-size: 10px; text-align: center; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-pop-image-remove { position: absolute; top: 0; right: 0; width: 16px; height: 16px; padding: 0; line-height: 1;
+  cursor: pointer; border: none; border-radius: 0 0 0 6px; font-size: 11px; color: #fff; background: rgb(0 0 0 / 0.55); }
+.sa-pop-images-hint { font-size: 11px; color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-sent { margin: 6px 0 0; max-width: min(520px, 100%); }
 .sa-sent-head { font: inherit; font-size: 11px; line-height: 1; padding: 4px 8px; cursor: pointer;
   color: var(--dsw-alias-brand-primary, #247bbf); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 10%, transparent);
@@ -938,6 +951,7 @@ window.__ModuleLoader__.load({
             number: annotations.length + 1,
             quote,
             note,
+            images: Array.isArray(input.images) ? input.images.slice() : [],
             source,
             liveRange: input.liveRange,
             createdAt: Date.now(),
@@ -950,14 +964,15 @@ window.__ModuleLoader__.load({
           return item
         }
 
-        /** 改写一条既有批注的批注文字；原文与出处不变。 */
-        function updateAnnotation(id, note) {
+        /** 改写一条既有批注的批注文字与图片；原文与出处不变。 */
+        function updateAnnotation(id, note, images) {
           const next = typeof note === 'string' ? note.trim().slice(0, MAX_NOTE) : ''
+          const nextImages = Array.isArray(images) ? images.slice() : undefined
           let hit = false
           annotations = annotations.map((item) => {
             if (item.id !== id) return item
             hit = true
-            return { ...item, note: next }
+            return { ...item, note: next, ...(nextImages === undefined ? {} : { images: nextImages }) }
           })
           if (!hit) return
           emit()
@@ -1166,6 +1181,24 @@ window.__ModuleLoader__.load({
          * 锚点键 —— 结构化字段才不会在自然语言里糊掉。
          */
         function buildPayload(items) {
+          // 图片在消息里是独立的 image 块，顺序即挂载顺序；这里给每条批注记住它在本次消息里的 1 基序号。
+          let imageOrder = 0
+          const annotations = items.map((item) => {
+            const entry = {
+              index: item.number,
+              quote: item.quote,
+              note: item.note,
+              source: payloadSource(item.source),
+            }
+            const images = Array.isArray(item.images) ? item.images : []
+            if (images.length > 0) {
+              entry.images = images.map((image) => {
+                imageOrder += 1
+                return { order: imageOrder, name: image.name }
+              })
+            }
+            return entry
+          })
           return JSON.stringify(
             {
               kind: PAYLOAD_KIND,
@@ -1179,14 +1212,10 @@ window.__ModuleLoader__.load({
                 'charStart/charEnd 是半开区间 [charStart, charEnd)，口径由 source.textOrigin 指明：' +
                 '"source" = 文件原文的字符偏移，"rendered" = 该锚点元素渲染后正文的字符偏移。' +
                 '工作区文件但凡能读到原文就给 "source"；拿不到原文（或引文跨了 Markdown 标记）时退回 "rendered"。' +
-                '请按 index 逐条对照回应。',
-              count: items.length,
-              annotations: items.map((item) => ({
-                index: item.number,
-                quote: item.quote,
-                note: item.note,
-                source: payloadSource(item.source),
-              })),
+                'annotations[].images 是该条批注附带的图片，order 是图片在本条消息图片附件中的 1 基顺序，' +
+                '请把 order 与消息里图片的出现顺序对照。请按 index 逐条对照回应。',
+              count: annotations.length,
+              annotations,
             },
             null,
             2,
@@ -1349,11 +1378,21 @@ window.__ModuleLoader__.load({
             if (annotations.length === 0) return
 
             const file = new File([buildPayload(annotations)], ANNOTATION_FILE, { type: 'application/json' })
-            const drafts = conversation.createDrafts(sessionId, [file])
+            // 图片草稿与批注 JSON 一起挂到同一条消息：消息里图片是独立 image 块，宿主只摘 JSON 文件块。
+            const imageFiles = []
+            for (const item of annotations) {
+              for (const image of Array.isArray(item.images) ? item.images : []) {
+                if (image !== null && typeof image === 'object' && image.file !== null && typeof image.file === 'object') {
+                  imageFiles.push(image.file)
+                }
+              }
+            }
+            const drafts = conversation.createDrafts(sessionId, [file, ...imageFiles])
             const ids = Array.isArray(drafts) ? drafts.map((draft) => draft.id).filter((id) => typeof id === 'string') : []
             if (ids.length === 0) return
 
-            if (!(await waitForUploads(conversation, ids, UPLOAD_READY_TIMEOUT_MS))) {
+            // 只等批注 JSON 的上传：图片草稿是运行时直发的，没有后台上传状态，等它只会等到超时。
+            if (!(await waitForUploads(conversation, [ids[0]], UPLOAD_READY_TIMEOUT_MS))) {
               warn('[selection-annotations] 批注附件上传失败，本次不随消息发送')
               releaseDrafts(ids, shell)
               return
@@ -1469,6 +1508,13 @@ window.__ModuleLoader__.load({
         let popInputAutoValue = 0
         const popActions = document.createElement('div')
         popActions.className = 'sa-pop-actions'
+        /** 当前正在编辑的这条批注挂的图片；只在内存里（二进制进不了 localStorage）。 */
+        let popInputImages = []
+        const popImages = document.createElement('div')
+        popImages.className = 'sa-pop-images'
+        const popImagesHint = document.createElement('div')
+        popImagesHint.className = 'sa-pop-images-hint'
+        popImagesHint.textContent = '可粘贴或拖入图片，随本条批注一起发出'
         const popDelete = document.createElement('button')
         popDelete.type = 'button'
         popDelete.className = 'sa-link sa-pop-delete'
@@ -1484,7 +1530,7 @@ window.__ModuleLoader__.load({
         popSave.className = 'sa-btn'
         popSave.textContent = '保存'
         popActions.append(popDelete, popSpacer, popCancel, popSave)
-        popover.append(popTitle, popQuote, popSource, popInput, popActions)
+        popover.append(popTitle, popQuote, popSource, popInput, popImages, popActions)
 
         function isExcluded(node) {
           const element = elementOf(node)
@@ -1544,6 +1590,80 @@ window.__ModuleLoader__.load({
         let popoverAnchor = null
         let popoverTargetId = null
 
+        /** 把当前图片列表画出来：缩略图 + 删除按钮，空列表时只留一行提示。 */
+        function renderPopImages() {
+          popImages.textContent = ''
+          for (const image of popInputImages) {
+            const box = document.createElement('div')
+            box.className = 'sa-pop-image'
+            if (typeof image.url === 'string' && image.url !== '') {
+              const thumb = document.createElement('img')
+              thumb.className = 'sa-pop-thumb'
+              thumb.src = image.url
+              thumb.alt = image.name
+              box.appendChild(thumb)
+            } else {
+              const fallback = document.createElement('span')
+              fallback.className = 'sa-pop-thumb-fallback'
+              fallback.textContent = image.name
+              box.appendChild(fallback)
+            }
+            const remove = document.createElement('button')
+            remove.type = 'button'
+            remove.className = 'sa-pop-image-remove'
+            remove.title = '移除这张图'
+            remove.textContent = '×'
+            remove.addEventListener('click', (event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              removePopImage(image.id)
+            })
+            box.appendChild(remove)
+            popImages.appendChild(box)
+          }
+          popImages.appendChild(popImagesHint)
+        }
+
+        function removePopImage(id) {
+          popInputImages = popInputImages.filter((image) => image.id !== id)
+          renderPopImages()
+        }
+
+        /** 接收一批浏览器文件，只留受支持的图片，并限制条数与体积。 */
+        function addPopImages(files) {
+          let added = 0
+          let rejected = 0
+          for (const file of files) {
+            if (file === null || typeof file !== 'object') continue
+            if (typeof file.type !== 'string' || !file.type.startsWith('image/')) continue
+            if (popInputImages.length >= MAX_IMAGES_PER_ANNOTATION) {
+              rejected += 1
+              continue
+            }
+            if (Number(file.size) > MAX_IMAGE_BYTES) {
+              rejected += 1
+              continue
+            }
+            const url = safe(() => URL.createObjectURL(file))
+            popInputImages.push({
+              id: `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+              file,
+              name: typeof file.name === 'string' && file.name !== '' ? file.name : '图片',
+              url: typeof url === 'string' ? url : undefined,
+            })
+            added += 1
+          }
+          if (added > 0) renderPopImages()
+          if (rejected > 0) log(`[selection-annotations] 已忽略 ${rejected} 张图片（每图最多 ${MAX_IMAGES_PER_ANNOTATION} 张、单张不超过 ${MAX_IMAGE_BYTES} 字节）`)
+          return added
+        }
+
+        /** 换一条批注编辑时重置图片列表；对象 URL 交给浏览器回收，不主动 revoke 免伤已保存的引用。 */
+        function resetPopImages(images) {
+          popInputImages = Array.isArray(images) ? images.slice() : []
+          renderPopImages()
+        }
+
         /** 每次打开弹层都从「跟随内容」开始，并清掉上一次拖拽留下的固定高度。 */
         function resetPopInputHeight() {
           popInputAutoHeight = true
@@ -1568,6 +1688,7 @@ window.__ModuleLoader__.load({
           popQuote.style.display = options.quote === '' ? 'none' : ''
           popSource.textContent = options.sourceText
           popInput.value = options.note
+          resetPopImages(options.images)
           popoverMode = options.mode
           popoverTargetId = options.targetId ?? null
           popDelete.style.display = options.mode === 'edit' ? '' : 'none'
@@ -1589,6 +1710,7 @@ window.__ModuleLoader__.load({
             quote: selection.quote,
             sourceText: describeSource(popoverAnchor.source),
             note: '',
+            images: [],
             rect: safe(() => selection.range.getBoundingClientRect()),
             mode: 'create',
             targetId: null,
@@ -1621,6 +1743,7 @@ window.__ModuleLoader__.load({
             quote: item.quote,
             sourceText: describeSource(item.source),
             note: item.note,
+            images: Array.isArray(item.images) ? item.images : [],
             rect,
             mode: 'edit',
             targetId: id,
@@ -1689,18 +1812,22 @@ window.__ModuleLoader__.load({
         function commitPopover() {
           if (popoverMode === 'edit') {
             const target = popoverTargetId
+            const images = popInputImages
+            const note = popInput.value
             closePopover()
-            if (target !== null) updateAnnotation(target, popInput.value)
+            if (target !== null) updateAnnotation(target, note, images)
             return
           }
           const anchor = popoverAnchor
           if (anchor === null) return
           const note = popInput.value
+          const images = popInputImages
           closePopover()
           // 先创建：这一段绝不能依赖任何可能失败的东西。
           const created = addAnnotation({
             quote: anchor.quote,
             note,
+            images,
             source: anchor.source,
             liveRange: anchor.range,
           })
@@ -1743,6 +1870,33 @@ window.__ModuleLoader__.load({
         popInput.addEventListener('pointerup', () => {
           if (!popInputAutoHeight) return
           if (Math.abs(popInput.offsetHeight - popInputAutoValue) > 2) popInputAutoHeight = false
+        })
+        // 粘贴图片：截图直接进批注，不用先存成文件再拖进来。
+        popInput.addEventListener('paste', (event) => {
+          const data = event.clipboardData
+          if (data === null || data === undefined) return
+          const files = [...(data.files ?? [])]
+          if (files.length === 0) {
+            for (const entry of data.items ?? []) {
+              if (entry.kind !== 'file') continue
+              const file = safe(() => entry.getAsFile())
+              if (file !== null && file !== undefined) files.push(file)
+            }
+          }
+          const images = files.filter((file) => typeof file?.type === 'string' && file.type.startsWith('image/'))
+          if (images.length === 0) return
+          event.preventDefault()
+          addPopImages(images)
+        })
+        popover.addEventListener('dragover', (event) => {
+          if (event.dataTransfer === null || event.dataTransfer === undefined) return
+          event.preventDefault()
+        })
+        popover.addEventListener('drop', (event) => {
+          const files = [...(event.dataTransfer?.files ?? [])]
+          if (files.length === 0) return
+          event.preventDefault()
+          addPopImages(files)
         })
         document.addEventListener('pointerdown', (event) => {
           if (popover.dataset.open !== '1') return

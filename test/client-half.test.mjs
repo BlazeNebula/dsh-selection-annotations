@@ -390,8 +390,11 @@ function makeHarness(options = {}) {
       return files.map((file) => {
         draftSeq += 1
         const id = `d${draftSeq}`
-        draftAttachments.set(id, { kind: 'file', id, file })
+        const isImage = typeof file?.type === 'string' && file.type.startsWith('image/')
+        draftAttachments.set(id, { kind: isImage ? 'image' : 'file', id, file })
         uploads.push({ sessionId, file })
+        // 图片草稿是运行时直发（对象 URL + 随 prompt 发送字节），没有后台上传状态。
+        if (isImage) return { kind: 'image', id }
         fileUploads.set({ ...fileUploads.getSnapshot(), [id]: { status: 'uploading' } })
         setTimeout(() => {
           if (options.uploadFails === true) {
@@ -1061,4 +1064,42 @@ test('已提交批注按消息锚点落台账，可从历史消息行查回', ()
   assert.equal(table.size, 1)
   assert.equal(table.get('3:user').items[0].note, '批注')
   assert.ok(storage.length >= 1, '已提交台账要落进 localStorage')
+})
+
+test('批注可以带图片：图片草稿与 JSON 一起挂上，只等 JSON 的上传', async () => {
+  const harness = makeHarness()
+  const image = new File([new Uint8Array([1, 2, 3])], 'shot.png', { type: 'image/png' })
+  harness.debug.add({
+    quote: '选中的原文',
+    note: '看这张图',
+    images: [{ id: 'i1', file: image, name: 'shot.png' }],
+    source: { kind: 'dom' },
+  })
+  await settle()
+
+  assert.equal(harness.uploads.length, 2, '批注 JSON 与图片各一个草稿')
+  assert.equal(harness.uploads[0].file.name, '批注.json')
+  assert.equal(harness.uploads[1].file.name, 'shot.png')
+
+  const payload = await payloadOf(harness.uploads[0])
+  assert.deepEqual(payload.annotations[0].images, [{ order: 1, name: 'shot.png' }], '图片要带 1 基顺序')
+})
+
+test('多条批注的图片顺序按批注顺序连续编号', () => {
+  const harness = makeHarness()
+  const { buildPayload } = harness.debug._internals
+  const image = (name) => ({ id: name, file: { size: 1 }, name })
+  const payload = JSON.parse(
+    buildPayload([
+      { number: 1, quote: 'a', note: '', images: [image('one.png')], source: { kind: 'dom' } },
+      { number: 2, quote: 'b', note: '', source: { kind: 'dom' } },
+      { number: 3, quote: 'c', note: '', images: [image('two.png'), image('three.png')], source: { kind: 'dom' } },
+    ]),
+  )
+  assert.deepEqual(payload.annotations[0].images, [{ order: 1, name: 'one.png' }])
+  assert.equal(payload.annotations[1].images, undefined, '没有图片的批注不带 images 字段')
+  assert.deepEqual(payload.annotations[2].images, [
+    { order: 2, name: 'two.png' },
+    { order: 3, name: 'three.png' },
+  ])
 })
