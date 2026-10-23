@@ -77,6 +77,7 @@ window.__ModuleLoader__.load({
   background: var(--dsw-alias-bg-overlay, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
   box-shadow: 0 10px 32px rgba(0,0,0,.24);
   opacity: 0; visibility: hidden; transform: translateY(-6px) scale(0.98);
+  will-change: opacity, transform;
   transition: opacity 180ms ease, transform 180ms ease, visibility 180ms; }
 .sa-popover[data-open="1"] { opacity: 1; visibility: visible; transform: none; }
 .sa-viewer { position: fixed; inset: 0; z-index: 80; display: none; align-items: center; justify-content: center;
@@ -1600,12 +1601,11 @@ window.__ModuleLoader__.load({
         }
 
         function repaint() {
-          overlay.textContent = ''
           highlightHits = []
           // 历史回看先于高亮：新消息行刚出现时在这里完成配对，卡片随即补上。
           scanSentMessages()
           renderSentCards()
-          if (annotations.length === 0) return
+          const nodes = []
           for (const item of annotations) {
             const range = locateRange(item)
             if (range === undefined) continue
@@ -1620,7 +1620,7 @@ window.__ModuleLoader__.load({
               box.style.top = `${rect.top}px`
               box.style.width = `${rect.width}px`
               box.style.height = `${rect.height}px`
-              overlay.appendChild(box)
+              nodes.push(box)
               if (!badged) {
                 badged = true
                 // 角标是唯一的「从正文直接回到这条批注」的入口，必须可点击。
@@ -1636,9 +1636,16 @@ window.__ModuleLoader__.load({
                   event.stopPropagation()
                   openEditPopover(item.id, badge)
                 })
-                overlay.appendChild(badge)
+                nodes.push(badge)
               }
             }
+          }
+          // 一次性换掉整层：先清空再逐个插入会在帧间露出空白，看起来像界面闪了一下。
+          if (typeof overlay.replaceChildren === 'function') {
+            overlay.replaceChildren(...nodes)
+          } else {
+            overlay.textContent = ''
+            for (const node of nodes) overlay.appendChild(node)
           }
         }
 
@@ -1965,6 +1972,8 @@ window.__ModuleLoader__.load({
 
         function closePopover() {
           popover.dataset.open = '0'
+          // 主动把焦点从输入框移走：等元素变不可见再让浏览器处理焦点，会多一次滚动/重排。
+          safe(() => popInput.blur())
           popoverAnchor = null
           popoverTargetId = null
           popoverMode = 'create'
