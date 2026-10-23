@@ -2236,16 +2236,21 @@ window.__ModuleLoader__.load({
           if (popover.dataset.open !== '1') return
           const target = elementOf(event.target)
           if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return
+          // 大图查看层是弹层的「子视图」：关它不该连带收起批注框。
+          if (target !== null && target.closest('[data-sa-ui="viewer"]') !== null) return
           // 点框外算确认这次编辑：已经写下的内容不能因为一次误点就丢掉；
           // 但一个字都没写、也没加图的新批注属于「划完就反悔」，直接丢掉。
           commitPopover(true)
         }, true)
         document.addEventListener('keydown', (event) => {
-          if (event.key === 'Escape') {
-            hideToolbar()
-            closePopover()
+          if (event.key !== 'Escape') return
+          // 大图开着时 Esc 只收大图，弹层留在原地。
+          if (imageViewer.dataset.open === '1') {
             closeImageViewer()
+            return
           }
+          hideToolbar()
+          closePopover()
         })
         /* ------------------------------------------- 批注按钮 + 悬浮批注面板 */
 
@@ -2364,19 +2369,33 @@ window.__ModuleLoader__.load({
           panelEl.appendChild(imageSettingsRow())
         }
 
-        /** 诊断行：定位「历史卡片不出现」这类问题（记录条数 / 页面识别到的批注消息 / 待配对）。 */
+        /** 诊断行：逐级拆开「历史卡片不出现」，看是哪一层筛选落空。 */
         function diagnosticsRow() {
           const box = el('div', 'sa-settings')
           const sessionId = currentSessionId()
           const records = typeof sessionId === 'string' ? loadSent(sessionId).size : 0
-          let rows = 0
+          let anchorRows = 0
+          let userRows = 0
+          let attachmentRows = 0
+          let namedRows = 0
+          let sample = ''
           safe(() => {
-            rows = collectAnnotationRows().length
+            for (const row of document.querySelectorAll('[data-chat-anchor-key]')) {
+              anchorRows += 1
+              if (row.getAttribute('data-chat-flow-kind') === 'user') userRows += 1
+              const attachment = row.querySelector('[data-message-attachments]')
+              if (attachment === null) continue
+              attachmentRows += 1
+              const text = (attachment.textContent ?? '').replace(/\s+/g, ' ').trim()
+              if (/批注\.json/.test(text)) namedRows += 1
+              if (sample === '' && text !== '') sample = text.slice(0, 42)
+            }
           })
           const origin = safe(() => window.location.origin) ?? '(无)'
           const tail = typeof sessionId === 'string' ? sessionId.slice(-8) : '(无)'
-          box.appendChild(el('div', 'sa-hint', `诊断：会话 ${tail}｜记录 ${records} 条｜页面批注消息 ${rows} 条｜待配对 ${pendingSent.length}`))
-          box.appendChild(el('div', 'sa-hint', `origin ${origin}`))
+          box.appendChild(el('div', 'sa-hint', `诊断：会话 ${tail}｜记录 ${records}｜批注消息 ${namedRows}`))
+          box.appendChild(el('div', 'sa-hint', `锚点行 ${anchorRows}（user ${userRows}）｜附件行 ${attachmentRows}｜待配对 ${pendingSent.length}`))
+          box.appendChild(el('div', 'sa-hint', `origin ${origin}${sample === '' ? '' : '｜附件样例 ' + sample}`))
           return box
         }
 
