@@ -385,6 +385,8 @@ window.__ModuleLoader__.load({
           annotations = []
           emit()
           scheduleRepaint()
+          // 草稿存储也要跟着清掉：否则刷新后这批已发出的批注会「复活」。
+          saveDraft(annotationsSession)
           log(`[selection-annotations] 批注已随消息发出（${reason}）`)
         }
 
@@ -557,6 +559,112 @@ window.__ModuleLoader__.load({
           })
         }
 
+        /* --------------------------------------------------------- 宿主侧落盘通道 */
+
+        /** 落盘通道的可用性：undefined = 还没探测，true / false = 已探测结果。 */
+        let remoteStoreState
+
+        function storeUrl(sessionId) {
+          return `/selection-annotations/session/${encodeURIComponent(sessionId)}`
+        }
+
+        /** 读一个会话的落盘记录；连不上或格式不对都返回 undefined（调用方退回本地）。 */
+        async function pullRemoteSession(sessionId) {
+          if (typeof fetch !== 'function') {
+            remoteStoreState = false
+            return undefined
+          }
+          try {
+            const response = await fetch(storeUrl(sessionId), { method: 'GET', headers: { accept: 'application/json' } })
+            if (response.status === 204) {
+              remoteStoreState = true
+              return null
+            }
+            if (!response.ok) {
+              remoteStoreState = false
+              return undefined
+            }
+            const data = await response.json()
+            remoteStoreState = true
+            return data !== null && typeof data === 'object' && !Array.isArray(data) ? data : null
+          } catch {
+            remoteStoreState = false
+            return undefined
+          }
+        }
+
+        /** 当前会话的可落盘快照：草稿与已提交台账。 */
+        function sessionSnapshot(sessionId) {
+          const drafts =
+            annotationsSession === sessionId ? fitDraftSize(draftItems(annotations)) : draftSessions.get(sessionId) ?? []
+          const sent = {}
+          for (const [key, value] of sentBySession.get(sessionId) ?? []) sent[key] = value
+          return { schemaVersion: 1, sessionId, updatedAt: new Date().toISOString(), drafts, sent }
+        }
+
+        async function pushRemoteSession(sessionId) {
+          if (typeof fetch !== 'function') return
+          try {
+            const response = await fetch(storeUrl(sessionId), {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(sessionSnapshot(sessionId)),
+            })
+            remoteStoreState = response.ok
+          } catch {
+            remoteStoreState = false
+          }
+        }
+
+        let remotePushTimer = null
+        const remotePushQueue = new Set()
+
+        /** 合并 600ms 内的写入，避免每敲一个字就发一次请求。 */
+        function scheduleRemotePush(sessionId) {
+          if (typeof sessionId !== 'string' || sessionId === '') return
+          remotePushQueue.add(sessionId)
+          if (remotePushTimer !== null) return
+          remotePushTimer = window.setTimeout(() => {
+            remotePushTimer = null
+            const ids = [...remotePushQueue]
+            remotePushQueue.clear()
+            for (const id of ids) void pushRemoteSession(id)
+          }, 600)
+        }
+
+        /** 把落盘记录并入内存：本地为空时用远端，本地有内容时保留本地并推上去。 */
+        async function hydrateRemoteSession(sessionId) {
+          const remote = await pullRemoteSession(sessionId)
+          if (remote === null || remote === undefined) return
+          let touched = false
+          if (Array.isArray(remote.drafts) && remote.drafts.length > 0) {
+            const items = remote.drafts.filter(isDraftItem).slice(0, DRAFT_MAX_ITEMS).map(restoreDraftItem)
+            if (annotationsSession === sessionId && annotations.length === 0 && items.length > 0) {
+              annotations = items
+              emit()
+              scheduleRepaint()
+              scheduleSync()
+            }
+            if ((draftSessions.get(sessionId) ?? []).length === 0) draftSessions.set(sessionId, remote.drafts)
+            touched = true
+          }
+          if (remote.sent !== null && typeof remote.sent === 'object') {
+            const table = new Map()
+            for (const [key, value] of Object.entries(remote.sent)) {
+              if (typeof key !== 'string' || key === '') continue
+              if (value === null || typeof value !== 'object' || !Array.isArray(value.items)) continue
+              const items = value.items.filter(isSentItem).slice(0, DRAFT_MAX_ITEMS)
+              if (items.length === 0) continue
+              table.set(key, { savedAt: Number(value.savedAt) || 0, items })
+            }
+            if (table.size > 0 && (sentBySession.get(sessionId) ?? new Map()).size === 0) {
+              sentBySession.set(sessionId, table)
+              touched = true
+            }
+          }
+          if (touched) scheduleRepaint()
+        }
+
         /** localStorage 在受限上下文里可能不可用：取不到就退回纯内存，绝不让保存路径抛错。 */
         function draftStorage() {
           return safe(() => {
@@ -636,6 +744,8 @@ window.__ModuleLoader__.load({
           const items = fitDraftSize(draftItems(annotations))
           if (items.length === 0) draftSessions.delete(sessionId)
           else draftSessions.set(sessionId, items)
+          // 落盘通道也同步一份：localStorage 只在当前客户端里有效。
+          scheduleRemotePush(sessionId)
           const storage = draftStorage()
           if (storage === undefined) return
           try {
@@ -707,6 +817,8 @@ window.__ModuleLoader__.load({
           emit()
           scheduleRepaint()
           if (annotations.length > 0) scheduleSync()
+          // 本地是空的就当远端有数据：跨端切换会话时靠这一步把记录带回来。
+          void hydrateRemoteSession(sessionId)
         }
 
         function toBase64(bytes) {
@@ -1198,6 +1310,7 @@ window.__ModuleLoader__.load({
           const kept = ordered.slice(Math.max(0, ordered.length - SENT_MAX_ENTRIES))
           const trimmed = new Map(kept)
           sentBySession.set(sessionId, trimmed)
+          scheduleRemotePush(sessionId)
           if (storage === undefined) return
           const entries = {}
           for (const [key, value] of kept) entries[key] = value
@@ -2391,9 +2504,10 @@ window.__ModuleLoader__.load({
           })
           const origin = safe(() => window.location.origin) ?? '(无)'
           const tail = typeof sessionId === 'string' ? sessionId.slice(-8) : '(无)'
+          const remote = remoteStoreState === undefined ? '未探测' : remoteStoreState ? '可用' : '不可用'
           box.appendChild(el('div', 'sa-hint', `诊断：会话 ${tail}｜记录 ${records}｜待配对 ${pendingSent.length}`))
           box.appendChild(el('div', 'sa-hint', `消息行 ${userRows + otherRows}（用户 ${userRows}）｜flow-kind ${[...kinds].slice(0, 4).join('/')}`))
-          box.appendChild(el('div', 'sa-hint', `origin ${origin}`))
+          box.appendChild(el('div', 'sa-hint', `origin ${origin}｜落盘 ${remote}`))
           return box
         }
 
