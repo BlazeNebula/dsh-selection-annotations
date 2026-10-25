@@ -153,6 +153,9 @@ window.__ModuleLoader__.load({
 .sa-sent-text { min-width: 0; }
 .sa-sent-quote { color: var(--dsw-alias-label-primary, CanvasText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-note { margin-top: 2px; color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
+.sa-sent-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.sa-sent-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; cursor: zoom-in;
+  border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
 `
 
     return {
@@ -210,6 +213,8 @@ window.__ModuleLoader__.load({
         const SENT_STORAGE_PREFIX = 'dsh-selection-annotations:sent:'
         /** 每个会话最多保留多少条已提交记录。 */
         const SENT_MAX_ENTRIES = 120
+        /** 已提交台账的体积预算：超出时先丢图片，文字永远保留。 */
+        const SENT_MAX_BYTES = 2 * 1024 * 1024
         /** 已提交批注台账（sessionId → Map(anchorKey → 记录)）。 */
         const sentBySession = new Map()
         /** 刚随消息发出、还在等对应消息行出现的负载。 */
@@ -373,10 +378,21 @@ window.__ModuleLoader__.load({
           for (const id of ids) strayIds.set(id, until)
           if (annotations.length === 0) return
           // 发送前留一份负载与「挂附件时页面上已有的批注消息行」：新消息行出现后再按锚点键落台账。
+          // 图片只带缩略图（dataUrl），原图不进台账 —— 清单里要的是「看得出是哪张」。
           const payload = safe(() => JSON.parse(buildPayload(annotations)))
           if (payload !== null && typeof payload === 'object' && Array.isArray(payload.annotations)) {
+            const items = payload.annotations.map((annotation, index) => {
+              const source = annotations[index]
+              const images = Array.isArray(source?.images) ? source.images : []
+              const thumbs = []
+              for (const image of images) {
+                if (typeof image?.thumb !== 'string' || image.thumb === '') continue
+                thumbs.push({ name: typeof image.name === 'string' ? image.name : '图片', dataUrl: image.thumb })
+              }
+              return thumbs.length > 0 ? { ...annotation, thumbs } : annotation
+            })
             pendingSent.push({
-              items: payload.annotations,
+              items,
               known: lastAnnotatedKeys,
               at: Date.now(),
             })
@@ -524,6 +540,44 @@ window.__ModuleLoader__.load({
             })
             if (blob === null || blob.size >= file.size) return file
             return new File([blob], jpegName(file.name), { type: 'image/jpeg' })
+          } finally {
+            safe(() => bitmap.close?.())
+          }
+        }
+
+        /**
+         * 生成一张小缩略图（data URL）。已提交台账里只放缩略图：原尺寸 data URL 会把存储撑爆，
+         * 而清单里需要的是「看得出是哪张图」+ 点击放大。
+         */
+        async function downscaleDataUrl(file, maxSide, quality) {
+          if (typeof createImageBitmap !== 'function') return undefined
+          let bitmap
+          try {
+            bitmap = await createImageBitmap(file)
+          } catch {
+            return undefined
+          }
+          try {
+            const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
+            const width = Math.max(1, Math.round(bitmap.width * scale))
+            const height = Math.max(1, Math.round(bitmap.height * scale))
+            const canvas = document.createElement('canvas')
+            canvas.width = width
+            canvas.height = height
+            const painter = canvas.getContext('2d')
+            if (painter === null) return undefined
+            painter.fillStyle = '#ffffff'
+            painter.fillRect(0, 0, width, height)
+            painter.drawImage(bitmap, 0, 0, width, height)
+            const blob = await new Promise((resolve) => {
+              try {
+                canvas.toBlob(resolve, 'image/jpeg', quality)
+              } catch {
+                resolve(null)
+              }
+            })
+            if (blob === null) return undefined
+            return await fileToDataUrl(new File([blob], 'thumb.jpg', { type: 'image/jpeg' }))
           } finally {
             safe(() => bitmap.close?.())
           }
@@ -1307,7 +1361,17 @@ window.__ModuleLoader__.load({
         function saveSent(sessionId, table) {
           const storage = draftStorage()
           const ordered = [...table.entries()].sort((a, b) => a[1].savedAt - b[1].savedAt)
-          const kept = ordered.slice(Math.max(0, ordered.length - SENT_MAX_ENTRIES))
+          let kept = ordered.slice(Math.max(0, ordered.length - SENT_MAX_ENTRIES))
+          // 体积超限时先丢图片（缩略图是唯一的体积大头），文字永远保留。
+          let serialized = JSON.stringify(Object.fromEntries(kept))
+          if (serialized.length > SENT_MAX_BYTES) {
+            kept = kept.map(([key, value]) => [
+              key,
+              { ...value, items: value.items.map((item) => ({ ...item, thumbs: [] })) },
+            ])
+            serialized = JSON.stringify(Object.fromEntries(kept))
+            if (serialized.length > SENT_MAX_BYTES) kept = kept.slice(Math.max(0, kept.length - 40))
+          }
           const trimmed = new Map(kept)
           sentBySession.set(sessionId, trimmed)
           scheduleRemotePush(sessionId)
@@ -1401,6 +1465,26 @@ window.__ModuleLoader__.load({
               note.className = 'sa-sent-note'
               note.textContent = item.note
               text.appendChild(note)
+            }
+            const thumbs = Array.isArray(item.thumbs) ? item.thumbs : []
+            if (thumbs.length > 0) {
+              const gallery = document.createElement('div')
+              gallery.className = 'sa-sent-thumbs'
+              for (const thumb of thumbs) {
+                if (typeof thumb?.dataUrl !== 'string' || thumb.dataUrl === '') continue
+                const img = document.createElement('img')
+                img.className = 'sa-sent-thumb'
+                img.src = thumb.dataUrl
+                img.alt = typeof thumb.name === 'string' ? thumb.name : '图片'
+                img.title = '点击查看大图'
+                img.addEventListener('click', (event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  openImageViewer(thumb.dataUrl, thumb.name)
+                })
+                gallery.appendChild(img)
+              }
+              if (gallery.childNodes.length > 0) text.appendChild(gallery)
             }
             line.append(num, text)
             body.appendChild(line)
@@ -1975,12 +2059,15 @@ window.__ModuleLoader__.load({
             const processed = await compressImage(file)
             const dataUrl = await fileToDataUrl(processed)
             const url = safe(() => URL.createObjectURL(processed))
+            // 已提交台账只存这张小图：清单里够看清是哪张，点开还能放大。
+            const thumb = await downscaleDataUrl(processed, 480, 0.65)
             popInputImages.push({
               id: `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
               file: processed,
               name: typeof processed.name === 'string' && processed.name !== '' ? processed.name : '图片',
               url: typeof url === 'string' ? url : undefined,
               dataUrl,
+              thumb,
               bytes: Number(processed.size) || 0,
             })
             renderPopImages()
