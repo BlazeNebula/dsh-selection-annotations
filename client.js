@@ -647,10 +647,10 @@ window.__ModuleLoader__.load({
           }
         }
 
-        /** 当前会话的可落盘快照：草稿与已提交台账。 */
+        /** 当前会话的可落盘快照：草稿与已提交台账（落盘不做体积裁剪）。 */
         function sessionSnapshot(sessionId) {
           const drafts =
-            annotationsSession === sessionId ? fitDraftSize(draftItems(annotations)) : draftSessions.get(sessionId) ?? []
+            annotationsSession === sessionId ? draftItems(annotations) : draftSessions.get(sessionId) ?? []
           const sent = {}
           for (const [key, value] of sentBySession.get(sessionId) ?? []) sent[key] = value
           return { schemaVersion: 1, sessionId, updatedAt: new Date().toISOString(), drafts, sent }
@@ -795,9 +795,11 @@ window.__ModuleLoader__.load({
         /** 存一份草稿；批注被清空时把这一键一起删掉。 */
         function saveDraft(sessionId) {
           if (typeof sessionId !== 'string' || sessionId === '') return
-          const items = fitDraftSize(draftItems(annotations))
-          if (items.length === 0) draftSessions.delete(sessionId)
-          else draftSessions.set(sessionId, items)
+          // 内存与落盘保留完整内容；只有 localStorage 受配额限制，写进去时才裁剪。
+          const full = draftItems(annotations)
+          const items = fitDraftSize(full)
+          if (full.length === 0) draftSessions.delete(sessionId)
+          else draftSessions.set(sessionId, full)
           // 落盘通道也同步一份：localStorage 只在当前客户端里有效。
           scheduleRemotePush(sessionId)
           const storage = draftStorage()
@@ -1361,27 +1363,27 @@ window.__ModuleLoader__.load({
         function saveSent(sessionId, table) {
           const storage = draftStorage()
           const ordered = [...table.entries()].sort((a, b) => a[1].savedAt - b[1].savedAt)
-          let kept = ordered.slice(Math.max(0, ordered.length - SENT_MAX_ENTRIES))
-          // 体积超限时先丢图片（缩略图是唯一的体积大头），文字永远保留。
-          let serialized = JSON.stringify(Object.fromEntries(kept))
-          if (serialized.length > SENT_MAX_BYTES) {
-            kept = kept.map(([key, value]) => [
+          // 内存与落盘都保留完整记录；只有 localStorage 受配额限制，写进去时按预算裁剪。
+          const kept = ordered.slice(Math.max(0, ordered.length - SENT_MAX_ENTRIES))
+          sentBySession.set(sessionId, new Map(kept))
+          scheduleRemotePush(sessionId)
+          if (storage === undefined) return
+          let stored = kept
+          if (JSON.stringify(Object.fromEntries(kept)).length > SENT_MAX_BYTES) {
+            stored = kept.map(([key, value]) => [
               key,
               { ...value, items: value.items.map((item) => ({ ...item, thumbs: [] })) },
             ])
-            serialized = JSON.stringify(Object.fromEntries(kept))
-            if (serialized.length > SENT_MAX_BYTES) kept = kept.slice(Math.max(0, kept.length - 40))
+            if (JSON.stringify(Object.fromEntries(stored)).length > SENT_MAX_BYTES) {
+              stored = stored.slice(Math.max(0, stored.length - 40))
+            }
           }
-          const trimmed = new Map(kept)
-          sentBySession.set(sessionId, trimmed)
-          scheduleRemotePush(sessionId)
-          if (storage === undefined) return
           const entries = {}
-          for (const [key, value] of kept) entries[key] = value
+          for (const [key, value] of stored) entries[key] = value
           try {
             storage.setItem(`${SENT_STORAGE_PREFIX}${sessionId}`, JSON.stringify({ version: 1, entries }))
           } catch {
-            /* 配额满：只保留内存台账 */
+            /* 配额满：本地缓存放弃写入，落盘通道仍有完整记录 */
           }
         }
 
