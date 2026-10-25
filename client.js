@@ -1393,21 +1393,48 @@ window.__ModuleLoader__.load({
          * 不能等附件卡片做锚点：实测会话日志里用户消息**不含 file 块**，页面上也就没有
          * 「批注.json」卡片。所以锚点直接取消息行本身。
          */
-        function collectUserRows() {
+        /**
+         * 页面上可能承载「本次批注」的行，按可信度从高到低：
+         *   1. 带批注附件的行（最精确，但纯批注消息在部分视图里不渲染附件行）；
+         *   2. 用户消息行；
+         *   3. 折叠组 / 过程行 —— 纯批注消息常被收进 `turn-process` 组，只有组行可锚定。
+         * 三者取并集、按锚点键去重，避免同一行被重复插入卡片。
+         */
+        function collectAnchorRows() {
           const rows = []
+          const seen = new Set()
+          const push = (element, anchorKey) => {
+            if (anchorKey === '' || seen.has(anchorKey)) return
+            seen.add(anchorKey)
+            rows.push({ row: element, anchorKey })
+          }
+
+          for (const attachmentRow of document.querySelectorAll('[data-message-attachments]')) {
+            if (!/批注\.json/.test(attachmentRow.textContent ?? '')) continue
+            const row = attachmentRow.closest('[data-chat-anchor-key]')
+            if (row === null) continue
+            push(row, row.getAttribute('data-chat-anchor-key') ?? '')
+          }
+
           for (const element of document.querySelectorAll('[data-chat-anchor-key]')) {
             const kind = element.getAttribute('data-chat-flow-kind') ?? ''
             if (kind !== 'user' && kind !== 'steering') continue
+            push(element, element.getAttribute('data-chat-anchor-key') ?? '')
+          }
+
+          for (const element of document.querySelectorAll('[data-chat-anchor-key]')) {
+            const kind = element.getAttribute('data-chat-flow-kind') ?? ''
             const anchorKey = element.getAttribute('data-chat-anchor-key') ?? ''
-            if (anchorKey === '') continue
-            rows.push({ row: element, anchorKey })
+            if (kind === '' || kind === 'turn-process' || anchorKey.startsWith('group:')) {
+              push(element, anchorKey)
+            }
           }
           return rows
         }
 
-        /** 当前页面上已有的用户消息锚点键。 */
-        function captureUserKeys() {
-          return new Set(collectUserRows().map((entry) => entry.anchorKey))
+        /** 当前页面上已有的候选锚点键。 */
+        function captureAnchorKeys() {
+          return new Set(collectAnchorRows().map((entry) => entry.anchorKey))
         }
 
         function recordSent(sessionId, anchorKey, items) {
@@ -1416,7 +1443,7 @@ window.__ModuleLoader__.load({
           saveSent(sessionId, table)
         }
 
-        /** 把新出现的用户消息行与刚发出的批注负载按出现顺序配对。 */
+        /** 把新出现的候选行与刚发出的批注负载按出现顺序配对。 */
         function scanSentMessages() {
           if (pendingSent.length === 0) return
           const now = Date.now()
@@ -1424,13 +1451,17 @@ window.__ModuleLoader__.load({
           if (pendingSent.length === 0) return
           const sessionId = currentSessionId()
           if (sessionId === undefined) return
-          for (const entry of collectUserRows()) {
-            if (loadSent(sessionId).has(entry.anchorKey)) continue
-            const index = pendingSent.findIndex((pending) => !pending.known.has(entry.anchorKey))
-            if (index === -1) continue
-            const pending = pendingSent.splice(index, 1)[0]
-            recordSent(sessionId, entry.anchorKey, pending.items)
-          }
+          const rows = collectAnchorRows()
+          if (rows.length === 0) return
+          const pending = pendingSent[0]
+          // 候选：不在「发送前快照」里、也还没落台账的行。
+          const fresh = rows.filter((entry) => !pending.known.has(entry.anchorKey) && !loadSent(sessionId).has(entry.anchorKey))
+          // 兜底：纯批注消息可能复用已有的组行（锚点键不变），那就取最后一个还没记账的行。
+          const target = fresh.length > 0 ? fresh[fresh.length - 1] : undefined
+          if (target === undefined) return
+          pendingSent.shift()
+          recordSent(sessionId, target.anchorKey, pending.items)
+          scheduleRepaint()
         }
 
         function truncateQuote(value) {
@@ -1502,13 +1533,13 @@ window.__ModuleLoader__.load({
           return card
         }
 
-        /** 在历史用户消息行里补出已提交批注卡片；同一行只补一次。 */
+        /** 在历史行里补出已提交批注卡片；同一行只补一次。 */
         function renderSentCards() {
           const sessionId = currentSessionId()
           if (sessionId === undefined) return
           const table = loadSent(sessionId)
           if (table.size === 0) return
-          for (const entry of collectUserRows()) {
+          for (const entry of collectAnchorRows()) {
             if (entry.row.querySelector('[data-sa-ui="sent"]') !== null) continue
             const record = table.get(entry.anchorKey)
             if (record === undefined || record.items.length === 0) continue
@@ -1779,7 +1810,7 @@ window.__ModuleLoader__.load({
               return
             }
             // 发出去之前页面上已有的批注消息行：发送后据此区分「新消息」与「旧历史」。
-            lastAnnotatedKeys = captureUserKeys()
+            lastAnnotatedKeys = captureAnchorKeys()
             log(`[selection-annotations] 批注块已挂到本条消息（${annotations.length} 条）`)
           } catch (err) {
             warn('[selection-annotations] 批注附件同步失败：', err)
@@ -2582,6 +2613,7 @@ window.__ModuleLoader__.load({
           const records = typeof sessionId === 'string' ? loadSent(sessionId).size : 0
           let userRows = 0
           let otherRows = 0
+          let candidates = 0
           let kinds = new Set()
           safe(() => {
             for (const element of document.querySelectorAll('[data-chat-anchor-key]')) {
@@ -2591,11 +2623,14 @@ window.__ModuleLoader__.load({
               else otherRows += 1
             }
           })
+          safe(() => {
+            candidates = collectAnchorRows().length
+          })
           const origin = safe(() => window.location.origin) ?? '(无)'
           const tail = typeof sessionId === 'string' ? sessionId.slice(-8) : '(无)'
           const remote = remoteStoreState === undefined ? '未探测' : remoteStoreState ? '可用' : '不可用'
           box.appendChild(el('div', 'sa-hint', `诊断：会话 ${tail}｜记录 ${records}｜待配对 ${pendingSent.length}`))
-          box.appendChild(el('div', 'sa-hint', `消息行 ${userRows + otherRows}（用户 ${userRows}）｜flow-kind ${[...kinds].slice(0, 4).join('/')}`))
+          box.appendChild(el('div', 'sa-hint', `消息行 ${userRows + otherRows}（用户 ${userRows}）｜候选 ${candidates}｜flow-kind ${[...kinds].slice(0, 4).join('/')}`))
           box.appendChild(el('div', 'sa-hint', `origin ${origin}｜落盘 ${remote}`))
           return box
         }
