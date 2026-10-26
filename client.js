@@ -141,7 +141,7 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-setting-value { min-width: 34px; font-variant-numeric: tabular-nums; }
 .sa-setting-number { width: 68px; }
-.sa-sent { margin: 6px 0 0; max-width: min(520px, 100%); flex-basis: 100%; }
+.sa-sent { display: block; margin: 6px 0 0; max-width: min(520px, 100%); }
 .sa-sent-head { font: inherit; font-size: 11px; line-height: 1; padding: 4px 8px; cursor: pointer;
   color: var(--dsw-alias-brand-primary, #247bbf); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 32%, transparent); border-radius: 999px; }
@@ -1470,10 +1470,12 @@ window.__ModuleLoader__.load({
         }
 
         /** 一条已提交批注在历史里的卡片：默认收起，点开看引文与批注文字。 */
-        function buildSentCard(record) {
+        function buildSentCard(record, anchorKey) {
           const card = document.createElement('div')
           card.className = 'sa-sent'
           card.setAttribute('data-sa-ui', 'sent')
+          // 记下锚点键：卡片现在插在消息行外，判重要靠它而不是「行内有没有卡片」。
+          if (typeof anchorKey === 'string' && anchorKey !== '') card.setAttribute('data-anchor', anchorKey)
           const head = document.createElement('button')
           head.type = 'button'
           head.className = 'sa-sent-head'
@@ -1533,17 +1535,22 @@ window.__ModuleLoader__.load({
           return card
         }
 
-        /** 在历史行里补出已提交批注卡片；同一行只补一次。 */
+        /** 在历史行下方补出已提交批注卡片；同一行只补一次。 */
         function renderSentCards() {
           const sessionId = currentSessionId()
           if (sessionId === undefined) return
           const table = loadSent(sessionId)
           if (table.size === 0) return
           for (const entry of collectAnchorRows()) {
-            if (entry.row.querySelector('[data-sa-ui="sent"]') !== null) continue
             const record = table.get(entry.anchorKey)
             if (record === undefined || record.items.length === 0) continue
-            entry.row.appendChild(buildSentCard(record))
+            const anchor = cssEscape(entry.anchorKey)
+            if (document.querySelector(`[data-sa-ui="sent"][data-anchor="${anchor}"]`) !== null) continue
+            const card = buildSentCard(record, entry.anchorKey)
+            // 插在消息行**后面**，不要插进行内部：过程折叠组/分组行内部布局会让卡片压住正文。
+            const parent = entry.row.parentElement
+            if (parent !== null) parent.insertBefore(card, entry.row.nextSibling)
+            else entry.row.appendChild(card)
           }
         }
 
