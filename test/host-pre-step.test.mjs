@@ -187,3 +187,55 @@ test('Config：非法 maxPayloadBytes 回落到默认值而不是报错', async 
   const decision = await run([message], { a1: REPORT }, { maxPayloadBytes: -5 })
   assert.equal(decision.messages.length, 2, '回落默认上限后应当正常认领')
 })
+
+test('annotation_replies 执行后把逐条答复写进会话落盘文件', async () => {
+  const { mkdtemp, readFile: readStoreFile, rm: removeDir } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'sa-replies-'))
+  const previousHome = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    let definition
+    const ctx = {
+      on() {},
+      get() {
+        return undefined
+      },
+      inject() {
+        throw new Error('no async services in this fake ctx')
+      },
+      tools: {
+        register(value) {
+          definition = value
+          return () => {}
+        },
+      },
+    }
+    apply(ctx, undefined)
+    assert.ok(definition, '必须注册 annotation_replies')
+    const sessionId = 'session-11111111-2222-3333-4444-555555555555'
+    const value = await definition.execute(
+      {
+        replies: [
+          { index: 1, verdict: 'accepted', reason: '已改' },
+          { index: 2, verdict: 'needs_info', reason: '要确认' },
+        ],
+      },
+      { agent: { session: { id: sessionId } } },
+    )
+    assert.equal(value.accepted, 1)
+    assert.equal(value.needsInfo, 1)
+    const file = join(home, 'selection-annotations', 'sessions', `${sessionId}.json`)
+    const stored = JSON.parse(await readStoreFile(file, 'utf8'))
+    assert.equal(Array.isArray(stored.replies), true)
+    assert.equal(stored.replies.length, 1)
+    assert.equal(stored.replies[0].replies.length, 2)
+    assert.equal(stored.replies[0].accepted, 1)
+    assert.equal(stored.replies[0].needsInfo, 1)
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    await removeDir(home, { recursive: true, force: true })
+  }
+})

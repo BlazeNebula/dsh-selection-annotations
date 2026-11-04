@@ -555,10 +555,13 @@ const payloadOf = async (upload) => JSON.parse(await payloadTextOf(upload))
 
 test('apply 之后：悬挂 UI 建成、批注按钮注册进发送按钮旁的槽位', () => {
   const harness = makeHarness()
-  assert.equal(harness.registrations.length, 1)
-  assert.equal(harness.registrations[0].opts.name, 'conversation.input.right', '必须在发送按钮旁的紧凑控件槽位')
-  assert.equal(harness.registrations[0].opts.id, 'selection-annotations')
-  assert.equal(typeof harness.registrations[0].Component, 'function')
+  assert.equal(harness.registrations.length, 3)
+  const byName = Object.fromEntries(harness.registrations.map((registration) => [registration.opts.name, registration]))
+  assert.equal(byName['conversation.input.right'].opts.name, 'conversation.input.right', '必须在发送按钮旁的紧凑控件槽位')
+  assert.equal(byName['conversation.input.right'].opts.id, 'selection-annotations')
+  assert.equal(typeof byName['conversation.input.right'].Component, 'function')
+  assert.equal(byName['tool.call.toolview'].opts.key, 'annotation_replies', '逐条答复走工具调用卡片位')
+  assert.equal(byName['plugins.bundle.config'].opts.key, '@u2a5f/dsh-selection-annotations', '插件详情页设置区按包名接管')
   assert.ok(harness.mod.inject.includes('remote'), '声明 remote 才能拿到 ctx.remote 读工作区原文')
   assert.equal(harness.env.document.body.childNodes.length, 5, '覆盖层 / 工具条 / 批注弹层 / 悬浮面板 / 图片查看层都要挂上')
 
@@ -1066,8 +1069,43 @@ test('已提交批注按消息锚点落台账，可从历史消息行查回', ()
   assert.ok(storage.length >= 1, '已提交台账要落进 localStorage')
 })
 
-test('批注可以带图片：图片草稿与 JSON 一起挂上，只等 JSON 的上传', async () => {
+test('逐条答复卡片：同一批注以最后一批为准，判定与理由都进卡片', () => {
   const harness = makeHarness()
+  const { buildReplySection, mergeReplyBatches } = harness.debug._internals
+  const merged = mergeReplyBatches([
+    { at: 1, replies: [{ index: 1, verdict: 'accepted', reason: '已改' }] },
+    {
+      at: 2,
+      replies: [
+        { index: 1, verdict: 'partial', reason: '改了一半' },
+        { index: 2, verdict: 'needs_info', reason: '要确认', next: '下一轮确认' },
+      ],
+    },
+  ])
+  assert.equal(merged.length, 2, '同一 index 只保留一条')
+  assert.equal(merged[0].verdict, 'partial', '同一 index 以最后一批为准')
+  const card = buildReplySection([{ at: 2, replies: merged }])
+  assert.equal(card.getAttribute('data-sa-ui'), 'replies')
+  const text = card.textContent
+  assert.match(text, /批注答复 ×2/)
+  assert.match(text, /部分采纳/)
+  assert.match(text, /需要澄清/)
+  assert.match(text, /改了一半/)
+  assert.match(text, /下一步：下一轮确认/)
+
+  // 带批注引文时，每条先给批注块（引文＋批注文字），再给答复块。
+  const withContext = buildReplySection([{ at: 2, replies: merged }], [
+    { index: 1, quote: '原文第一句', note: '我的批注' },
+  ])
+  assert.ok(withContext.querySelector('.sa-q') !== null, '引文应该渲染成批注块')
+  assert.ok(withContext.querySelector('.sa-a') !== null, '判定与理由应该渲染成答复块')
+  assert.match(withContext.textContent, /原文第一句/)
+  assert.match(withContext.textContent, /我的批注/)
+  assert.match(withContext.textContent, /批注 1/)
+  assert.match(withContext.textContent, /批注 2 · 答复/)
+})
+
+test('批注可以带图片：图片草稿与 JSON 一起挂上，只等 JSON 的上传', async () => {  const harness = makeHarness()
   const image = new File([new Uint8Array([1, 2, 3])], 'shot.png', { type: 'image/png' })
   harness.debug.add({
     quote: '选中的原文',

@@ -1,7 +1,7 @@
 {
   "name": "@u2a5f/dsh-selection-annotations",
   "version": "1.2.0",
-  "description": "DSH plugin: select text in the Web UI to annotate it, and send the whole set with your message as a separate JSON content block — never mixed into your message text.",
+  "description": "DeepSeek Harness 批注插件：在 Web 界面里选中文字加批注，随消息一起发送；批注是独立的 JSON 数据块，不会混进消息正文。DSH plugin: select text in the Web UI to annotate it, and send the whole set with your message as a separate JSON content block — never mixed into your message text.",
   "type": "module",
   "license": "MIT",
   "author": "U2A5F <U2A5F@outlook.com>",
