@@ -2835,6 +2835,9 @@ window.__ModuleLoader__.load({
           const draggedId = event.dataTransfer.getData('text/plain')
           if (draggedId !== '') moveAnnotation(draggedId, null)
         })
+        /** 面板尺寸变化时（例如手动拖高设置输入框）重新贴底。*/
+        let panelRaf = 0
+        let panelObserver = null
         // 输入框被手动拖高、或内容增减导致面板尺寸变化时，重新计算位置让底边不动。
         if (typeof ResizeObserver === 'function') {
           panelObserver = new ResizeObserver(() => {
@@ -2851,9 +2854,6 @@ window.__ModuleLoader__.load({
         let panelAnchor = null
         /** 关闭动画结束后再隐藏面板，避免过渡被 display:none 打断。*/
         let panelHideTimer = 0
-        /** 面板尺寸变化时（例如手动拖高设置输入框）重新贴底。*/
-        let panelRaf = 0
-        let panelObserver = null
         /** 面板底部的图片设置是否展开。*/
         let imageSettingsOpen = false
         /** 面板底部的批注指令设置是否展开。*/

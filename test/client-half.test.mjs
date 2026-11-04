@@ -250,6 +250,12 @@ function makeEnvironment(options = {}) {
     // 草稿持久化走真实形状的 storage；测试可传入共享实例模拟「刷新页面」。
     localStorage: options.localStorage ?? makeMemoryStorage(),
     getSelection: () => ({ rangeCount: 0, isCollapsed: true, getRangeAt: () => null, removeAllRanges() {} }),
+    requestAnimationFrame: (callback) => {
+      const timer = setTimeout(callback, 0)
+      if (typeof timer?.unref === 'function') timer.unref()
+      return timer
+    },
+    cancelAnimationFrame: (timer) => clearTimeout(timer),
   }
 
   const require = (name) => {
@@ -284,6 +290,7 @@ function loadBundle(env) {
     'window',
     'document',
     'MutationObserver',
+    'ResizeObserver',
     'TextEncoder',
     'btoa',
     'console',
@@ -294,6 +301,10 @@ function loadBundle(env) {
   factory(
     env.window,
     env.document,
+    class {
+      observe() {}
+      disconnect() {}
+    },
     class {
       observe() {}
       disconnect() {}
