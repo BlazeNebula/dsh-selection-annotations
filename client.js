@@ -132,6 +132,10 @@ window.__ModuleLoader__.load({
 .sa-item:last-child { border-bottom: none; }
 .sa-item.sa-dragging { opacity: 0.45; }
 .sa-item.sa-drop-before { box-shadow: inset 0 2px 0 var(--dsw-alias-brand-primary, #247bbf); }
+.sa-drag-handle { cursor: grab; color: var(--dsw-alias-label-secondary, GrayText); font-size: 12px; line-height: 1;
+  padding: 2px 3px; border-radius: 4px; user-select: none; }
+.sa-drag-handle:hover { background: var(--dsw-alias-bg-layer-2, ButtonFace); color: var(--dsw-alias-label-primary, CanvasText); }
+.sa-drag-handle:active { cursor: grabbing; }
 .sa-item-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-item-num { font-weight: 600; color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-item-src { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2831,11 +2835,25 @@ window.__ModuleLoader__.load({
           const draggedId = event.dataTransfer.getData('text/plain')
           if (draggedId !== '') moveAnnotation(draggedId, null)
         })
+        // 输入框被手动拖高、或内容增减导致面板尺寸变化时，重新计算位置让底边不动。
+        if (typeof ResizeObserver === 'function') {
+          panelObserver = new ResizeObserver(() => {
+            if (!panelOpen || panelRaf !== 0) return
+            panelRaf = window.requestAnimationFrame(() => {
+              panelRaf = 0
+              positionPanel()
+            })
+          })
+          panelObserver.observe(panelEl)
+        }
 
         let panelOpen = false
         let panelAnchor = null
         /** 关闭动画结束后再隐藏面板，避免过渡被 display:none 打断。*/
         let panelHideTimer = 0
+        /** 面板尺寸变化时（例如手动拖高设置输入框）重新贴底。*/
+        let panelRaf = 0
+        let panelObserver = null
         /** 面板底部的图片设置是否展开。*/
         let imageSettingsOpen = false
         /** 面板底部的批注指令设置是否展开。*/
@@ -2912,6 +2930,10 @@ window.__ModuleLoader__.load({
               if (draggedId !== '') moveAnnotation(draggedId, item.id)
             })
             const head = el('div', 'sa-item-head')
+            const grip = el('span', 'sa-drag-handle', '⠿')
+            grip.title = '拖动排序'
+            grip.setAttribute('aria-label', '拖动排序')
+            head.appendChild(grip)
             head.appendChild(el('span', 'sa-item-num', `#${item.number}`))
             const summary = el('span', 'sa-item-src', sourceSummary(item))
             summary.title = summary.textContent
@@ -3200,6 +3222,14 @@ window.__ModuleLoader__.load({
             overlay.remove()
             toolbar.remove()
             popover.remove()
+            if (panelObserver !== null) {
+              panelObserver.disconnect()
+              panelObserver = null
+            }
+            if (panelRaf !== 0) {
+              window.cancelAnimationFrame(panelRaf)
+              panelRaf = 0
+            }
             panelRoot.remove()
             imageViewer.remove()
           }
