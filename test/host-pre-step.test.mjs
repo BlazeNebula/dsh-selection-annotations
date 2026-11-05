@@ -188,6 +188,91 @@ test('Config：非法 maxPayloadBytes 回落到默认值而不是报错', async 
   assert.equal(decision.messages.length, 2, '回落默认上限后应当正常认领')
 })
 
+let reminderSessionSeq = 0
+
+/** 组装一个带 systemPrompt、会话事件与 turn-stopping 的 ctx。 */
+function makeReminderCtx() {
+  const handlers = new Map()
+  const sections = []
+  const steered = []
+  const agent = {
+    session: { id: `session-reminder-${++reminderSessionSeq}`, header: {} },
+    steer(message) {
+      steered.push(message)
+    },
+  }
+  const ctx = {
+    on(name, handler) {
+      handlers.set(name, handler)
+    },
+    get() {
+      return undefined
+    },
+    inject() {
+      throw new Error('no async services in this fake ctx')
+    },
+    systemPrompt: {
+      getSectionOrder(name) {
+        assert.equal(name, 'STRUCTURED_OUTPUT')
+        return 9900
+      },
+      section(section) {
+        sections.push(section)
+        return () => {}
+      },
+    },
+  }
+  apply(ctx, undefined)
+  return {
+    sections,
+    steered,
+    emit(type, data) {
+      handlers.get('session/event')(agent.session, { type, data })
+    },
+    stop(turn) {
+      handlers.get('agent/turn-stopping')({ agent, turn, signal: { aborted: false } })
+    },
+  }
+}
+
+test('常驻系统说明：注册到 STRUCTURED_OUTPUT 序位，要求调用 annotation_replies', () => {
+  const { sections } = makeReminderCtx()
+  assert.equal(sections.length, 1)
+  assert.equal(sections[0].name, 'selection-annotations:replies')
+  assert.equal(sections[0].order, 9900)
+  assert.match(sections[0].text, /annotation_replies/)
+})
+
+test('回合结束检查：收到批注却没调用工具时补一条提醒，同一回合只提醒一次', () => {
+  const { steered, emit, stop } = makeReminderCtx()
+  emit('turn/start', { turn: 3 })
+  emit('user/message', { source: { kind: 'annotation' } })
+  stop(3)
+  assert.equal(steered.length, 1)
+  assert.equal(steered[0].role, 'user')
+  assert.match(steered[0].content[0].text, /annotation_replies/)
+  assert.equal(steered[0].source.kind, 'plugin:dsh-selection-annotations')
+  assert.equal(steered[0].source.form, 'notice')
+  stop(3)
+  assert.equal(steered.length, 1)
+})
+
+test('回合结束检查：调用了 annotation_replies 就不再提醒', () => {
+  const { steered, emit, stop } = makeReminderCtx()
+  emit('turn/start', { turn: 4 })
+  emit('user/message', { source: { kind: 'annotation' } })
+  emit('tool/call', { name: 'annotation_replies', turn: 4 })
+  stop(4)
+  assert.equal(steered.length, 0)
+})
+
+test('回合结束检查：这一轮没有批注时不提醒', () => {
+  const { steered, emit, stop } = makeReminderCtx()
+  emit('turn/start', { turn: 5 })
+  stop(5)
+  assert.equal(steered.length, 0)
+})
+
 test('annotation_replies 执行后把逐条答复写进会话落盘文件', async () => {
   const { mkdtemp, readFile: readStoreFile, rm: removeDir } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')

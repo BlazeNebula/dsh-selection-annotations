@@ -113,7 +113,8 @@ function matches(el, selector) {
       continue
     }
     if (/^\.[A-Za-z0-9_-]+$/.test(candidate)) {
-      if (String(el.className).split(/\s+/).includes(candidate.slice(1))) return true
+      const classes = `${el.className} ${el.getAttribute('class') ?? ''}`.split(/\s+/).filter(Boolean)
+      if (classes.includes(candidate.slice(1))) return true
       continue
     }
     if (/^(input|textarea)$/i.test(candidate) && el.tagName === candidate.toUpperCase()) return true
@@ -215,6 +216,7 @@ function makeEnvironment(options = {}) {
     head,
     body,
     createElement: (tag) => element(tag),
+    createElementNS: (_namespace, tag) => element(tag),
     addEventListener: (type, handler) => listeners.set(type, handler),
     removeEventListener: (type) => listeners.delete(type),
     createRange: () => new FakeRange(),
@@ -353,6 +355,34 @@ function makeHarness(options = {}) {
   const registrations = []
   const draftAttachments = new Map()
   let draftSeq = 0
+
+  // 语言服务：形状与 dsh-client-locale 一致（register / bind / subscribe / getSnapshot）。
+  const localeDictionaries = []
+  const localeListeners = new Set()
+  let localeActive = options.localeActive ?? 'zh'
+  const localeService = {
+    getSnapshot: () => ({ active: localeActive, revision: 0 }),
+    register(namespace, dictionaries) {
+      localeDictionaries.push({ namespace, dictionaries })
+      return () => {}
+    },
+    bind(namespace) {
+      return (key, params) => {
+        const entry = localeDictionaries.find((item) => item.namespace === namespace)
+        const template = entry?.dictionaries?.[localeActive]?.[key] ?? key
+        if (params === undefined || params === null) return template
+        return template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
+      }
+    },
+    subscribe(fn) {
+      localeListeners.add(fn)
+      return () => localeListeners.delete(fn)
+    },
+    setActive(next) {
+      localeActive = next
+      for (const fn of [...localeListeners]) fn()
+    },
+  }
 
   const fileUploads = createStore({})
   // 运行时外壳的「实时字段」：插件据此判断附件是否还在。
@@ -507,6 +537,7 @@ function makeHarness(options = {}) {
           },
         }
       }
+      if (name === 'locale' && options.locale !== false) return localeService
       return undefined
     },
     effect(callback) {
@@ -531,6 +562,7 @@ function makeHarness(options = {}) {
       list: { getSnapshot: () => ({ current: options.sessionId ?? 's1' }) },
     },
     conversation,
+    locale: options.locale === false ? undefined : localeService,
   }
 
   mod.apply(ctx)
@@ -543,6 +575,8 @@ function makeHarness(options = {}) {
     sourceReads,
     released,
     registrations,
+    locale: localeService,
+    localeDictionaries,
     shell,
     conversation,
     fileUploads,
@@ -574,7 +608,7 @@ test('apply 之后：悬挂 UI 建成、批注按钮注册进发送按钮旁的�
   assert.equal(byName['tool.call.toolview'].opts.key, 'annotation_replies', '逐条答复走工具调用卡片位')
   assert.equal(byName['plugins.bundle.config'].opts.key, '@u2a5f/dsh-selection-annotations', '插件详情页设置区按包名接管')
   assert.ok(harness.mod.inject.includes('remote'), '声明 remote 才能拿到 ctx.remote 读工作区原文')
-  assert.equal(harness.env.document.body.childNodes.length, 5, '覆盖层 / 工具条 / 批注弹层 / 悬浮面板 / 图片查看层都要挂上')
+  assert.equal(harness.env.document.body.childNodes.length, 6, '覆盖层 / 工具条 / 右键菜单 / 批注弹层 / 悬浮面板 / 图片查看层都要挂上')
 
   const ui = harness.env.document.head.childNodes[0]
   assert.equal(ui.tagName, 'STYLE')
@@ -991,7 +1025,100 @@ test('负载里带上坐标口径：能读到原文用 source，否则 rendered'
   assert.equal(payloadSource({ kind: 'file', path: 'a.md', textOrigin: 'source' }).textOrigin, 'source')
   assert.equal(payloadSource({ kind: 'file', path: 'a.md' }).textOrigin, 'rendered')
   assert.equal(payloadSource({ kind: 'message', role: 'assistant' }).textOrigin, 'rendered')
+  assert.deepEqual(
+    payloadSource({ kind: 'reply', batchAt: 1700000000, index: 3, field: 'reason', charStart: 2, charEnd: 6 }),
+    { kind: 'reply', batchAt: 1700000000, index: 3, field: 'reason', textOrigin: 'rendered', charStart: 2, charEnd: 6 },
+  )
   assert.equal(payloadSource({ kind: 'dom' }).textOrigin, undefined, '非文件/消息来源不带口径')
+})
+
+test('出处捕获：逐条答复卡片里划线时锚到批次、批注编号与字段偏移', () => {
+  const harness = makeHarness()
+  const { captureSource } = harness.debug._internals
+
+  const text = harness.env.node('答复理由正文')
+  const reason = harness.env.element('div', { 'data-sa-field': 'reason' }, [text])
+  reason.className = 'sa-a-reason'
+  const group = harness.env.element('div', { 'data-sa-batch-at': '1700000000', 'data-sa-reply-index': '3' }, [reason])
+  group.className = 'sa-reply-item'
+  const card = harness.env.element('div', { 'data-sa-ui': 'replies' }, [group])
+  harness.env.setRangeRoot(card)
+
+  const range = harness.env.document.createRange().setStart(text, 2).setEnd(text, 6)
+  const source = captureSource(range)
+  assert.equal(source.kind, 'reply')
+  assert.equal(source.batchAt, 1700000000)
+  assert.equal(source.index, 3)
+  assert.equal(source.field, 'reason')
+  assert.equal(source.charStart, 2)
+  assert.equal(source.charEnd, 6)
+  assert.equal(source.textOrigin, 'rendered')
+})
+
+test('出处文案：逐条答复写出明确锚点与字符区间', () => {
+  const harness = makeHarness()
+  const { describeSource } = harness.debug._internals
+  assert.equal(
+    describeSource({ kind: 'reply', batchAt: 1700000000, index: 3, field: 'reason', charStart: 2, charEnd: 6 }),
+    '逐条答复 · 批注 3 · 答复理由（锚点 reply:1700000000:3:reason，字符 2–6）',
+  )
+  assert.equal(
+    describeSource({ kind: 'reply', index: 2, field: 'item', charStart: 0, charEnd: 5 }),
+    '逐条答复 · 批注 2 · 整条答复（锚点 reply:-:2:item，字符 0–5）',
+  )
+  assert.equal(
+    describeSource({ kind: 'sent', anchorKey: '14:user-step3:9', index: 2, field: 'quote', charStart: 3, charEnd: 7 }),
+    '已发送批注 · 批注 2 · 引用原文（锚点 sent:14:user-step3:9:2:quote，字符 3–7）',
+  )
+})
+
+test('出处捕获：旧答复卡片没有 data 属性时按类名与标题兜底', () => {
+  const harness = makeHarness()
+  const { captureSource } = harness.debug._internals
+
+  const head = harness.env.element('div', {}, [])
+  head.className = 'sa-reply-head'
+  const indexLabel = harness.env.element('span', {}, [harness.env.node('批注 4')])
+  indexLabel.className = 'sa-reply-index'
+  head.appendChild(indexLabel)
+  const text = harness.env.node('旧卡片里的答复理由')
+  const reason = harness.env.element('div', {}, [text])
+  reason.className = 'sa-a-reason'
+  const group = harness.env.element('div', {}, [head, reason])
+  group.className = 'sa-reply-item'
+  const card = harness.env.element('div', { 'data-sa-ui': 'replies' }, [group])
+  harness.env.setRangeRoot(card)
+
+  const range = harness.env.document.createRange().setStart(text, 1).setEnd(text, 5)
+  const source = captureSource(range)
+  assert.equal(source.kind, 'reply')
+  assert.equal(source.index, 4, '编号要从「批注 4」标题里读回来')
+  assert.equal(source.field, 'reason', '字段要从类名推断')
+  assert.equal(source.charStart, 1)
+  assert.equal(source.charEnd, 5)
+})
+
+test('出处捕获：已发送批注卡片里划线时锚到消息键、编号与字段', () => {
+  const harness = makeHarness()
+  const { captureSource } = harness.debug._internals
+
+  const text = harness.env.node('已发送的批注原文')
+  const quote = harness.env.element('div', { 'data-sa-field': 'quote' }, [text])
+  quote.className = 'sa-sent-quote'
+  const item = harness.env.element('div', { 'data-sa-sent-index': '2' }, [quote])
+  item.className = 'sa-sent-item'
+  const card = harness.env.element('div', { 'data-sa-ui': 'sent', 'data-anchor': '14:user-step3:9' }, [item])
+  harness.env.setRangeRoot(card)
+
+  const range = harness.env.document.createRange().setStart(text, 3).setEnd(text, 7)
+  const source = captureSource(range)
+  assert.equal(source.kind, 'sent')
+  assert.equal(source.anchorKey, '14:user-step3:9')
+  assert.equal(source.index, 2)
+  assert.equal(source.field, 'quote')
+  assert.equal(source.charStart, 3)
+  assert.equal(source.charEnd, 7)
+  assert.equal(source.textOrigin, 'rendered')
 })
 
 test('出处捕获：助手消息锚点 + 文件路径与行号', () => {
@@ -1097,6 +1224,16 @@ test('逐条答复卡片：同一批注以最后一批为准，判定与理由�
   assert.equal(merged[0].verdict, 'partial', '同一 index 以最后一批为准')
   const card = buildReplySection([{ at: 2, replies: merged }])
   assert.equal(card.getAttribute('data-sa-ui'), 'replies')
+  assert.equal(card.dataset.open, '1', '答复区默认展开，点标题才收起')
+  const head = card.querySelector('.sa-section-head')
+  assert.ok(head !== null, '答复区用与已发送区同一个收展头')
+  assert.equal(head.tagName, 'BUTTON')
+  assert.equal(head.getAttribute('aria-expanded'), 'true')
+  const chevron = head.querySelector('.sa-section-chevron')
+  assert.equal(chevron.tagName, 'SVG', '收展图标是矢量图形')
+  assert.ok(chevron.querySelector('path') !== null, '箭头由 path 画出')
+  const collapse = card.querySelector('.sa-collapse')
+  assert.equal(collapse.dataset.open, '1', '开合容器与收展头同步')
   const text = card.textContent
   assert.match(text, /批注答复 ×2/)
   assert.match(text, /部分采纳/)
@@ -1114,6 +1251,24 @@ test('逐条答复卡片：同一批注以最后一批为准，判定与理由�
   assert.match(withContext.textContent, /我的批注/)
   assert.match(withContext.textContent, /批注 1/)
   assert.match(withContext.textContent, /批注 2 · 答复/)
+})
+
+test('已发送区与答复区共用同一套收展头、箭头与开合容器', () => {
+  const harness = makeHarness()
+  const { buildSentCard, buildReplySection } = harness.debug._internals
+  const sent = buildSentCard({ items: [{ index: 1, quote: '原文', note: '批注' }] }, '3:user')
+  const sentHead = sent.querySelector('.sa-section-head')
+  assert.equal(sentHead.tagName, 'BUTTON', '已发送区也是整行按钮，不再是胶囊')
+  assert.equal(sentHead.getAttribute('aria-expanded'), 'false', '已发送区默认收起')
+  assert.equal(sent.querySelector('.sa-collapse').dataset.open, '0')
+  assert.equal(sentHead.querySelector('.sa-section-chevron').tagName, 'SVG')
+
+  const replies = buildReplySection([{ at: 1, replies: [{ index: 1, verdict: 'accepted', reason: '已改' }] }])
+  const replyHead = replies.querySelector('.sa-section-head')
+  assert.equal(replyHead.className, sentHead.className, '两处收展头用的是同一个类')
+  assert.equal(replyHead.getAttribute('aria-expanded'), 'true', '答复区默认展开')
+  assert.equal(replies.querySelector('.sa-collapse').dataset.open, '1')
+  assert.equal(replies.querySelector('.sa-section-title').textContent, '批注答复 ×1')
 })
 
 test('批注可以带图片：图片草稿与 JSON 一起挂上，只等 JSON 的上传', async () => {  const harness = makeHarness()
@@ -1192,4 +1347,91 @@ test('图片设置默认开启压缩：JPEG 80%、最短边超过 100 像素才�
   assert.equal(settings.compress, true)
   assert.equal(settings.quality, 0.8)
   assert.equal(settings.minSize, 100)
+})
+
+test('正文选区上右键：接管系统菜单，弹出「批注 / 复制」', () => {
+  const harness = makeHarness()
+  const root = harness.env.element('p')
+  harness.env.document.body.appendChild(root)
+  const text = harness.env.node('右键点在这段文字上')
+  root.appendChild(text)
+  harness.env.setRangeRoot(root)
+  const range = harness.env.document.createRange()
+  range.setStart(text, 2)
+  range.setEnd(text, 6)
+  harness.env.window.getSelection = () => ({
+    rangeCount: 1,
+    isCollapsed: false,
+    getRangeAt: () => range,
+    removeAllRanges() {},
+  })
+  const menu = harness.env.document.body.querySelector('[data-sa-ui="menu"]')
+  assert.ok(menu !== null, '右键菜单节点要挂在 body 上')
+  assert.equal(menu.dataset.open, '0', '初始不显示')
+
+  let prevented = false
+  harness.env.listeners.get('contextmenu')({
+    target: text,
+    clientX: 120,
+    clientY: 240,
+    preventDefault() {
+      prevented = true
+    },
+    stopPropagation() {},
+  })
+
+  assert.equal(prevented, true, '选区上的右键应由插件接管')
+  assert.equal(menu.dataset.open, '1', '菜单要打开')
+  assert.deepEqual(
+    menu.childNodes.map((child) => child.textContent),
+    ['批注选中文字', '复制'],
+  )
+  assert.equal(menu.style.left, '120px', '菜单贴着右键位置出现')
+})
+
+test('没有选区时右键：不接管，系统菜单原样出现', () => {
+  const harness = makeHarness()
+  let prevented = false
+  harness.env.listeners.get('contextmenu')({
+    target: harness.env.element('div'),
+    clientX: 10,
+    clientY: 10,
+    preventDefault() {
+      prevented = true
+    },
+    stopPropagation() {},
+  })
+  assert.equal(prevented, false)
+  const menu = harness.env.document.body.querySelector('[data-sa-ui="menu"]')
+  assert.equal(menu.dataset.open, '0')
+})
+
+test('locale：中英词典注册给 DSH 语言服务，默认仍按中文出文案', () => {
+  const harness = makeHarness()
+  assert.ok(harness.mod.inject.includes('locale'), '声明 locale 才能拿到 ctx.locale')
+  assert.equal(harness.localeDictionaries.length, 1, '只注册一个命名空间')
+  const { namespace, dictionaries } = harness.localeDictionaries[0]
+  assert.equal(namespace, 'selection-annotations')
+  assert.equal(dictionaries.zh.annotate, '批注')
+  assert.equal(dictionaries.zh['replies.title'], '批注答复 ×{n}')
+  assert.equal(dictionaries.en.annotate, 'Annotate')
+  assert.equal(dictionaries.en['replies.title'], 'Annotation replies ×{n}')
+  const payload = JSON.parse(harness.debug.payload())
+  assert.ok(payload.instruction.startsWith('这是用户发来的批注数据块'), '默认语言下指令仍是中文')
+})
+
+test('locale：切到英文后按钮与指令一起换，切回中文恢复', () => {
+  const harness = makeHarness()
+  const component = harness.registrations.find((registration) => registration.opts.name === 'conversation.input.right').Component
+  assert.equal(component({ sessionId: 's1' }).children[0], '批注')
+
+  harness.locale.setActive('en')
+  const english = JSON.parse(harness.debug.payload())
+  assert.ok(english.instruction.startsWith('This is an annotation payload sent by the user'), '指令跟着切成英文')
+  assert.equal(component({ sessionId: 's1' }).children[0], 'Annotate', '按钮文案跟着切成英文')
+
+  harness.locale.setActive('zh')
+  const chinese = JSON.parse(harness.debug.payload())
+  assert.ok(chinese.instruction.startsWith('这是用户发来的批注数据块'), '切回中文后指令恢复')
+  assert.equal(component({ sessionId: 's1' }).children[0], '批注')
 })
