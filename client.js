@@ -783,6 +783,328 @@
     return { describeSource, payloadSource, buildPayload };
   }
 
+  // src/core/source-locate.js
+  function offsetRange(root, range) {
+    const measure = (node, offset) => safe(() => {
+      const probe = range.cloneRange();
+      probe.setStart(root, 0);
+      probe.setEnd(node, offset);
+      return probe.toString().length;
+    });
+    const start = measure(range.startContainer, range.startOffset);
+    const end = measure(range.endContainer, range.endOffset);
+    if (start === void 0) return { start: void 0, end: void 0 };
+    return { start, end: end === void 0 || end < start ? start : end };
+  }
+  function pathFromPreviewUrl(url) {
+    const marker = "/session/";
+    const at = url.indexOf(marker);
+    if (at === -1) return void 0;
+    const rest = url.slice(at + marker.length);
+    const slash = rest.indexOf("/");
+    if (slash === -1) return void 0;
+    const raw = rest.slice(slash + 1);
+    return safe(() => decodeURIComponent(raw)) ?? raw;
+  }
+  function lineNumberOf(element) {
+    if (element === null) return void 0;
+    const holder = element.closest("[data-textpreview-line]");
+    if (holder === null) return void 0;
+    const value = Number(holder.getAttribute("data-textpreview-line"));
+    return Number.isFinite(value) ? value : void 0;
+  }
+  function codeLineNumberOf(scope, element) {
+    if (element === null || scope === null || scope === void 0) return void 0;
+    const lines = [...scope.querySelectorAll(".line")];
+    const own = typeof element.closest === "function" ? element.closest(".line") : null;
+    const target = own !== null ? own : lines.find((line) => line.contains(element));
+    if (target === null || target === void 0) return void 0;
+    const index = lines.indexOf(target);
+    return index === -1 ? void 0 : index + 1;
+  }
+  function normalizeWithMap(value) {
+    const chars = [];
+    const map = [];
+    let spaceAt = -1;
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value[i];
+      if (ch === " " || ch === "	" || ch === "\n" || ch === "\r") {
+        if (spaceAt === -1) spaceAt = i;
+        continue;
+      }
+      if (spaceAt !== -1) {
+        if (chars.length > 0) {
+          chars.push(" ");
+          map.push(spaceAt);
+        }
+        spaceAt = -1;
+      }
+      chars.push(ch);
+      map.push(i);
+    }
+    return { text: chars.join(""), map };
+  }
+  function locateInSource(source, quote) {
+    const needle = quote.replace(/\s+/g, " ").trim();
+    if (needle === "") return void 0;
+    const hay = normalizeWithMap(source);
+    const at = hay.text.indexOf(needle);
+    if (at === -1) return void 0;
+    const start = hay.map[at];
+    const end = hay.map[at + needle.length - 1];
+    if (start === void 0 || end === void 0) return void 0;
+    return { start, end: end + 1 };
+  }
+  function lineOfOffset(text, offset) {
+    let line = 1;
+    const limit = Math.max(0, Math.min(offset, text.length));
+    for (let i = 0; i < limit; i += 1) if (text.charCodeAt(i) === 10) line += 1;
+    return line;
+  }
+  function withTimeout(promise, ms) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (outcome) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        resolve(outcome);
+      };
+      const timer = window.setTimeout(() => settle({ ok: false, reason: `${ms}ms 内没有返回` }), ms);
+      Promise.resolve(promise).then(
+        (value) => settle({ ok: true, value }),
+        (error) => settle({ ok: false, reason: error instanceof Error ? error.message : String(error) })
+      );
+    });
+  }
+  function lineRangeWithin(root, startEl, endEl) {
+    const marked = lineNumberOf(startEl) ?? lineNumberOf(endEl);
+    if (marked !== void 0) return { start: marked, end: lineNumberOf(endEl) ?? marked };
+    const start = codeLineNumberOf(root, startEl);
+    if (start === void 0) return { start: void 0, end: void 0 };
+    return { start, end: codeLineNumberOf(root, endEl) ?? start };
+  }
+
+  // src/core/source-capture.js
+  var elementOf = (node) => {
+    if (node === null || node === void 0) return null;
+    if (node.nodeType === 1) return node;
+    return node.parentElement ?? null;
+  };
+  var REPLY_FIELD_BY_CLASS = {
+    "sa-q-quote": "quote",
+    "sa-q-note": "note",
+    "sa-a-reason": "reason",
+    "sa-a-next": "next"
+  };
+  var REPLY_CLASS_BY_FIELD = { quote: "sa-q-quote", note: "sa-q-note", reason: "sa-a-reason", next: "sa-a-next" };
+  function createSourceCapture() {
+    function captureSource(range) {
+      const startEl = elementOf(range.startContainer);
+      const endEl = elementOf(range.endContainer);
+      if (startEl === null) return { kind: "dom" };
+      const replyItem = startEl.closest(".sa-reply-item");
+      if (replyItem !== null && replyItem.closest('[data-sa-ui="replies"]') !== null) {
+        const fieldOf = (element) => {
+          if (element === null) return null;
+          const marked = element.closest("[data-sa-field]");
+          if (marked !== null) return marked.getAttribute("data-sa-field") ?? "item";
+          for (const name of Object.keys(REPLY_FIELD_BY_CLASS)) {
+            if (element.closest(`.${name}`) !== null) return REPLY_FIELD_BY_CLASS[name];
+          }
+          return null;
+        };
+        const startField = fieldOf(startEl);
+        const endField = fieldOf(endEl);
+        const field = startField !== null && (endField === null || startField === endField) ? startField : "item";
+        let fieldElement = replyItem;
+        if (field !== "item") {
+          fieldElement = startEl.closest(`[data-sa-field="${cssEscape(field)}"]`) ?? startEl.closest(`.${REPLY_CLASS_BY_FIELD[field]}`) ?? replyItem;
+        }
+        const chars = offsetRange(fieldElement, range);
+        let index = Number(replyItem.getAttribute("data-sa-reply-index"));
+        if (!Number.isFinite(index) || index === 0) {
+          const digits = (replyItem.querySelector(".sa-reply-index")?.textContent ?? "").match(/(\d+)/);
+          index = digits === null ? 0 : Number(digits[1]);
+        }
+        return {
+          kind: "reply",
+          batchAt: Number(replyItem.getAttribute("data-sa-batch-at")) || 0,
+          index,
+          field,
+          charStart: chars.start,
+          charEnd: chars.end,
+          textOrigin: "rendered"
+        };
+      }
+      const sentItem = startEl.closest(".sa-sent-item");
+      if (sentItem !== null) {
+        const sentCard = sentItem.closest('[data-sa-ui="sent"]');
+        if (sentCard !== null) {
+          const fieldOf = (element) => {
+            if (element === null) return null;
+            const note = element.closest(".sa-sent-note");
+            if (note !== null) return { key: "note", el: note };
+            const quote = element.closest(".sa-sent-quote");
+            if (quote !== null) return { key: "quote", el: quote };
+            return null;
+          };
+          const startField = fieldOf(startEl);
+          const endField = fieldOf(endEl);
+          const field = startField !== null && (endField === null || endField.key === startField.key) ? startField.key : "item";
+          const fieldEl = field === "item" ? sentItem : startField.el;
+          const chars = offsetRange(fieldEl, range);
+          let index = Number(sentItem.getAttribute("data-sa-sent-index"));
+          if (!Number.isFinite(index) || index === 0) {
+            const digits = (sentItem.querySelector(".sa-sent-num")?.textContent ?? "").match(/(\d+)/);
+            index = digits === null ? 0 : Number(digits[1]);
+          }
+          return {
+            kind: "sent",
+            anchorKey: sentCard.getAttribute("data-anchor") ?? "",
+            index,
+            field,
+            charStart: chars.start,
+            charEnd: chars.end,
+            textOrigin: "rendered"
+          };
+        }
+      }
+      const row = startEl.closest("[data-chat-anchor-key]");
+      if (row !== null) {
+        const chars = offsetRange(row, range);
+        return {
+          kind: "message",
+          role: (row.getAttribute("data-chat-flow-kind") ?? "") === "user" ? "user" : "assistant",
+          anchorKey: row.getAttribute("data-chat-anchor-key") ?? "",
+          flowKind: row.getAttribute("data-chat-flow-kind") ?? "",
+          charStart: chars.start,
+          charEnd: chars.end
+        };
+      }
+      const doc = startEl.closest("[data-textpreview-url]");
+      if (doc !== null) {
+        const url = doc.getAttribute("data-textpreview-url") ?? "";
+        const lines = lineRangeWithin(doc, startEl, endEl);
+        const chars = offsetRange(doc, range);
+        return {
+          kind: "file",
+          path: pathFromPreviewUrl(url),
+          sourceUrl: url,
+          lineStart: lines.start,
+          lineEnd: lines.end,
+          charStart: chars.start,
+          charEnd: chars.end,
+          // 默认口径是渲染后的正文；保存时会再试着读源文件改成 source。
+          textOrigin: "rendered"
+        };
+      }
+      const code = startEl.closest("[data-code-preview]");
+      if (code !== null) {
+        const lines = lineRangeWithin(code, startEl, endEl);
+        const chars = offsetRange(code, range);
+        return { kind: "file", lineStart: lines.start, lineEnd: lines.end, charStart: chars.start, charEnd: chars.end, textOrigin: "rendered" };
+      }
+      return { kind: "dom" };
+    }
+    function anchorRoot(source) {
+      if (source === null || source === void 0) return null;
+      if (source.kind === "message" && source.anchorKey) {
+        return document.querySelector(`[data-chat-anchor-key="${cssEscape(source.anchorKey)}"]`) ?? document.querySelector(`[data-chat-flow-key="${cssEscape(source.anchorKey)}"]`);
+      }
+      if (source.kind === "file" && source.sourceUrl) {
+        return document.querySelector(`[data-textpreview-url="${cssEscape(source.sourceUrl)}"]`);
+      }
+      if (source.kind === "file") return document.querySelector("[data-code-preview]");
+      if (source.kind === "sent" && source.anchorKey) {
+        const card = document.querySelector(`[data-sa-ui="sent"][data-anchor="${cssEscape(source.anchorKey)}"]`);
+        if (card !== null) {
+          const wanted = Number(source.index);
+          for (const item of card.querySelectorAll(".sa-sent-item")) {
+            const digits = (item.querySelector(".sa-sent-num")?.textContent ?? "").match(/(\d+)/);
+            const index = Number(item.getAttribute("data-sa-sent-index")) || (digits === null ? 0 : Number(digits[1]));
+            if (index !== wanted) continue;
+            if (typeof source.field === "string" && source.field !== "" && source.field !== "item") {
+              const field = item.querySelector(`[data-sa-field="${cssEscape(source.field)}"]`);
+              return field ?? item;
+            }
+            return item;
+          }
+        }
+      }
+      if (source.kind === "reply") {
+        const batchAt = Number(source.batchAt);
+        const replyIndex = Number(source.index);
+        for (const item of document.querySelectorAll(".sa-reply-item")) {
+          if (item.closest('[data-sa-ui="replies"]') === null) continue;
+          if (Number(item.getAttribute("data-sa-batch-at")) !== batchAt) continue;
+          if (Number(item.getAttribute("data-sa-reply-index")) !== replyIndex) continue;
+          if (typeof source.field === "string" && source.field !== "" && source.field !== "item") {
+            const field = item.querySelector(`[data-sa-field="${cssEscape(source.field)}"]`);
+            return field ?? item;
+          }
+          return item;
+        }
+      }
+      return null;
+    }
+    function rangeFromOffsets(root, start, length) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let offset = 0;
+      let startNode;
+      let startOffset = 0;
+      let endNode;
+      let endOffset = 0;
+      let node = walker.nextNode();
+      while (node !== null) {
+        const size = node.nodeValue === null ? 0 : node.nodeValue.length;
+        if (startNode === void 0 && offset + size >= start) {
+          startNode = node;
+          startOffset = start - offset;
+        }
+        if (startNode !== void 0 && offset + size >= start + length) {
+          endNode = node;
+          endOffset = start + length - offset;
+          break;
+        }
+        offset += size;
+        node = walker.nextNode();
+      }
+      if (startNode === void 0 || endNode === void 0) return void 0;
+      return safe(() => {
+        const range = document.createRange();
+        range.setStart(startNode, Math.max(0, Math.min(startOffset, startNode.nodeValue.length)));
+        range.setEnd(endNode, Math.max(0, Math.min(endOffset, endNode.nodeValue.length)));
+        return range;
+      });
+    }
+    function matchInRoot(root, quote, savedOffset) {
+      if (typeof quote !== "string" || quote === "") return void 0;
+      const text = root.textContent ?? "";
+      const positions = [];
+      let from = 0;
+      for (; ; ) {
+        const at = text.indexOf(quote, from);
+        if (at === -1 || positions.length >= 64) break;
+        positions.push(at);
+        from = at + 1;
+      }
+      if (positions.length === 0) return void 0;
+      let best = positions[0];
+      if (positions.length > 1 && Number.isFinite(savedOffset)) {
+        best = positions.reduce((a, b) => Math.abs(b - savedOffset) < Math.abs(a - savedOffset) ? b : a);
+      }
+      return rangeFromOffsets(root, best, quote.length);
+    }
+    function rangeMatchesQuote(range, quote) {
+      const current = safe(() => range.toString());
+      if (typeof current !== "string") return false;
+      const normalize = (value) => value.replace(/\s+/g, " ").trim();
+      return normalize(current) === normalize(quote);
+    }
+    return { captureSource, anchorRoot, rangeFromOffsets, matchInRoot, rangeMatchesQuote };
+  }
+
   // src/core/sent-store.js
   function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxBytes, maxItems, onChanged }) {
     const isSentItem2 = (value) => {
@@ -1129,108 +1451,6 @@
     }
   }
 
-  // src/core/source-locate.js
-  function offsetRange(root, range) {
-    const measure = (node, offset) => safe(() => {
-      const probe = range.cloneRange();
-      probe.setStart(root, 0);
-      probe.setEnd(node, offset);
-      return probe.toString().length;
-    });
-    const start = measure(range.startContainer, range.startOffset);
-    const end = measure(range.endContainer, range.endOffset);
-    if (start === void 0) return { start: void 0, end: void 0 };
-    return { start, end: end === void 0 || end < start ? start : end };
-  }
-  function pathFromPreviewUrl(url) {
-    const marker = "/session/";
-    const at = url.indexOf(marker);
-    if (at === -1) return void 0;
-    const rest = url.slice(at + marker.length);
-    const slash = rest.indexOf("/");
-    if (slash === -1) return void 0;
-    const raw = rest.slice(slash + 1);
-    return safe(() => decodeURIComponent(raw)) ?? raw;
-  }
-  function lineNumberOf(element) {
-    if (element === null) return void 0;
-    const holder = element.closest("[data-textpreview-line]");
-    if (holder === null) return void 0;
-    const value = Number(holder.getAttribute("data-textpreview-line"));
-    return Number.isFinite(value) ? value : void 0;
-  }
-  function codeLineNumberOf(scope, element) {
-    if (element === null || scope === null || scope === void 0) return void 0;
-    const lines = [...scope.querySelectorAll(".line")];
-    const own = typeof element.closest === "function" ? element.closest(".line") : null;
-    const target = own !== null ? own : lines.find((line) => line.contains(element));
-    if (target === null || target === void 0) return void 0;
-    const index = lines.indexOf(target);
-    return index === -1 ? void 0 : index + 1;
-  }
-  function normalizeWithMap(value) {
-    const chars = [];
-    const map = [];
-    let spaceAt = -1;
-    for (let i = 0; i < value.length; i += 1) {
-      const ch = value[i];
-      if (ch === " " || ch === "	" || ch === "\n" || ch === "\r") {
-        if (spaceAt === -1) spaceAt = i;
-        continue;
-      }
-      if (spaceAt !== -1) {
-        if (chars.length > 0) {
-          chars.push(" ");
-          map.push(spaceAt);
-        }
-        spaceAt = -1;
-      }
-      chars.push(ch);
-      map.push(i);
-    }
-    return { text: chars.join(""), map };
-  }
-  function locateInSource(source, quote) {
-    const needle = quote.replace(/\s+/g, " ").trim();
-    if (needle === "") return void 0;
-    const hay = normalizeWithMap(source);
-    const at = hay.text.indexOf(needle);
-    if (at === -1) return void 0;
-    const start = hay.map[at];
-    const end = hay.map[at + needle.length - 1];
-    if (start === void 0 || end === void 0) return void 0;
-    return { start, end: end + 1 };
-  }
-  function lineOfOffset(text, offset) {
-    let line = 1;
-    const limit = Math.max(0, Math.min(offset, text.length));
-    for (let i = 0; i < limit; i += 1) if (text.charCodeAt(i) === 10) line += 1;
-    return line;
-  }
-  function withTimeout(promise, ms) {
-    return new Promise((resolve) => {
-      let settled = false;
-      const settle = (outcome) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timer);
-        resolve(outcome);
-      };
-      const timer = window.setTimeout(() => settle({ ok: false, reason: `${ms}ms 内没有返回` }), ms);
-      Promise.resolve(promise).then(
-        (value) => settle({ ok: true, value }),
-        (error) => settle({ ok: false, reason: error instanceof Error ? error.message : String(error) })
-      );
-    });
-  }
-  function lineRangeWithin(root, startEl, endEl) {
-    const marked = lineNumberOf(startEl) ?? lineNumberOf(endEl);
-    if (marked !== void 0) return { start: marked, end: lineNumberOf(endEl) ?? marked };
-    const start = codeLineNumberOf(root, startEl);
-    if (start === void 0) return { start: void 0, end: void 0 };
-    return { start, end: codeLineNumberOf(root, endEl) ?? start };
-  }
-
   // src/plugin.js
   function createPlugin(React) {
     const h = React.createElement;
@@ -1283,7 +1503,7 @@
             }
           }
         }
-        function elementOf(node) {
+        function elementOf2(node) {
           if (node === null || node === void 0) return null;
           if (node.nodeType === 1) return node;
           return node.parentElement ?? null;
@@ -1585,212 +1805,12 @@
             textOrigin: "source"
           };
         }
-        function captureSource(range) {
-          const startEl = elementOf(range.startContainer);
-          const endEl = elementOf(range.endContainer);
-          if (startEl === null) return { kind: "dom" };
-          const replyItem = startEl.closest(".sa-reply-item");
-          if (replyItem !== null && replyItem.closest('[data-sa-ui="replies"]') !== null) {
-            const fieldOf = (element) => {
-              if (element === null) return null;
-              const marked = element.closest("[data-sa-field]");
-              if (marked !== null) return marked.getAttribute("data-sa-field") ?? "item";
-              for (const name of ["sa-q-quote", "sa-q-note", "sa-a-reason", "sa-a-next"]) {
-                if (element.closest(`.${name}`) !== null) {
-                  return { "sa-q-quote": "quote", "sa-q-note": "note", "sa-a-reason": "reason", "sa-a-next": "next" }[name];
-                }
-              }
-              return null;
-            };
-            const startField = fieldOf(startEl);
-            const endField = fieldOf(endEl);
-            const field = startField !== null && (endField === null || startField === endField) ? startField : "item";
-            const classMap = { quote: "sa-q-quote", note: "sa-q-note", reason: "sa-a-reason", next: "sa-a-next" };
-            let fieldElement = replyItem;
-            if (field !== "item") {
-              fieldElement = startEl.closest(`[data-sa-field="${cssEscape(field)}"]`) ?? startEl.closest(`.${classMap[field]}`) ?? replyItem;
-            }
-            const chars = offsetRange(fieldElement, range);
-            let index = Number(replyItem.getAttribute("data-sa-reply-index"));
-            if (!Number.isFinite(index) || index === 0) {
-              const digits = (replyItem.querySelector(".sa-reply-index")?.textContent ?? "").match(/(\d+)/);
-              index = digits === null ? 0 : Number(digits[1]);
-            }
-            return {
-              kind: "reply",
-              batchAt: Number(replyItem.getAttribute("data-sa-batch-at")) || 0,
-              index,
-              field,
-              charStart: chars.start,
-              charEnd: chars.end,
-              textOrigin: "rendered"
-            };
-          }
-          const sentItem = startEl.closest(".sa-sent-item");
-          if (sentItem !== null) {
-            const sentCard = sentItem.closest('[data-sa-ui="sent"]');
-            if (sentCard !== null) {
-              const fieldOf = (element) => {
-                if (element === null) return null;
-                const note = element.closest(".sa-sent-note");
-                if (note !== null) return { key: "note", el: note };
-                const quote = element.closest(".sa-sent-quote");
-                if (quote !== null) return { key: "quote", el: quote };
-                return null;
-              };
-              const startField = fieldOf(startEl);
-              const endField = fieldOf(endEl);
-              const field = startField !== null && (endField === null || endField.key === startField.key) ? startField.key : "item";
-              const fieldEl = field === "item" ? sentItem : startField.el;
-              const chars = offsetRange(fieldEl, range);
-              let index = Number(sentItem.getAttribute("data-sa-sent-index"));
-              if (!Number.isFinite(index) || index === 0) {
-                const digits = (sentItem.querySelector(".sa-sent-num")?.textContent ?? "").match(/(\d+)/);
-                index = digits === null ? 0 : Number(digits[1]);
-              }
-              return {
-                kind: "sent",
-                anchorKey: sentCard.getAttribute("data-anchor") ?? "",
-                index,
-                field,
-                charStart: chars.start,
-                charEnd: chars.end,
-                textOrigin: "rendered"
-              };
-            }
-          }
-          const row = startEl.closest("[data-chat-anchor-key]");
-          if (row !== null) {
-            const chars = offsetRange(row, range);
-            return {
-              kind: "message",
-              role: (row.getAttribute("data-chat-flow-kind") ?? "") === "user" ? "user" : "assistant",
-              anchorKey: row.getAttribute("data-chat-anchor-key") ?? "",
-              flowKind: row.getAttribute("data-chat-flow-kind") ?? "",
-              charStart: chars.start,
-              charEnd: chars.end
-            };
-          }
-          const doc = startEl.closest("[data-textpreview-url]");
-          if (doc !== null) {
-            const url = doc.getAttribute("data-textpreview-url") ?? "";
-            const lines = lineRangeWithin(doc, startEl, endEl);
-            const chars = offsetRange(doc, range);
-            return {
-              kind: "file",
-              path: pathFromPreviewUrl(url),
-              sourceUrl: url,
-              lineStart: lines.start,
-              lineEnd: lines.end,
-              charStart: chars.start,
-              charEnd: chars.end,
-              // 默认口径是渲染后的正文；保存时会再试着读源文件改成 source。
-              textOrigin: "rendered"
-            };
-          }
-          const code = startEl.closest("[data-code-preview]");
-          if (code !== null) {
-            const lines = lineRangeWithin(code, startEl, endEl);
-            const chars = offsetRange(code, range);
-            return { kind: "file", lineStart: lines.start, lineEnd: lines.end, charStart: chars.start, charEnd: chars.end, textOrigin: "rendered" };
-          }
-          return { kind: "dom" };
-        }
-        function anchorRoot(source) {
-          if (source === null || source === void 0) return null;
-          if (source.kind === "message" && source.anchorKey) {
-            return document.querySelector(`[data-chat-anchor-key="${cssEscape(source.anchorKey)}"]`) ?? document.querySelector(`[data-chat-flow-key="${cssEscape(source.anchorKey)}"]`);
-          }
-          if (source.kind === "file" && source.sourceUrl) {
-            return document.querySelector(`[data-textpreview-url="${cssEscape(source.sourceUrl)}"]`);
-          }
-          if (source.kind === "file") return document.querySelector("[data-code-preview]");
-          if (source.kind === "sent" && source.anchorKey) {
-            const card = document.querySelector(`[data-sa-ui="sent"][data-anchor="${cssEscape(source.anchorKey)}"]`);
-            if (card !== null) {
-              const wanted = Number(source.index);
-              for (const item of card.querySelectorAll(".sa-sent-item")) {
-                const digits = (item.querySelector(".sa-sent-num")?.textContent ?? "").match(/(\d+)/);
-                const index = Number(item.getAttribute("data-sa-sent-index")) || (digits === null ? 0 : Number(digits[1]));
-                if (index !== wanted) continue;
-                if (typeof source.field === "string" && source.field !== "" && source.field !== "item") {
-                  const field = item.querySelector(`[data-sa-field="${cssEscape(source.field)}"]`);
-                  return field ?? item;
-                }
-                return item;
-              }
-            }
-          }
-          if (source.kind === "reply") {
-            const batchAt = Number(source.batchAt);
-            const replyIndex = Number(source.index);
-            for (const item of document.querySelectorAll(".sa-reply-item")) {
-              if (item.closest('[data-sa-ui="replies"]') === null) continue;
-              if (Number(item.getAttribute("data-sa-batch-at")) !== batchAt) continue;
-              if (Number(item.getAttribute("data-sa-reply-index")) !== replyIndex) continue;
-              if (typeof source.field === "string" && source.field !== "" && source.field !== "item") {
-                const field = item.querySelector(`[data-sa-field="${cssEscape(source.field)}"]`);
-                return field ?? item;
-              }
-              return item;
-            }
-          }
-          return null;
-        }
-        function rangeFromOffsets(root, start, length) {
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-          let offset = 0;
-          let startNode;
-          let startOffset = 0;
-          let endNode;
-          let endOffset = 0;
-          let node = walker.nextNode();
-          while (node !== null) {
-            const size = node.nodeValue === null ? 0 : node.nodeValue.length;
-            if (startNode === void 0 && offset + size >= start) {
-              startNode = node;
-              startOffset = start - offset;
-            }
-            if (startNode !== void 0 && offset + size >= start + length) {
-              endNode = node;
-              endOffset = start + length - offset;
-              break;
-            }
-            offset += size;
-            node = walker.nextNode();
-          }
-          if (startNode === void 0 || endNode === void 0) return void 0;
-          return safe(() => {
-            const range = document.createRange();
-            range.setStart(startNode, Math.max(0, Math.min(startOffset, startNode.nodeValue.length)));
-            range.setEnd(endNode, Math.max(0, Math.min(endOffset, endNode.nodeValue.length)));
-            return range;
-          });
-        }
-        function matchInRoot(root, quote, savedOffset) {
-          if (typeof quote !== "string" || quote === "") return void 0;
-          const text = root.textContent ?? "";
-          const positions = [];
-          let from = 0;
-          for (; ; ) {
-            const at = text.indexOf(quote, from);
-            if (at === -1 || positions.length >= 64) break;
-            positions.push(at);
-            from = at + 1;
-          }
-          if (positions.length === 0) return void 0;
-          let best = positions[0];
-          if (positions.length > 1 && Number.isFinite(savedOffset)) {
-            best = positions.reduce((a, b) => Math.abs(b - savedOffset) < Math.abs(a - savedOffset) ? b : a);
-          }
-          return rangeFromOffsets(root, best, quote.length);
-        }
-        function rangeMatchesQuote(range, quote) {
-          const current = safe(() => range.toString());
-          if (typeof current !== "string") return false;
-          const normalize = (value) => value.replace(/\s+/g, " ").trim();
-          return normalize(current) === normalize(quote);
-        }
+        const sourceCapture = createSourceCapture();
+        const captureSource = (range) => sourceCapture.captureSource(range);
+        const anchorRoot = (source) => sourceCapture.anchorRoot(source);
+        const rangeFromOffsets = (root, start, length) => sourceCapture.rangeFromOffsets(root, start, length);
+        const matchInRoot = (root, quote, savedOffset) => sourceCapture.matchInRoot(root, quote, savedOffset);
+        const rangeMatchesQuote = (range, quote) => sourceCapture.rangeMatchesQuote(range, quote);
         function locateRange(item) {
           if (item.liveRange !== void 0) {
             const live = item.liveRange;
@@ -2728,7 +2748,7 @@
         popActions.append(popDelete, popSpacer, popCancel, popSave);
         popover.append(popTitle, popQuote, popSource, popInput, popImages, popActions);
         function isExcluded(node) {
-          const element = elementOf(node);
+          const element = elementOf2(node);
           if (element === null) return true;
           if (element.closest("[data-sa-ui]") !== null && element.closest('[data-sa-ui="replies"]') === null && element.closest('[data-sa-ui="sent"]') === null) return true;
           if (element.closest("[data-composer-card],[data-composer-input],[data-input-scroll]") !== null) return true;
@@ -2782,7 +2802,7 @@
           });
         }
         function onContextMenu(event) {
-          const target = elementOf(event.target);
+          const target = elementOf2(event.target);
           if (target !== null && target.closest("[data-sa-ui]") !== null && target.closest('[data-sa-ui="replies"]') === null && target.closest('[data-sa-ui="sent"]') === null) return;
           const selection = readSelection();
           if (selection === null) return;
@@ -3236,7 +3256,7 @@
         );
         document.addEventListener("pointerdown", (event) => {
           if (popover.dataset.open !== "1") return;
-          const target = elementOf(event.target);
+          const target = elementOf2(event.target);
           if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return;
           if (target !== null && target.closest('[data-sa-ui="viewer"]') !== null) return;
           commitPopover(true);
@@ -3563,7 +3583,7 @@
           "pointerdown",
           (event) => {
             if (!panelOpen) return;
-            const target = elementOf(event.target);
+            const target = elementOf2(event.target);
             if (target === null) return;
             if (target.closest('[data-sa-ui="panel"]') !== null) return;
             if (target.closest('[data-sa-ui="popover"]') !== null) return;
@@ -3683,7 +3703,7 @@
           document.addEventListener("selectionchange", onSelectionChange);
           document.addEventListener("contextmenu", onContextMenu, true);
           const onMenuPointerDown = (event) => {
-            const target = elementOf(event.target);
+            const target = elementOf2(event.target);
             if (target !== null && target.closest('[data-sa-ui="menu"]') !== null) return;
             closeContextMenu();
           };
@@ -3701,7 +3721,7 @@
           window.addEventListener("resize", onViewport);
           const observer = new MutationObserver((records) => {
             for (const record of records) {
-              const target = elementOf(record.target);
+              const target = elementOf2(record.target);
               if (target !== null && target.closest("[data-sa-ui]") !== null) continue;
               scheduleRepaint();
               return;
@@ -3722,7 +3742,7 @@
           const observer = new MutationObserver((records) => {
             let touched = null;
             for (const record of records) {
-              const element = elementOf(record.target);
+              const element = elementOf2(record.target);
               if (element !== null && element.getAttribute("data-turn-process") !== null) {
                 touched = element;
                 break;
