@@ -30,6 +30,7 @@ import {
   UPLOAD_READY_TIMEOUT_MS,
 } from './core/constants.js'
 import { log, warn } from './core/log.js'
+import { createLocale } from './core/locale.js'
 import { compressImage, downscaleDataUrl, fileToDataUrl, dataUrlToFile } from './core/image-codec.js'
 import {
   offsetRange,
@@ -51,27 +52,11 @@ export function createPlugin(React) {
     name: '@u2a5f/dsh-selection-annotations',
     inject: ['slots', 'sessions', 'conversation', 'remote', 'remote.workspaceFiles', 'locale'],
     apply(ctx) {
-    let activeLocale = 'zh'
+    const locale = createLocale(ctx)
 
-    /** 把 {name} 占位符换掉；缺省保留原样，便于发现漏翻的键。*/
-    function formatMessage(template, params) {
-      if (typeof template !== 'string') return ''
-      if (params === undefined || params === null) return template
-      return template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
-    }
-
-    /** 默认走中文；apply 里拿到 locale 服务后换成 bind 出来的翻译函数。*/
-    let t = (key, params) => formatMessage(MESSAGES.zh[key] ?? key, params)
-
-    /** 当前语言下的默认批注指令。*/
-    function defaultInstruction() {
-      return activeLocale.toLowerCase().startsWith('en') ? DEFAULT_INSTRUCTION_EN : DEFAULT_INSTRUCTION
-    }
-
-    /** 判断一段指令是不是默认文案（中英任一）。*/
-    function isDefaultInstruction(text) {
-      return text === DEFAULT_INSTRUCTION || text === DEFAULT_INSTRUCTION_EN
-    }
+    const t = (key, params) => locale.t(key, params)
+    const defaultInstruction = () => locale.defaultInstruction()
+    const isDefaultInstruction = (text) => locale.isDefaultInstruction(text)
 
     /** 草稿在本地存储里的体积上限；超了先丢最旧批注的图片。*/
         /* ------------------------------------------------------------------ 状态*/
@@ -160,22 +145,7 @@ export function createPlugin(React) {
           return node.parentElement ?? null
         }
 
-        /* ------------------------------------------------------------ 界面语言 */
-        // 文案跟着 DSH 的界面语言走：注册中英词典，切换语言后重绘我们自己造的 DOM。
-        // 没有 locale 服务（老版本宿主 / 测试台）时保持中文，功能不受影响。
-        const localeService = ctx.locale
-        if (
-          localeService !== undefined &&
-          localeService !== null &&
-          typeof localeService.register === 'function' &&
-          typeof localeService.bind === 'function'
-        ) {
-          activeLocale = safe(() => localeService.getSnapshot?.().active) ?? 'zh'
-          ctx.effect(() => localeService.register(LOCALE_NS, MESSAGES), 'selection-annotations: dictionaries')
-          t = localeService.bind(LOCALE_NS)
-        }
-
-        /** 当前会话 id：优先槽位 props，其次 uiSession 的 current 绑定，最后退回会话列表。 */
+/** 当前会话 id：优先槽位 props，其次 uiSession 的 current 绑定，最后退回会话列表。 */
         function currentSessionId() {
           if (typeof latestSessionId === 'string' && latestSessionId !== '') return latestSessionId
           const fromUi = safe(() => {
@@ -3636,18 +3606,7 @@ export function createPlugin(React) {
           console.error('[selection-annotations] 插件详情页设置区注册失败：', error)
         }
 
-        // 语言切换后才重绘：此时页面上的按钮、弹出层与面板都已建好，不会碰到声明前的空窗。
-        if (localeService !== undefined && localeService !== null && typeof localeService.subscribe === 'function') {
-          ctx.effect(() => {
-            const off = localeService.subscribe(() => {
-              activeLocale = safe(() => localeService.getSnapshot?.().active) ?? activeLocale
-              applyLocale()
-            })
-            return () => {
-              safe(off)
-            }
-          }, 'selection-annotations: locale changes')
-        }
+        locale.subscribe(() => applyLocale())
 
         // 便于人工核对与排障：window.__dshSelectionAnnotations.list() 等。
         // `add` 与 `_internals` 同时给无浏览器的测试台用（见 test/client-half.test.mjs）。

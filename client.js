@@ -520,6 +520,50 @@
     return created;
   }
 
+  // src/core/locale.js
+  function formatMessage(template, params) {
+    if (typeof template !== "string") return "";
+    if (params === void 0 || params === null) return template;
+    return template.replace(/\{(\w+)\}/g, (match, name) => name in params ? String(params[name]) : match);
+  }
+  function createLocale(ctx) {
+    let active = "zh";
+    const service = ctx.locale;
+    const usable = service !== void 0 && service !== null && typeof service.register === "function" && typeof service.bind === "function";
+    const fallback = (key, params) => formatMessage(MESSAGES[active]?.[key] ?? MESSAGES.zh[key] ?? key, params);
+    let translate = fallback;
+    if (usable) {
+      active = safe(() => service.getSnapshot?.().active) ?? "zh";
+      ctx.effect(() => service.register(LOCALE_NS, MESSAGES), "selection-annotations: dictionaries");
+      translate = service.bind(LOCALE_NS);
+    }
+    return {
+      get active() {
+        return active;
+      },
+      t: (key, params) => translate(key, params),
+      defaultInstruction: () => active.toLowerCase().startsWith("en") ? DEFAULT_INSTRUCTION_EN : DEFAULT_INSTRUCTION,
+      isDefaultInstruction: (text) => text === DEFAULT_INSTRUCTION || text === DEFAULT_INSTRUCTION_EN,
+      syncActive() {
+        if (usable) active = safe(() => service.getSnapshot?.().active) ?? active;
+      },
+      /** 语言切换后重绘；返回 effect 的清理函数。 */
+      subscribe(onChange) {
+        if (!usable || typeof service.subscribe !== "function") return () => {
+        };
+        return ctx.effect(() => {
+          const off = service.subscribe(() => {
+            active = safe(() => service.getSnapshot?.().active) ?? active;
+            onChange();
+          });
+          return () => {
+            safe(off);
+          };
+        }, "selection-annotations: locale changes");
+      }
+    };
+  }
+
   // src/core/image-codec.js
   function jpegName(name) {
     const base = typeof name === "string" && name !== "" ? name : "image";
@@ -727,19 +771,10 @@
       name: "@u2a5f/dsh-selection-annotations",
       inject: ["slots", "sessions", "conversation", "remote", "remote.workspaceFiles", "locale"],
       apply(ctx) {
-        let activeLocale = "zh";
-        function formatMessage(template, params) {
-          if (typeof template !== "string") return "";
-          if (params === void 0 || params === null) return template;
-          return template.replace(/\{(\w+)\}/g, (match, name) => name in params ? String(params[name]) : match);
-        }
-        let t = (key, params) => formatMessage(MESSAGES.zh[key] ?? key, params);
-        function defaultInstruction() {
-          return activeLocale.toLowerCase().startsWith("en") ? DEFAULT_INSTRUCTION_EN : DEFAULT_INSTRUCTION;
-        }
-        function isDefaultInstruction(text) {
-          return text === DEFAULT_INSTRUCTION || text === DEFAULT_INSTRUCTION_EN;
-        }
+        const locale = createLocale(ctx);
+        const t = (key, params) => locale.t(key, params);
+        const defaultInstruction = () => locale.defaultInstruction();
+        const isDefaultInstruction = (text) => locale.isDefaultInstruction(text);
         let annotations = [];
         let draftIds = [];
         let syncing = false;
@@ -794,12 +829,6 @@
           if (node === null || node === void 0) return null;
           if (node.nodeType === 1) return node;
           return node.parentElement ?? null;
-        }
-        const localeService = ctx.locale;
-        if (localeService !== void 0 && localeService !== null && typeof localeService.register === "function" && typeof localeService.bind === "function") {
-          activeLocale = safe(() => localeService.getSnapshot?.().active) ?? "zh";
-          ctx.effect(() => localeService.register(LOCALE_NS, MESSAGES), "selection-annotations: dictionaries");
-          t = localeService.bind(LOCALE_NS);
         }
         function currentSessionId() {
           if (typeof latestSessionId === "string" && latestSessionId !== "") return latestSessionId;
@@ -3715,17 +3744,7 @@
         } catch (error) {
           console.error("[selection-annotations] 插件详情页设置区注册失败：", error);
         }
-        if (localeService !== void 0 && localeService !== null && typeof localeService.subscribe === "function") {
-          ctx.effect(() => {
-            const off = localeService.subscribe(() => {
-              activeLocale = safe(() => localeService.getSnapshot?.().active) ?? activeLocale;
-              applyLocale();
-            });
-            return () => {
-              safe(off);
-            };
-          }, "selection-annotations: locale changes");
-        }
+        locale.subscribe(() => applyLocale());
         window.__dshSelectionAnnotations = {
           list: () => snapshot().map((item) => ({
             id: item.id,
