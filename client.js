@@ -520,6 +520,104 @@
     return created;
   }
 
+  // src/core/image-codec.js
+  function jpegName(name) {
+    const base = typeof name === "string" && name !== "" ? name : "image";
+    return `${base.replace(/\.[^.]+$/, "")}.jpg`;
+  }
+  async function compressImage(file, settings) {
+    if (!settings.compress) return file;
+    if (typeof createImageBitmap !== "function") return file;
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      return file;
+    }
+    try {
+      if (Math.max(bitmap.width, bitmap.height) <= settings.minSize) return file;
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const painter = canvas.getContext("2d");
+      if (painter === null) return file;
+      painter.fillStyle = "#ffffff";
+      painter.fillRect(0, 0, canvas.width, canvas.height);
+      painter.drawImage(bitmap, 0, 0);
+      const blob = await new Promise((resolve) => {
+        try {
+          canvas.toBlob(resolve, "image/jpeg", settings.quality);
+        } catch {
+          resolve(null);
+        }
+      });
+      if (blob === null || blob.size >= file.size) return file;
+      return new File([blob], jpegName(file.name), { type: "image/jpeg" });
+    } finally {
+      safe(() => bitmap.close?.());
+    }
+  }
+  async function downscaleDataUrl(file, maxSide, quality) {
+    if (typeof createImageBitmap !== "function") return void 0;
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      return void 0;
+    }
+    try {
+      const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const painter = canvas.getContext("2d");
+      if (painter === null) return void 0;
+      painter.fillStyle = "#ffffff";
+      painter.fillRect(0, 0, width, height);
+      painter.drawImage(bitmap, 0, 0, width, height);
+      const blob = await new Promise((resolve) => {
+        try {
+          canvas.toBlob(resolve, "image/jpeg", quality);
+        } catch {
+          resolve(null);
+        }
+      });
+      if (blob === null) return void 0;
+      return await fileToDataUrl(new File([blob], "thumb.jpg", { type: "image/jpeg" }));
+    } finally {
+      safe(() => bitmap.close?.());
+    }
+  }
+  function fileToDataUrl(file) {
+    return new Promise((resolve) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : void 0);
+        reader.onerror = () => resolve(void 0);
+        reader.readAsDataURL(file);
+      } catch {
+        resolve(void 0);
+      }
+    });
+  }
+  function dataUrlToFile(image) {
+    if (typeof image?.dataUrl !== "string" || image.dataUrl === "") return void 0;
+    return safe(() => {
+      const comma = image.dataUrl.indexOf(",");
+      if (comma < 0) return void 0;
+      const header = image.dataUrl.slice(0, comma);
+      const match = header.match(/^data:([^;]+)/);
+      const mime = match?.[1] ?? "image/jpeg";
+      const binary = atob(image.dataUrl.slice(comma + 1));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      const name = typeof image.name === "string" && image.name !== "" ? image.name : "image.jpg";
+      return new File([bytes], name, { type: mime });
+    });
+  }
+
   // src/plugin.js
   function createPlugin(React) {
     const h = React.createElement;
@@ -785,103 +883,6 @@
           const storage = draftStorage();
           if (storage === void 0) return;
           safe(() => storage.setItem(INSTRUCTION_SETTINGS_KEY, JSON.stringify({ text })));
-        }
-        function jpegName(name) {
-          const base = typeof name === "string" && name !== "" ? name : "image";
-          return `${base.replace(/\.[^.]+$/, "")}.jpg`;
-        }
-        async function compressImage(file) {
-          const settings = imageSettingsOf();
-          if (!settings.compress) return file;
-          if (typeof createImageBitmap !== "function") return file;
-          let bitmap;
-          try {
-            bitmap = await createImageBitmap(file);
-          } catch {
-            return file;
-          }
-          try {
-            if (Math.max(bitmap.width, bitmap.height) <= settings.minSize) return file;
-            const canvas = document.createElement("canvas");
-            canvas.width = bitmap.width;
-            canvas.height = bitmap.height;
-            const painter = canvas.getContext("2d");
-            if (painter === null) return file;
-            painter.fillStyle = "#ffffff";
-            painter.fillRect(0, 0, canvas.width, canvas.height);
-            painter.drawImage(bitmap, 0, 0);
-            const blob = await new Promise((resolve) => {
-              try {
-                canvas.toBlob(resolve, "image/jpeg", settings.quality);
-              } catch {
-                resolve(null);
-              }
-            });
-            if (blob === null || blob.size >= file.size) return file;
-            return new File([blob], jpegName(file.name), { type: "image/jpeg" });
-          } finally {
-            safe(() => bitmap.close?.());
-          }
-        }
-        async function downscaleDataUrl(file, maxSide, quality) {
-          if (typeof createImageBitmap !== "function") return void 0;
-          let bitmap;
-          try {
-            bitmap = await createImageBitmap(file);
-          } catch {
-            return void 0;
-          }
-          try {
-            const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-            const width = Math.max(1, Math.round(bitmap.width * scale));
-            const height = Math.max(1, Math.round(bitmap.height * scale));
-            const canvas = document.createElement("canvas");
-            canvas.width = width;
-            canvas.height = height;
-            const painter = canvas.getContext("2d");
-            if (painter === null) return void 0;
-            painter.fillStyle = "#ffffff";
-            painter.fillRect(0, 0, width, height);
-            painter.drawImage(bitmap, 0, 0, width, height);
-            const blob = await new Promise((resolve) => {
-              try {
-                canvas.toBlob(resolve, "image/jpeg", quality);
-              } catch {
-                resolve(null);
-              }
-            });
-            if (blob === null) return void 0;
-            return await fileToDataUrl(new File([blob], "thumb.jpg", { type: "image/jpeg" }));
-          } finally {
-            safe(() => bitmap.close?.());
-          }
-        }
-        function fileToDataUrl(file) {
-          return new Promise((resolve) => {
-            try {
-              const reader = new FileReader();
-              reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : void 0);
-              reader.onerror = () => resolve(void 0);
-              reader.readAsDataURL(file);
-            } catch {
-              resolve(void 0);
-            }
-          });
-        }
-        function dataUrlToFile(image) {
-          if (typeof image?.dataUrl !== "string" || image.dataUrl === "") return void 0;
-          return safe(() => {
-            const comma = image.dataUrl.indexOf(",");
-            if (comma < 0) return void 0;
-            const header = image.dataUrl.slice(0, comma);
-            const match = header.match(/^data:([^;]+)/);
-            const mime = match?.[1] ?? "image/jpeg";
-            const binary = atob(image.dataUrl.slice(comma + 1));
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-            const name = typeof image.name === "string" && image.name !== "" ? image.name : "image.jpg";
-            return new File([bytes], name, { type: mime });
-          });
         }
         let remoteStoreState;
         const remoteReplyCache = /* @__PURE__ */ new Map();
@@ -2757,7 +2758,7 @@
           }
           const rejected = files.length > 0 ? files.length - picked.length : 0;
           for (const file of picked) {
-            const processed = await compressImage(file);
+            const processed = await compressImage(file, imageSettingsOf());
             const dataUrl = await fileToDataUrl(processed);
             const url = safe(() => URL.createObjectURL(processed));
             const thumb = await downscaleDataUrl(processed, 480, 0.65);
