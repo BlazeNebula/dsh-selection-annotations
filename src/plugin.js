@@ -30,6 +30,7 @@ import {
   UPLOAD_READY_TIMEOUT_MS,
 } from './core/constants.js'
 import { log, warn } from './core/log.js'
+import { safe, toBase64, cssEscape, truncateQuote, el, button } from './core/util.js'
 
 export function createPlugin(React) {
   const h = React.createElement
@@ -140,14 +141,6 @@ export function createPlugin(React) {
         }
 
         /* ------------------------------------------------------------------ 基础工具 */
-
-        const safe = (fn) => {
-          try {
-            return fn()
-          } catch {
-            return undefined
-          }
-        }
 
         function elementOf(node) {
           if (node === null || node === undefined) return null
@@ -834,21 +827,6 @@ export function createPlugin(React) {
           void hydrateRemoteSession(sessionId)
         }
 
-        function toBase64(bytes) {
-          let binary = ''
-          const step = 0x8000
-          for (let i = 0; i < bytes.length; i += step) {
-            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + step))
-          }
-          return btoa(binary)
-        }
-
-        /* ------------------------------------------------------------------ 锚点 */
-
-        /**
-         * 选区在根元素内的字符区间（半开 `[start, end)`，与 `textContent` 口径一致）。
-         * 这是批注位置的可校验表示：引文可能重复，字符区间不会。
-         */
         function offsetRange(root, range) {
           const measure = (node, offset) =>
             safe(() => {
@@ -1246,11 +1224,6 @@ export function createPlugin(React) {
           return null
         }
 
-        function cssEscape(value) {
-          return String(value).replace(/["\\]/g, '\\$&')
-        }
-
-        /** 按字符偏移在根元素里重建 Range（只走文本节点，偏移口径与 textContent 一致）。 */
         function rangeFromOffsets(root, start, length) {
           const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
           let offset = 0
@@ -1558,12 +1531,6 @@ export function createPlugin(React) {
           scheduleRepaint()
         }
 
-        function truncateQuote(value) {
-          const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
-          return text.length > 140 ? `${text.slice(0, 140)}…` : text
-        }
-
-        /** 收展头左侧的矢量箭头：开合只转这一个图形。*/
         function sectionChevron() {
           const ns = 'http://www.w3.org/2000/svg'
           const svg = document.createElementNS(ns, 'svg')
@@ -3303,13 +3270,6 @@ export function createPlugin(React) {
         let imageSettingsOpen = false
         /** 面板底部的批注指令设置是否展开。*/
         let instructionSettingsOpen = false
-
-        function el(tag, className, text) {
-          const created = document.createElement(tag)
-          if (className !== undefined) created.className = className
-          if (text !== undefined) created.textContent = text
-          return created
-        }
 
         function button(className, text, onClick) {
           const created = el('button', className, text)

@@ -498,6 +498,28 @@
     }
   };
 
+  // src/core/util.js
+  var safe = (fn) => {
+    try {
+      return fn();
+    } catch {
+      return void 0;
+    }
+  };
+  function cssEscape(value) {
+    return String(value).replace(/["\\]/g, "\\$&");
+  }
+  function truncateQuote(value) {
+    const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+    return text.length > 140 ? `${text.slice(0, 140)}…` : text;
+  }
+  function el(tag, className, text) {
+    const created = document.createElement(tag);
+    if (className !== void 0) created.className = className;
+    if (text !== void 0) created.textContent = text;
+    return created;
+  }
+
   // src/plugin.js
   function createPlugin(React) {
     const h = React.createElement;
@@ -568,13 +590,6 @@
             }
           }
         }
-        const safe = (fn) => {
-          try {
-            return fn();
-          } catch {
-            return void 0;
-          }
-        };
         function elementOf(node) {
           if (node === null || node === void 0) return null;
           if (node.nodeType === 1) return node;
@@ -1114,14 +1129,6 @@
           if (annotations.length > 0) scheduleSync();
           void hydrateRemoteSession(sessionId);
         }
-        function toBase64(bytes) {
-          let binary = "";
-          const step = 32768;
-          for (let i = 0; i < bytes.length; i += step) {
-            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
-          }
-          return btoa(binary);
-        }
         function offsetRange(root, range) {
           const measure = (node, offset) => safe(() => {
             const probe = range.cloneRange();
@@ -1440,9 +1447,6 @@
           }
           return null;
         }
-        function cssEscape(value) {
-          return String(value).replace(/["\\]/g, "\\$&");
-        }
         function rangeFromOffsets(root, start, length) {
           const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
           let offset = 0;
@@ -1692,10 +1696,6 @@
           recordSent(sessionId, target.anchorKey, pending.items, turn);
           scheduleRepaint();
         }
-        function truncateQuote(value) {
-          const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
-          return text.length > 140 ? `${text.slice(0, 140)}…` : text;
-        }
         function sectionChevron() {
           const ns = "http://www.w3.org/2000/svg";
           const svg = document.createElementNS(ns, "svg");
@@ -1807,10 +1807,10 @@
           return card;
         }
         function footerAfter(row) {
-          for (const button2 of document.querySelectorAll("[data-turn-process]")) {
-            if (button2 === row || button2.contains(row)) continue;
-            if ((row.compareDocumentPosition(button2) & 4) === 0) continue;
-            return button2;
+          for (const button3 of document.querySelectorAll("[data-turn-process]")) {
+            if (button3 === row || button3.contains(row)) continue;
+            if ((row.compareDocumentPosition(button3) & 4) === 0) continue;
+            return button3;
           }
           return null;
         }
@@ -1830,8 +1830,8 @@
           }
           const block = turnBlockOf(row);
           if (block === null) return void 0;
-          const button2 = typeof block.querySelector === "function" ? block.querySelector("[data-turn-process]") : null;
-          const raw = button2 === null ? null : button2.getAttribute("data-turn-process");
+          const button3 = typeof block.querySelector === "function" ? block.querySelector("[data-turn-process]") : null;
+          const raw = button3 === null ? null : button3.getAttribute("data-turn-process");
           const turn = Number(raw);
           return Number.isFinite(turn) && turn > 0 ? turn : void 0;
         }
@@ -1847,10 +1847,10 @@
         }
         function turnDisclosureItem(turn) {
           if (!Number.isFinite(turn)) return null;
-          const button2 = document.querySelector(`[data-turn-process="${turn}"]`);
-          if (button2 === null) return null;
-          const flow = typeof button2.closest === "function" ? button2.closest("[data-chat-flow-kind]") : null;
-          return flow ?? button2;
+          const button3 = document.querySelector(`[data-turn-process="${turn}"]`);
+          if (button3 === null) return null;
+          const flow = typeof button3.closest === "function" ? button3.closest("[data-chat-flow-kind]") : null;
+          return flow ?? button3;
         }
         function sentCardAnchor(row) {
           const turn = turnOfRow(row);
@@ -1904,9 +1904,9 @@
           const content = turnContentItem(turn);
           if (content !== null) return content;
           if (!Number.isFinite(turn)) return null;
-          const button2 = document.querySelector(`[data-turn-process="${turn}"]`);
-          if (button2 === null) return null;
-          return button2.closest('[data-chat-flow-kind="turn-process"]') ?? button2;
+          const button3 = document.querySelector(`[data-turn-process="${turn}"]`);
+          if (button3 === null) return null;
+          return button3.closest('[data-chat-flow-kind="turn-process"]') ?? button3;
         }
         function renderSentCards() {
           const sessionId = currentSessionId();
@@ -2090,12 +2090,12 @@
               if (node.getAttribute?.("data-chat-flow-kind") === "turn-process" || node.matches?.("[data-turn-process]")) footer = node;
               break;
             }
-            const button2 = footer === null ? null : footer.matches?.("[data-turn-process]") ? footer : footer.querySelector?.("[data-turn-process]");
-            if (button2 !== null && origin !== void 0 && button2 !== origin) continue;
+            const button3 = footer === null ? null : footer.matches?.("[data-turn-process]") ? footer : footer.querySelector?.("[data-turn-process]");
+            if (button3 !== null && origin !== void 0 && button3 !== origin) continue;
             const head = typeof section.querySelector === "function" ? section.querySelector(".sa-section-head") : null;
             const wrap = typeof section.querySelector === "function" ? section.querySelector(".sa-collapse") : null;
             if (head === null || wrap === null) continue;
-            const open = button2 === null || button2.getAttribute("aria-expanded") !== "false";
+            const open = button3 === null || button3.getAttribute("aria-expanded") !== "false";
             const seen = section.dataset.saFooterOpen;
             if (seen !== void 0 && seen === (open ? "1" : "0")) continue;
             section.dataset.saFooterOpen = open ? "1" : "0";
@@ -3161,13 +3161,7 @@
         let panelHideTimer = 0;
         let imageSettingsOpen = false;
         let instructionSettingsOpen = false;
-        function el(tag, className, text) {
-          const created = document.createElement(tag);
-          if (className !== void 0) created.className = className;
-          if (text !== void 0) created.textContent = text;
-          return created;
-        }
-        function button(className, text, onClick) {
+        function button2(className, text, onClick) {
           const created = el("button", className, text);
           created.type = "button";
           created.addEventListener("click", onClick);
@@ -3204,7 +3198,7 @@
           meta.appendChild(hint);
           meta.appendChild(el("span", "sa-panel-count", t("panel.count", { n: annotations.length })));
           if (annotations.length > 0) {
-            meta.appendChild(button("sa-foot-action", t("panel.clear"), () => clearAnnotations()));
+            meta.appendChild(button2("sa-foot-action", t("panel.clear"), () => clearAnnotations()));
           }
           panelHead.appendChild(meta);
           panelEl.appendChild(panelHead);
@@ -3250,8 +3244,8 @@
             summary.title = summary.textContent;
             head.appendChild(summary);
             const actions = el("div", "sa-item-actions");
-            actions.appendChild(button("sa-item-action", t("panel.edit"), () => openEditPopover(item.id, head)));
-            actions.appendChild(button("sa-item-action sa-danger", t("panel.delete"), () => removeAnnotation(item.id)));
+            actions.appendChild(button2("sa-item-action", t("panel.edit"), () => openEditPopover(item.id, head)));
+            actions.appendChild(button2("sa-item-action sa-danger", t("panel.delete"), () => removeAnnotation(item.id)));
             head.appendChild(actions);
             row.appendChild(head);
             if (item.quote !== "") {
@@ -3309,7 +3303,7 @@
           const settings = imageSettingsOf();
           const box = el("div", "sa-settings");
           const head = el("div", "sa-settings-head");
-          const toggle = button("sa-link", imageSettingsOpen ? t("settings.imagesOpen") : t("settings.imagesClosed"), () => {
+          const toggle = button2("sa-link", imageSettingsOpen ? t("settings.imagesOpen") : t("settings.imagesClosed"), () => {
             imageSettingsOpen = !imageSettingsOpen;
             refreshPanel();
           });
@@ -3369,7 +3363,7 @@
         function instructionSettingsRow() {
           const box = el("div", "sa-settings");
           const head = el("div", "sa-settings-head");
-          const toggle = button("sa-link", instructionSettingsOpen ? t("settings.instructionOpen") : t("settings.instructionClosed"), () => {
+          const toggle = button2("sa-link", instructionSettingsOpen ? t("settings.instructionOpen") : t("settings.instructionClosed"), () => {
             instructionSettingsOpen = !instructionSettingsOpen;
             refreshPanel();
           });
@@ -3385,7 +3379,7 @@
           box.appendChild(area);
           const actions = el("div", "sa-settings-actions");
           actions.appendChild(
-            button("sa-link", t("settings.restore"), () => {
+            button2("sa-link", t("settings.restore"), () => {
               persistInstructionSettings(defaultInstruction());
               refreshPanel();
             })
