@@ -564,6 +564,45 @@
     };
   }
 
+  // src/core/session.js
+  function createSessionApi(ctx, getLatestSessionId) {
+    function currentSessionId() {
+      const latest = getLatestSessionId();
+      if (typeof latest === "string" && latest !== "") return latest;
+      const fromUi = safe(() => {
+        const binding = ctx.get("uiSession")?.adapter?.current?.getSnapshot?.();
+        return typeof binding?.key === "string" && binding.key !== "" ? binding.key : void 0;
+      });
+      if (fromUi !== void 0) return fromUi;
+      return safe(() => {
+        const snap = ctx.sessions?.list?.getSnapshot?.();
+        if (snap === void 0 || snap === null) return void 0;
+        if (typeof snap.current === "string" && snap.current !== "") return snap.current;
+        const ids = Array.isArray(snap.ids) ? snap.ids : Object.keys(snap.byId ?? {});
+        for (const id of ids) {
+          const retained = snap.byId?.[id]?.retainedBy;
+          if (retained !== null && typeof retained === "object" && retained.mainView > 0) return id;
+        }
+        return void 0;
+      });
+    }
+    function inputShell() {
+      const sessionId = currentSessionId();
+      if (sessionId === void 0) return void 0;
+      return safe(() => {
+        const scoped = ctx.sessions.scope(sessionId);
+        if (scoped === void 0 || scoped === null) return void 0;
+        return ctx.conversation.input.for(scoped);
+      });
+    }
+    function liveAttachmentIds(shell) {
+      if (Array.isArray(shell?.attachmentIds)) return shell.attachmentIds;
+      const snapshot = safe(() => shell?.state?.getSnapshot());
+      return Array.isArray(snapshot?.attachmentIds) ? snapshot.attachmentIds : void 0;
+    }
+    return { currentSessionId, inputShell, liveAttachmentIds };
+  }
+
   // src/core/image-codec.js
   function jpegName(name) {
     const base = typeof name === "string" && name !== "" ? name : "image";
@@ -830,39 +869,10 @@
           if (node.nodeType === 1) return node;
           return node.parentElement ?? null;
         }
-        function currentSessionId() {
-          if (typeof latestSessionId === "string" && latestSessionId !== "") return latestSessionId;
-          const fromUi = safe(() => {
-            const binding = ctx.get("uiSession")?.adapter?.current?.getSnapshot?.();
-            return typeof binding?.key === "string" && binding.key !== "" ? binding.key : void 0;
-          });
-          if (fromUi !== void 0) return fromUi;
-          return safe(() => {
-            const snap = ctx.sessions?.list?.getSnapshot?.();
-            if (snap === void 0 || snap === null) return void 0;
-            if (typeof snap.current === "string" && snap.current !== "") return snap.current;
-            const ids = Array.isArray(snap.ids) ? snap.ids : Object.keys(snap.byId ?? {});
-            for (const id of ids) {
-              const retained = snap.byId?.[id]?.retainedBy;
-              if (retained !== null && typeof retained === "object" && retained.mainView > 0) return id;
-            }
-            return void 0;
-          });
-        }
-        function inputShell() {
-          const sessionId = currentSessionId();
-          if (sessionId === void 0) return void 0;
-          return safe(() => {
-            const scoped = ctx.sessions.scope(sessionId);
-            if (scoped === void 0 || scoped === null) return void 0;
-            return ctx.conversation.input.for(scoped);
-          });
-        }
-        function liveAttachmentIds(shell) {
-          if (Array.isArray(shell?.attachmentIds)) return shell.attachmentIds;
-          const snapshot2 = safe(() => shell?.state?.getSnapshot());
-          return Array.isArray(snapshot2?.attachmentIds) ? snapshot2.attachmentIds : void 0;
-        }
+        const sessionApi = createSessionApi(ctx, () => latestSessionId);
+        const currentSessionId = () => sessionApi.currentSessionId();
+        const inputShell = () => sessionApi.inputShell();
+        const liveAttachmentIds = (shell) => sessionApi.liveAttachmentIds(shell);
         function sweepOrphans(shell) {
           if (maintaining || syncing) return;
           const ids = liveAttachmentIds(shell);
