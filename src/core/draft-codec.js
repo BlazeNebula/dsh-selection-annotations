@@ -68,5 +68,5 @@ export function createDraftCodec({ t, prefix, maxBytes }) {
     return next
   }
 
-  return { draftKey, draftItems, isDraftItem, restoreDraftItem, fitDraftSize }
+  return { prefix, draftKey, draftItems, isDraftItem, restoreDraftItem, fitDraftSize }
 }

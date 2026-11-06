@@ -1027,7 +1027,79 @@
       if (text.length > maxBytes) log("[selection-annotations] 草稿超出本地存储预算，图片已丢弃、文字保留");
       return next;
     }
-    return { draftKey, draftItems, isDraftItem, restoreDraftItem, fitDraftSize };
+    return { prefix, draftKey, draftItems, isDraftItem, restoreDraftItem, fitDraftSize };
+  }
+
+  // src/core/draft-store.js
+  function createDraftStore({ getStorage, codec, getAnnotations, drafts, onSaved, maxSessions, maxItems }) {
+    const draftStorage = () => getStorage();
+    function prune(storage) {
+      const keys = [];
+      for (let i = 0; i < storage.length; i += 1) {
+        const key = safeStorageKey(storage, i);
+        if (typeof key === "string" && key.startsWith(codec.prefix)) keys.push(key);
+      }
+      if (keys.length <= maxSessions) return;
+      const dated = keys.map((key) => ({
+        key,
+        savedAt: Number(JSON.parse(storage.getItem(key) ?? "{}")?.savedAt) || 0
+      }));
+      dated.sort((a, b) => a.savedAt - b.savedAt);
+      for (const entry of dated.slice(0, dated.length - maxSessions)) {
+        try {
+          storage.removeItem(entry.key);
+        } catch {
+        }
+      }
+    }
+    function saveDraft(sessionId) {
+      if (typeof sessionId !== "string" || sessionId === "") return;
+      const full = codec.draftItems(getAnnotations());
+      const items = codec.fitDraftSize(full);
+      if (full.length === 0) drafts.delete(sessionId);
+      else drafts.set(sessionId, full);
+      onSaved(sessionId);
+      const storage = draftStorage();
+      if (storage === void 0) return;
+      try {
+        if (items.length === 0) {
+          storage.removeItem(codec.draftKey(sessionId));
+          return;
+        }
+        storage.setItem(codec.draftKey(sessionId), JSON.stringify({ version: 1, savedAt: Date.now(), items }));
+        prune(storage);
+      } catch {
+      }
+    }
+    function loadDraft(sessionId) {
+      const memory = drafts.get(sessionId);
+      if (memory !== void 0) return memory.map(codec.restoreDraftItem);
+      const storage = draftStorage();
+      if (storage === void 0) return [];
+      const items = safeParse(storage, codec, sessionId, maxItems);
+      if (items === void 0 || items.length === 0) return [];
+      drafts.set(sessionId, codec.draftItems(items));
+      return items;
+    }
+    return { draftStorage, saveDraft, loadDraft };
+  }
+  function safeStorageKey(storage, index) {
+    try {
+      return storage.key(index);
+    } catch {
+      return void 0;
+    }
+  }
+  function safeParse(storage, codec, sessionId, maxItems) {
+    try {
+      const raw = storage.getItem(codec.draftKey(sessionId));
+      if (raw === null) return [];
+      const parsed = JSON.parse(raw);
+      if (parsed === null || typeof parsed !== "object" || !Array.isArray(parsed.items)) return [];
+      return parsed.items.filter(codec.isDraftItem).slice(0, maxItems).map(codec.restoreDraftItem);
+    } catch {
+      return void 0;
+    }
   }
 
   // src/core/source-locate.js
@@ -1387,69 +1459,27 @@
           }
           if (touched) scheduleRepaint();
         }
-        function draftStorage() {
-          return safe(() => {
-            const storage = window.localStorage;
-            return storage !== null && storage !== void 0 && typeof storage.getItem === "function" ? storage : void 0;
-          });
-        }
         const draftCodec = createDraftCodec({ t, prefix: DRAFT_STORAGE_PREFIX, maxBytes: DRAFT_MAX_BYTES });
         const draftKey = (sessionId) => draftCodec.draftKey(sessionId);
         const draftItems = (items) => draftCodec.draftItems(items);
         const isDraftItem = (value) => draftCodec.isDraftItem(value);
         const restoreDraftItem = (item) => draftCodec.restoreDraftItem(item);
         const fitDraftSize = (items) => draftCodec.fitDraftSize(items);
-        function saveDraft(sessionId) {
-          if (typeof sessionId !== "string" || sessionId === "") return;
-          const full = draftItems(annotations);
-          const items = fitDraftSize(full);
-          if (full.length === 0) draftSessions.delete(sessionId);
-          else draftSessions.set(sessionId, full);
-          scheduleRemotePush(sessionId);
-          const storage = draftStorage();
-          if (storage === void 0) return;
-          try {
-            if (items.length === 0) {
-              storage.removeItem(draftKey(sessionId));
-              return;
-            }
-            storage.setItem(draftKey(sessionId), JSON.stringify({ version: 1, savedAt: Date.now(), items }));
-            pruneDrafts(storage);
-          } catch {
-          }
-        }
-        function pruneDrafts(storage) {
-          const keys = [];
-          for (let i = 0; i < storage.length; i += 1) {
-            const key = safe(() => storage.key(i));
-            if (typeof key === "string" && key.startsWith(DRAFT_STORAGE_PREFIX)) keys.push(key);
-          }
-          if (keys.length <= DRAFT_MAX_SESSIONS) return;
-          const dated = keys.map((key) => {
-            const savedAt = safe(() => Number(JSON.parse(storage.getItem(key) ?? "{}")?.savedAt) || 0);
-            return { key, savedAt: savedAt ?? 0 };
-          });
-          dated.sort((a, b) => a.savedAt - b.savedAt);
-          for (const entry of dated.slice(0, dated.length - DRAFT_MAX_SESSIONS)) {
-            safe(() => storage.removeItem(entry.key));
-          }
-        }
-        function loadDraft(sessionId) {
-          const memory = draftSessions.get(sessionId);
-          if (memory !== void 0) return memory.map(restoreDraftItem);
-          const storage = draftStorage();
-          if (storage === void 0) return [];
-          const items = safe(() => {
-            const raw = storage.getItem(draftKey(sessionId));
-            if (raw === null) return [];
-            const parsed = JSON.parse(raw);
-            if (parsed === null || typeof parsed !== "object" || !Array.isArray(parsed.items)) return [];
-            return parsed.items.filter(isDraftItem).slice(0, DRAFT_MAX_ITEMS).map(restoreDraftItem);
-          });
-          if (items === void 0 || items.length === 0) return [];
-          draftSessions.set(sessionId, draftItems(items));
-          return items;
-        }
+        const draftStore = createDraftStore({
+          getStorage: () => safe(() => {
+            const storage = window.localStorage;
+            return storage !== null && storage !== void 0 && typeof storage.getItem === "function" ? storage : void 0;
+          }),
+          codec: draftCodec,
+          getAnnotations: () => annotations,
+          drafts: draftSessions,
+          onSaved: (sessionId) => scheduleRemotePush(sessionId),
+          maxSessions: DRAFT_MAX_SESSIONS,
+          maxItems: DRAFT_MAX_ITEMS
+        });
+        const draftStorage = () => draftStore.draftStorage();
+        const saveDraft = (sessionId) => draftStore.saveDraft(sessionId);
+        const loadDraft = (sessionId) => draftStore.loadDraft(sessionId);
         function adoptSession(sessionId) {
           if (typeof sessionId !== "string" || sessionId === "") return;
           const first = annotationsSession === void 0;

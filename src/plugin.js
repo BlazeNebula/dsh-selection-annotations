@@ -37,6 +37,7 @@ import { createPayload } from './core/payload.js'
 import { createSentStore } from './core/sent-store.js'
 import { createRemoteSync } from './core/remote-sync.js'
 import { createDraftCodec } from './core/draft-codec.js'
+import { createDraftStore } from './core/draft-store.js'
 import { compressImage, downscaleDataUrl, fileToDataUrl, dataUrlToFile } from './core/image-codec.js'
 import {
   offsetRange,
@@ -401,80 +402,28 @@ export function createPlugin(React) {
           if (touched) scheduleRepaint()
         }
 
-        /** localStorage 在受限上下文里可能不可用：取不到就退回纯内存，绝不让保存路径抛错。*/
-        function draftStorage() {
-          return safe(() => {
-            const storage = window.localStorage
-            return storage !== null && storage !== undefined && typeof storage.getItem === 'function' ? storage : undefined
-          })
-        }
-
         const draftCodec = createDraftCodec({ t, prefix: DRAFT_STORAGE_PREFIX, maxBytes: DRAFT_MAX_BYTES })
         const draftKey = (sessionId) => draftCodec.draftKey(sessionId)
         const draftItems = (items) => draftCodec.draftItems(items)
         const isDraftItem = (value) => draftCodec.isDraftItem(value)
         const restoreDraftItem = (item) => draftCodec.restoreDraftItem(item)
         const fitDraftSize = (items) => draftCodec.fitDraftSize(items)
-
-        /** 存一份草稿；批注被清空时把这一键一起删掉。*/
-        function saveDraft(sessionId) {
-          if (typeof sessionId !== 'string' || sessionId === '') return
-          // 内存与落盘保留完整内容；只有 localStorage 受配额限制，写进去时才裁剪。
-          const full = draftItems(annotations)
-          const items = fitDraftSize(full)
-          if (full.length === 0) draftSessions.delete(sessionId)
-          else draftSessions.set(sessionId, full)
-          // 落盘通道也同步一份：localStorage 只在当前客户端里有效。
-          scheduleRemotePush(sessionId)
-          const storage = draftStorage()
-          if (storage === undefined) return
-          try {
-            if (items.length === 0) {
-              storage.removeItem(draftKey(sessionId))
-              return
-            }
-            storage.setItem(draftKey(sessionId), JSON.stringify({ version: 1, savedAt: Date.now(), items }))
-            pruneDrafts(storage)
-          } catch {
-            /* 配额满或写入被禁：降级为仅内存保存*/
-          }
-        }
-
-        /** 只保留最近 DRAFT_MAX_SESSIONS 个会话的草稿。 */
-        function pruneDrafts(storage) {
-          const keys = []
-          for (let i = 0; i < storage.length; i += 1) {
-            const key = safe(() => storage.key(i))
-            if (typeof key === 'string' && key.startsWith(DRAFT_STORAGE_PREFIX)) keys.push(key)
-          }
-          if (keys.length <= DRAFT_MAX_SESSIONS) return
-          const dated = keys.map((key) => {
-            const savedAt = safe(() => Number(JSON.parse(storage.getItem(key) ?? '{}')?.savedAt) || 0)
-            return { key, savedAt: savedAt ?? 0 }
-          })
-          dated.sort((a, b) => a.savedAt - b.savedAt)
-          for (const entry of dated.slice(0, dated.length - DRAFT_MAX_SESSIONS)) {
-            safe(() => storage.removeItem(entry.key))
-          }
-        }
-
-        /** 读一份草稿：内存优先，其次本地存储；读坏了当没有。*/
-        function loadDraft(sessionId) {
-          const memory = draftSessions.get(sessionId)
-          if (memory !== undefined) return memory.map(restoreDraftItem)
-          const storage = draftStorage()
-          if (storage === undefined) return []
-          const items = safe(() => {
-            const raw = storage.getItem(draftKey(sessionId))
-            if (raw === null) return []
-            const parsed = JSON.parse(raw)
-            if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.items)) return []
-            return parsed.items.filter(isDraftItem).slice(0, DRAFT_MAX_ITEMS).map(restoreDraftItem)
-          })
-          if (items === undefined || items.length === 0) return []
-          draftSessions.set(sessionId, draftItems(items))
-          return items
-        }
+        const draftStore = createDraftStore({
+          getStorage: () =>
+            safe(() => {
+              const storage = window.localStorage
+              return storage !== null && storage !== undefined && typeof storage.getItem === 'function' ? storage : undefined
+            }),
+          codec: draftCodec,
+          getAnnotations: () => annotations,
+          drafts: draftSessions,
+          onSaved: (sessionId) => scheduleRemotePush(sessionId),
+          maxSessions: DRAFT_MAX_SESSIONS,
+          maxItems: DRAFT_MAX_ITEMS,
+        })
+        const draftStorage = () => draftStore.draftStorage()
+        const saveDraft = (sessionId) => draftStore.saveDraft(sessionId)
+        const loadDraft = (sessionId) => draftStore.loadDraft(sessionId)
 
         /**
          * 会话切换：先把上一会话的草稿存起来，再换入这一会话的草稿。
