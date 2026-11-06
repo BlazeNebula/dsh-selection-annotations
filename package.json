@@ -62,5 +62,8 @@
         "@deepseek-ai/dsh-client-ui-session"
       ]
     }
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
   }
 }

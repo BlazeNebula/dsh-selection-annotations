@@ -249,21 +249,21 @@ npm run build      # regenerate client.js from src/ (required after editing src/
 
 ### Source layout
 
-The browser half must stay a single file (`client.js`) because DSH's client loader takes
-exactly one bundle. It is stitched from the fragments under `src/`, in the order listed by
-`scripts/parts.mjs`. **Do not edit `client.js` directly** — `npm run build` overwrites it and
-`npm test` fails when the two drift apart.
+The client is written as ES modules; `scripts/build.mjs` bundles them with esbuild into the
+single `client.js` that DSH loads. **Do not edit `client.js` directly** — `npm run build`
+overwrites it and `npm test` fails when the two drift apart.
 
-- `src/shell/` — loader shell, the opening of `return { … apply(ctx) {`, and the closing tail.
-- `src/parts/00-config.js` — file name, limits, default instruction, build marker.
-- `src/parts/01-locale.js` — zh/en dictionaries, `t()`, default-instruction selection.
-- `src/parts/02-constants.js` / `03-styles.js` — timing constants and all CSS.
-- From `src/parts/04-log.js` on: logging, state, session/input shell, images, remote sync,
-  drafts, anchors and source lookup, highlighting, sent cards, reply cards, payload and
-  attachment sync, repaint, selection/toolbar, popover, hover, overview panel, components.
+- `src/entry.js` — the `window.__ModuleLoader__.load` shell; React arrives through the host's `factory(require)`.
+- `src/plugin.js` — composition root, exports `createPlugin(React)` returning `name` / `inject` / `apply`.
+- `src/core/config.js` — file name, limits, default instruction, build marker.
+- `src/core/messages.js` — zh/en dictionaries.
+- `src/core/styles.js` — all CSS.
+- `src/core/constants.js` — timing and polling constants.
+- `src/core/log.js` — non-throwing `log` / `warn`.
 
-The fragments share one `apply(ctx)` closure, so they cannot use `import`/`export`; the split
-exists to keep each responsibility in a navigable file instead of one 4,000-line bundle.
+`src/plugin.js` still holds state, session, images, remote sync, drafts, anchors, cards,
+selection, popover, panel and components; those move to `src/modules/` one at a time, with
+`npm test` staying green after each move.
 
 The suite runs in plain Node — no browser, no DSH install:
 

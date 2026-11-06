@@ -1,19 +1,37 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { build } from 'esbuild'
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PARTS } from './parts.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-/** 按 PARTS 顺序拼出 client.js 的完整文本（与原文件字节保持一致）。 */
-export function buildClientSource(baseDir = root) {
-  const output = PARTS.map((rel) => readFileSync(join(baseDir, 'src', rel), 'utf8')).join('')
-  // 原文件的结尾是 "})\r"（没有 LF）；保持原字节，避免无关 diff。
-  return output.endsWith('\r\n') ? output.slice(0, -1) : output
+/** DSH 的客户端加载器只取一个文件，所以源码用 ES 模块写、构建时打成 IIFE。 */
+const options = {
+  entryPoints: [join(root, 'src/entry.js')],
+  bundle: true,
+  format: 'iife',
+  platform: 'browser',
+  target: 'chrome120',
+  // React 由宿主注入（__ModuleLoader__ 的 factory(require)），不打进产物。
+  external: ['react'],
+  charset: 'utf8',
+  legalComments: 'none',
+  logLevel: 'silent',
+}
+
+export async function buildClientSource() {
+  const result = await build({ ...options, write: false })
+  return result.outputFiles[0].text
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const text = buildClientSource()
+  const text = await buildClientSource()
+  const { writeFileSync } = await import('node:fs')
   writeFileSync(join(root, 'client.js'), text)
-  console.log(`client.js <- ${PARTS.length} 个源码片段，共 ${text.split('\n').length} 行`)
+  console.log(`client.js <- src/（${text.split('\n').length} 行）`)
+}
+
+// 让 check-build 能直接比较源码与产物。
+export function readBuiltClient() {
+  return readFileSync(join(root, 'client.js'), 'utf8')
 }

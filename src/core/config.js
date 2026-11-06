@@ -1,21 +1,21 @@
     /** 批注负载的文件名；只是给用户看的，宿主靠 JSON 里的 kind 字段认领。 */
-    const ANNOTATION_FILE = '批注.json'
+export const ANNOTATION_FILE = '批注.json'
     /** 负载类型标记；客户端与宿主半边共用这个值。*/
-    const PAYLOAD_KIND = 'dsh-selection-annotations'
-    const MAX_QUOTE = 1600
-    const MAX_NOTE = 4000
+export const PAYLOAD_KIND = 'dsh-selection-annotations'
+export const MAX_QUOTE = 1600
+export const MAX_NOTE = 4000
     /** 单条批注最多能挂几张图；再多会明显拖慢消息序列化。*/
-    const MAX_IMAGES_PER_ANNOTATION = 4
+export const MAX_IMAGES_PER_ANNOTATION = 4
     /** 单张图片的字节上限，超过就拒绝（避免把一条消息撑爆）。*/
-    const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+export const MAX_IMAGE_BYTES = 8 * 1024 * 1024
     /** 图片设置键：压缩开关、质量、触发压缩的最小边。*/
-    const IMAGE_SETTINGS_KEY = 'dsh-selection-annotations:image-settings'
+export const IMAGE_SETTINGS_KEY = 'dsh-selection-annotations:image-settings'
     /** 默认设置：80% 质量、最短边超过 100 像素才重编码。 */
-    const DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100 }
+export const DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100 }
     /** 批注指令设置键：随批注数据块发给模型的说明文字。*/
-    const INSTRUCTION_SETTINGS_KEY = 'dsh-selection-annotations:instruction-settings'
+export const INSTRUCTION_SETTINGS_KEY = 'dsh-selection-annotations:instruction-settings'
     /** 默认批注指令；删掉「必须调用annotation_replies」这句，逐条答复会退化成正文自由文本。*/
-    const DEFAULT_INSTRUCTION = [
+export const DEFAULT_INSTRUCTION = [
       '这是用户发来的批注数据块。它与用户消息正文相互独立：用户可能同时发了正文，',
       '也可能只发了这个批注块（此时它就是本条消息的全部内容）。annotations[].quote 是用户选中的原文；',
       'annotations[].source 给出它的位置：',
@@ -39,7 +39,7 @@
     ].join('')
 
     /** 英文界面下的批注指令；结构与中文版逐句对应。*/
-    const DEFAULT_INSTRUCTION_EN = [
+export const DEFAULT_INSTRUCTION_EN = [
       'This is an annotation payload sent by the user. It is independent of the user message body: ',
       'the user may have sent a body as well, or only this payload (in which case it is the entire message). ',
       'annotations[].quote is the text the user selected; annotations[].source gives its position: ',
@@ -66,7 +66,7 @@
     ].join('')
 
     /** 界面文案命名空间；DSH 按语言注册后由 bind 解析。*/
-    const LOCALE_NS = 'selection-annotations'
+export const LOCALE_NS = 'selection-annotations'
     /** 构建标记：显示在批注总览底部，用来确认当前页面加载的是哪一版代码。*/
-    const PLUGIN_BUILD = '1.3.0+10'
+export const PLUGIN_BUILD = '1.3.0+10'
     /** 中文原文即现有措辞，保持与既有测试断言一致。*/

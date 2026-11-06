@@ -231,18 +231,19 @@ npm run build      # 由 src/ 重新生成 client.js（改完源码必须跑）
 
 ### 源码结构
 
-浏览器侧仍然只能是单文件 `client.js`（DSH 的客户端加载器只取一个构建产物），
-它由 `src/` 下的片段按 `scripts/parts.mjs` 的顺序拼成。**不要直接改 `client.js`**：
-下次 `npm run build` 会覆盖它，`npm test` 也会先报不一致。
+客户端用 ES 模块写，`scripts/build.mjs` 用 esbuild 打包成 DSH 加载的单文件 `client.js`。
+**不要直接改 `client.js`**：下次 `npm run build` 会覆盖它，`npm test` 也会先报不一致。
 
-- `src/shell/`：loader 外壳、`return { … apply(ctx) {` 的开头与收尾。
-- `src/parts/00-config.js`：文件名、数量上限、默认指令、构建号。
-- `src/parts/01-locale.js`：中英词典、`t()`、默认指令的中英选择。
-- `src/parts/02-constants.js` / `03-styles.js`：时间常量与全部 CSS。
-- `src/parts/04-log.js` 起：日志、状态、会话与输入外壳、图片、远端同步、草稿、锚点与原文定位、高亮、已发送卡、答复卡、负载与附件同步、重绘、选区与工具条、弹层、悬停、总览面板、组件与注册。
+- `src/entry.js`：`window.__ModuleLoader__.load` 外壳；React 由宿主的 `factory(require)` 注入。
+- `src/plugin.js`：组合根，导出 `createPlugin(React)`，返回插件的 `name` / `inject` / `apply`。
+- `src/core/config.js`：文件名、数量上限、默认指令、构建号。
+- `src/core/messages.js`：中英词典。
+- `src/core/styles.js`：全部 CSS。
+- `src/core/constants.js`：时间与轮询常量。
+- `src/core/log.js`：不会外抛的 `log` / `warn`。
 
-这些片段共享同一个 `apply(ctx)` 闭包，所以不能写 `import`/`export`；
-拆分的目的只是把 4,000 多行的单文件变成按职责可导航的多个文件。
+`src/plugin.js` 里还留着状态、会话、图片、远端同步、草稿、锚点、卡片、选区、弹层、面板与组件，
+它们会继续迁到 `src/modules/`；迁移时保持 `npm test` 全绿，一次搬一个模块。
 
 测试在纯 Node 里跑 —— 不需要浏览器，也不需要装 DSH：
 

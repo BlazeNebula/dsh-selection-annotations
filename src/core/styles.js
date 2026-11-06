@@ -1,4 +1,4 @@
-    const CSS = `
+export const CSS = `
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
 .sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
   background: rgb(255 208 66 / 0.45); box-shadow: inset 0 -1px 0 rgb(255 176 0 / 0.75); }
@@ -229,4 +229,3 @@
 .sa-sent-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; cursor: zoom-in;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
 `
-

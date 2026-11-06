@@ -1,4 +1,4 @@
-    const MESSAGES = {
+export const MESSAGES = {
       zh: {
         annotate: '批注',
         'menu.annotate': '批注选中文字',
@@ -176,26 +176,3 @@
     }
 
     /** 当前语言的语言标签；没有 locale 服务时固定中文。*/
-    let activeLocale = 'zh'
-
-    /** 把 {name} 占位符换掉；缺省保留原样，便于发现漏翻的键。*/
-    function formatMessage(template, params) {
-      if (typeof template !== 'string') return ''
-      if (params === undefined || params === null) return template
-      return template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
-    }
-
-    /** 默认走中文；apply 里拿到 locale 服务后换成 bind 出来的翻译函数。*/
-    let t = (key, params) => formatMessage(MESSAGES.zh[key] ?? key, params)
-
-    /** 当前语言下的默认批注指令。*/
-    function defaultInstruction() {
-      return activeLocale.toLowerCase().startsWith('en') ? DEFAULT_INSTRUCTION_EN : DEFAULT_INSTRUCTION
-    }
-
-    /** 判断一段指令是不是默认文案（中英任一）。*/
-    function isDefaultInstruction(text) {
-      return text === DEFAULT_INSTRUCTION || text === DEFAULT_INSTRUCTION_EN
-    }
-
-    /** 草稿在本地存储里的体积上限；超了先丢最旧批注的图片。*/
