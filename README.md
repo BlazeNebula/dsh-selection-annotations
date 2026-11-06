@@ -254,16 +254,26 @@ single `client.js` that DSH loads. **Do not edit `client.js` directly** — `npm
 overwrites it and `npm test` fails when the two drift apart.
 
 - `src/entry.js` — the `window.__ModuleLoader__.load` shell; React arrives through the host's `factory(require)`.
-- `src/plugin.js` — composition root, exports `createPlugin(React)` returning `name` / `inject` / `apply`.
-- `src/core/config.js` — file name, limits, default instruction, build marker.
+- `src/plugin.js` — composition root, exports `createPlugin(React)` returning `name` / `inject` / `apply`; state, selection, popover and panel code that is tightly coupled to the UI still lives here.
+- `src/core/config.js` — file name, limits, default instruction, storage prefixes, build marker.
 - `src/core/messages.js` — zh/en dictionaries.
 - `src/core/styles.js` — all CSS.
 - `src/core/constants.js` — timing and polling constants.
 - `src/core/log.js` — non-throwing `log` / `warn`.
+- `src/core/util.js` — stateless helpers (`safe`, escaping, truncation).
+- `src/core/locale.js` — DSH locale wiring and default instructions.
+- `src/core/settings.js` — image compression and instruction settings.
+- `src/core/payload.js` — annotation payload and source descriptions.
+- `src/core/sent-store.js` — committed-annotation ledger (session / anchor / turn).
+- `src/core/remote-sync.js` — ledger and draft persistence.
+- `src/core/draft-codec.js` / `draft-store.js` — draft serialization, restore and local storage.
+- `src/core/annotation-utils.js` — reply merging and empty-annotation checks.
+- `src/core/image-codec.js` — image compression and data-URL conversion.
+- `src/core/source-locate.js` / `source-capture.js` / `source-resolve.js` — source location, selection anchors, source-coordinate refinement.
+- `src/core/cards.js` — section headers, sent cards and per-reply cards.
 
-`src/plugin.js` still holds state, session, images, remote sync, drafts, anchors, cards,
-selection, popover, panel and components; those move to `src/modules/` one at a time, with
-`npm test` staying green after each move.
+Next: selection, popover and the overview panel (the most UI-state-coupled parts), plus the runtime
+that assembles these capabilities.
 
 The suite runs in plain Node — no browser, no DSH install:
 

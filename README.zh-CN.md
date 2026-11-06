@@ -235,15 +235,25 @@ npm run build      # 由 src/ 重新生成 client.js（改完源码必须跑）
 **不要直接改 `client.js`**：下次 `npm run build` 会覆盖它，`npm test` 也会先报不一致。
 
 - `src/entry.js`：`window.__ModuleLoader__.load` 外壳；React 由宿主的 `factory(require)` 注入。
-- `src/plugin.js`：组合根，导出 `createPlugin(React)`，返回插件的 `name` / `inject` / `apply`。
-- `src/core/config.js`：文件名、数量上限、默认指令、构建号。
+- `src/plugin.js`：组合根，导出 `createPlugin(React)`，返回插件的 `name` / `inject` / `apply`；状态机、选区、弹层、面板等与界面状态强耦合的部分仍在此处。
+- `src/core/config.js`：文件名、数量上限、默认指令、存储前缀、构建号。
 - `src/core/messages.js`：中英词典。
 - `src/core/styles.js`：全部 CSS。
 - `src/core/constants.js`：时间与轮询常量。
 - `src/core/log.js`：不会外抛的 `log` / `warn`。
+- `src/core/util.js`：`safe`、转义、截断等无状态小工具。
+- `src/core/locale.js`：DSH 语言服务接入与默认指令。
+- `src/core/settings.js`：图片压缩与批注指令设置的读写。
+- `src/core/payload.js`：批注 JSON 负载与出处文案。
+- `src/core/sent-store.js`：已提交批注台账（按会话、锚点、轮次）。
+- `src/core/remote-sync.js`：台账与草稿的落盘同步。
+- `src/core/draft-codec.js` / `src/core/draft-store.js`：草稿的序列化、恢复与本地存储。
+- `src/core/annotation-utils.js`：答复合并、空批注判定的纯函数。
+- `src/core/image-codec.js`：图片压缩与 data URL 转换。
+- `src/core/source-locate.js` / `source-capture.js` / `source-resolve.js`：源码定位、选区锚点捕获、原文坐标精修。
+- `src/core/cards.js`：收展头、已发送卡与逐条答复卡。
 
-`src/plugin.js` 里还留着状态、会话、图片、远端同步、草稿、锚点、卡片、选区、弹层、面板与组件，
-它们会继续迁到 `src/modules/`；迁移时保持 `npm test` 全绿，一次搬一个模块。
+接下来要迁的是选区、弹层与总览面板（与界面状态耦合最紧），以及把这些能力装配起来的运行时。
 
 测试在纯 Node 里跑 —— 不需要浏览器，也不需要装 DSH：
 

@@ -64,6 +64,13 @@ import {
 } from './core/source-locate.js'
 import { safe, toBase64, cssEscape, truncateQuote, el, button } from './core/util.js'
 
+/**
+ * 组合根：装配 src/core/ 下的模块并驱动界面。
+ *
+ * 已拆出：locale、settings、payload、sent-store、remote-sync、draft-*、source-*、cards、util、image-codec。
+ * 仍在此处：批注状态、会话切换、选区与弹层、总览面板、React 组件。
+ * 迁移原则：行为不变，一次一个模块，npm test 全绿后提交。
+ */
 export function createPlugin(React) {
   const h = React.createElement
 
