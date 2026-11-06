@@ -34,6 +34,7 @@ import { createLocale } from './core/locale.js'
 import { createSessionApi } from './core/session.js'
 import { createSettings } from './core/settings.js'
 import { createPayload } from './core/payload.js'
+import { createSentStore } from './core/sent-store.js'
 import { compressImage, downscaleDataUrl, fileToDataUrl, dataUrlToFile } from './core/image-codec.js'
 import {
   offsetRange,
@@ -1035,60 +1036,18 @@ export function createPlugin(React) {
 
         /* ------------------------------------------------- 已提交批注的历史回看 */
 
-        function isSentItem(value) {
-          if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
-          return typeof value.quote === 'string' || typeof value.note === 'string'
-        }
-
-        /** 读一个会话的已提交台账（anchorKey → { savedAt, items }）。 */
-        function loadSent(sessionId) {
-          const memory = sentBySession.get(sessionId)
-          if (memory !== undefined) return memory
-          const table = new Map()
-          const storage = draftStorage()
-          if (storage !== undefined) {
-            const parsed = safe(() => JSON.parse(storage.getItem(`${SENT_STORAGE_PREFIX}${sessionId}`) ?? 'null'))
-            if (parsed !== null && typeof parsed === 'object' && parsed.entries !== null && typeof parsed.entries === 'object') {
-              for (const [key, value] of Object.entries(parsed.entries)) {
-                if (typeof key !== 'string' || key === '') continue
-                if (value === null || typeof value !== 'object' || !Array.isArray(value.items)) continue
-                const items = value.items.filter(isSentItem).slice(0, DRAFT_MAX_ITEMS)
-                if (items.length === 0) continue
-                const turn = Number.isFinite(value.turn) ? Number(value.turn) : undefined
-                table.set(key, { savedAt: Number(value.savedAt) || 0, items, ...(turn !== undefined ? { turn } : {}) })
-              }
-            }
-          }
-          sentBySession.set(sessionId, table)
-          return table
-        }
-
-        function saveSent(sessionId, table) {
-          const storage = draftStorage()
-          const ordered = [...table.entries()].sort((a, b) => a[1].savedAt - b[1].savedAt)
-          // 内存与落盘都保留完整记录；只有localStorage 受配额限制，写进去时按预算裁剪。
-          const kept = ordered.slice(Math.max(0, ordered.length - SENT_MAX_ENTRIES))
-          sentBySession.set(sessionId, new Map(kept))
-          scheduleRemotePush(sessionId)
-          if (storage === undefined) return
-          let stored = kept
-          if (JSON.stringify(Object.fromEntries(kept)).length > SENT_MAX_BYTES) {
-            stored = kept.map(([key, value]) => [
-              key,
-              { ...value, items: value.items.map((item) => ({ ...item, thumbs: [] })) },
-            ])
-            if (JSON.stringify(Object.fromEntries(stored)).length > SENT_MAX_BYTES) {
-              stored = stored.slice(Math.max(0, stored.length - 40))
-            }
-          }
-          const entries = {}
-          for (const [key, value] of stored) entries[key] = value
-          try {
-            storage.setItem(`${SENT_STORAGE_PREFIX}${sessionId}`, JSON.stringify({ version: 1, entries }))
-          } catch {
-            /* 配额满：本地缓存放弃写入，落盘通道仍有完整记录 */
-          }
-        }
+        const sentStore = createSentStore({
+          getStorage: () => draftStorage(),
+          tableFor: sentBySession,
+          prefix: SENT_STORAGE_PREFIX,
+          maxEntries: SENT_MAX_ENTRIES,
+          maxBytes: SENT_MAX_BYTES,
+          maxItems: DRAFT_MAX_ITEMS,
+          onChanged: (sessionId) => scheduleRemotePush(sessionId),
+        })
+        const loadSent = (sessionId) => sentStore.loadSent(sessionId)
+        const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table)
+        const recordSent = (sessionId, anchorKey, items, turn) => sentStore.recordSent(sessionId, anchorKey, items, turn)
 
         /**
          * 页面上所有用户消息行（锚点键）。
@@ -1138,16 +1097,6 @@ export function createPlugin(React) {
         /** 当前页面上已有的候选锚点键。*/
         function captureAnchorKeys() {
           return new Set(collectAnchorRows().map((entry) => entry.anchorKey))
-        }
-
-        function recordSent(sessionId, anchorKey, items, turn) {
-          const table = loadSent(sessionId)
-          table.set(anchorKey, {
-            savedAt: Date.now(),
-            items,
-            ...(Number.isFinite(turn) ? { turn } : {}),
-          })
-          saveSent(sessionId, table)
         }
 
         /** 把新出现的候选行与刚发出的批注负载按出现顺序配对。*/

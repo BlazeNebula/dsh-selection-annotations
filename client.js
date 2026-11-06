@@ -756,6 +756,69 @@
     return { describeSource, payloadSource, buildPayload };
   }
 
+  // src/core/sent-store.js
+  function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxBytes, maxItems, onChanged }) {
+    const isSentItem2 = (value) => {
+      if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+      return typeof value.quote === "string" || typeof value.note === "string";
+    };
+    function loadSent(sessionId) {
+      const memory = tableFor.get(sessionId);
+      if (memory !== void 0) return memory;
+      const table = /* @__PURE__ */ new Map();
+      const storage = getStorage();
+      if (storage !== void 0) {
+        const parsed = safe(() => JSON.parse(storage.getItem(`${prefix}${sessionId}`) ?? "null"));
+        if (parsed !== null && typeof parsed === "object" && parsed.entries !== null && typeof parsed.entries === "object") {
+          for (const [key, value] of Object.entries(parsed.entries)) {
+            if (typeof key !== "string" || key === "") continue;
+            if (value === null || typeof value !== "object" || !Array.isArray(value.items)) continue;
+            const items = value.items.filter(isSentItem2).slice(0, maxItems);
+            if (items.length === 0) continue;
+            const turn = Number.isFinite(value.turn) ? Number(value.turn) : void 0;
+            table.set(key, { savedAt: Number(value.savedAt) || 0, items, ...turn !== void 0 ? { turn } : {} });
+          }
+        }
+      }
+      tableFor.set(sessionId, table);
+      return table;
+    }
+    function saveSent(sessionId, table) {
+      const storage = getStorage();
+      const ordered = [...table.entries()].sort((a, b) => a[1].savedAt - b[1].savedAt);
+      const kept = ordered.slice(Math.max(0, ordered.length - maxEntries));
+      tableFor.set(sessionId, new Map(kept));
+      onChanged(sessionId);
+      if (storage === void 0) return;
+      let stored = kept;
+      if (JSON.stringify(Object.fromEntries(kept)).length > maxBytes) {
+        stored = kept.map(([key, value]) => [
+          key,
+          { ...value, items: value.items.map((item) => ({ ...item, thumbs: [] })) }
+        ]);
+        if (JSON.stringify(Object.fromEntries(stored)).length > maxBytes) {
+          stored = stored.slice(Math.max(0, stored.length - 40));
+        }
+      }
+      const entries = {};
+      for (const [key, value] of stored) entries[key] = value;
+      try {
+        storage.setItem(`${prefix}${sessionId}`, JSON.stringify({ version: 1, entries }));
+      } catch {
+      }
+    }
+    function recordSent(sessionId, anchorKey, items, turn) {
+      const table = loadSent(sessionId);
+      table.set(anchorKey, {
+        savedAt: Date.now(),
+        items,
+        ...Number.isFinite(turn) ? { turn } : {}
+      });
+      saveSent(sessionId, table);
+    }
+    return { loadSent, saveSent, recordSent };
+  }
+
   // src/core/image-codec.js
   function jpegName(name) {
     const base = typeof name === "string" && name !== "" ? name : "image";
@@ -1747,55 +1810,18 @@
           saveDraft(annotationsSession);
         }
         const SENT_PENDING_TTL_MS = 6e4;
-        function isSentItem(value) {
-          if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-          return typeof value.quote === "string" || typeof value.note === "string";
-        }
-        function loadSent(sessionId) {
-          const memory = sentBySession.get(sessionId);
-          if (memory !== void 0) return memory;
-          const table = /* @__PURE__ */ new Map();
-          const storage = draftStorage();
-          if (storage !== void 0) {
-            const parsed = safe(() => JSON.parse(storage.getItem(`${SENT_STORAGE_PREFIX}${sessionId}`) ?? "null"));
-            if (parsed !== null && typeof parsed === "object" && parsed.entries !== null && typeof parsed.entries === "object") {
-              for (const [key, value] of Object.entries(parsed.entries)) {
-                if (typeof key !== "string" || key === "") continue;
-                if (value === null || typeof value !== "object" || !Array.isArray(value.items)) continue;
-                const items = value.items.filter(isSentItem).slice(0, DRAFT_MAX_ITEMS);
-                if (items.length === 0) continue;
-                const turn = Number.isFinite(value.turn) ? Number(value.turn) : void 0;
-                table.set(key, { savedAt: Number(value.savedAt) || 0, items, ...turn !== void 0 ? { turn } : {} });
-              }
-            }
-          }
-          sentBySession.set(sessionId, table);
-          return table;
-        }
-        function saveSent(sessionId, table) {
-          const storage = draftStorage();
-          const ordered = [...table.entries()].sort((a, b) => a[1].savedAt - b[1].savedAt);
-          const kept = ordered.slice(Math.max(0, ordered.length - SENT_MAX_ENTRIES));
-          sentBySession.set(sessionId, new Map(kept));
-          scheduleRemotePush(sessionId);
-          if (storage === void 0) return;
-          let stored = kept;
-          if (JSON.stringify(Object.fromEntries(kept)).length > SENT_MAX_BYTES) {
-            stored = kept.map(([key, value]) => [
-              key,
-              { ...value, items: value.items.map((item) => ({ ...item, thumbs: [] })) }
-            ]);
-            if (JSON.stringify(Object.fromEntries(stored)).length > SENT_MAX_BYTES) {
-              stored = stored.slice(Math.max(0, stored.length - 40));
-            }
-          }
-          const entries = {};
-          for (const [key, value] of stored) entries[key] = value;
-          try {
-            storage.setItem(`${SENT_STORAGE_PREFIX}${sessionId}`, JSON.stringify({ version: 1, entries }));
-          } catch {
-          }
-        }
+        const sentStore = createSentStore({
+          getStorage: () => draftStorage(),
+          tableFor: sentBySession,
+          prefix: SENT_STORAGE_PREFIX,
+          maxEntries: SENT_MAX_ENTRIES,
+          maxBytes: SENT_MAX_BYTES,
+          maxItems: DRAFT_MAX_ITEMS,
+          onChanged: (sessionId) => scheduleRemotePush(sessionId)
+        });
+        const loadSent = (sessionId) => sentStore.loadSent(sessionId);
+        const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table);
+        const recordSent = (sessionId, anchorKey, items, turn) => sentStore.recordSent(sessionId, anchorKey, items, turn);
         function collectAnchorRows() {
           const rows = [];
           const seen = /* @__PURE__ */ new Set();
@@ -1826,15 +1852,6 @@
         }
         function captureAnchorKeys() {
           return new Set(collectAnchorRows().map((entry) => entry.anchorKey));
-        }
-        function recordSent(sessionId, anchorKey, items, turn) {
-          const table = loadSent(sessionId);
-          table.set(anchorKey, {
-            savedAt: Date.now(),
-            items,
-            ...Number.isFinite(turn) ? { turn } : {}
-          });
-          saveSent(sessionId, table);
         }
         function scanSentMessages() {
           if (pendingSent.length === 0) return;
