@@ -819,6 +819,62 @@
     return { loadSent, saveSent, recordSent };
   }
 
+  // src/core/remote-sync.js
+  function createRemoteSync(getSnapshot) {
+    let state;
+    const queue = /* @__PURE__ */ new Set();
+    let timer = null;
+    const storeUrl = (sessionId) => `/selection-annotations/session/${encodeURIComponent(sessionId)}`;
+    async function pull(sessionId) {
+      if (typeof fetch !== "function") {
+        state = false;
+        return void 0;
+      }
+      try {
+        const response = await fetch(storeUrl(sessionId), { method: "GET", headers: { accept: "application/json" } });
+        if (response.status === 204) {
+          state = true;
+          return null;
+        }
+        if (!response.ok) {
+          state = false;
+          return void 0;
+        }
+        const data = await response.json();
+        state = true;
+        return data !== null && typeof data === "object" && !Array.isArray(data) ? data : null;
+      } catch {
+        state = false;
+        return void 0;
+      }
+    }
+    async function push(sessionId) {
+      if (typeof fetch !== "function") return;
+      try {
+        const response = await fetch(storeUrl(sessionId), {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(getSnapshot(sessionId))
+        });
+        state = response.ok;
+      } catch {
+        state = false;
+      }
+    }
+    function schedule(sessionId) {
+      if (typeof sessionId !== "string" || sessionId === "") return;
+      queue.add(sessionId);
+      if (timer !== null) return;
+      timer = window.setTimeout(() => {
+        timer = null;
+        const ids = [...queue];
+        queue.clear();
+        for (const id of ids) void push(id);
+      }, 600);
+    }
+    return { pull, push, schedule, storeUrl };
+  }
+
   // src/core/image-codec.js
   function jpegName(name) {
     const base = typeof name === "string" && name !== "" ? name : "image";
@@ -1206,7 +1262,6 @@
         const loadInstructionSettings = () => settings.loadInstructionSettings();
         const instructionOf = () => settings.instructionOf();
         const persistInstructionSettings = (text) => settings.persistInstructionSettings(text);
-        let remoteStoreState;
         const remoteReplyCache = /* @__PURE__ */ new Map();
         function absorbRemoteReplies(sessionId, remote) {
           if (!Array.isArray(remote?.replies)) return false;
@@ -1220,64 +1275,17 @@
           remoteReplyCache.set(sessionId, batches);
           return true;
         }
-        function storeUrl(sessionId) {
-          return `/selection-annotations/session/${encodeURIComponent(sessionId)}`;
-        }
-        async function pullRemoteSession(sessionId) {
-          if (typeof fetch !== "function") {
-            remoteStoreState = false;
-            return void 0;
-          }
-          try {
-            const response = await fetch(storeUrl(sessionId), { method: "GET", headers: { accept: "application/json" } });
-            if (response.status === 204) {
-              remoteStoreState = true;
-              return null;
-            }
-            if (!response.ok) {
-              remoteStoreState = false;
-              return void 0;
-            }
-            const data = await response.json();
-            remoteStoreState = true;
-            return data !== null && typeof data === "object" && !Array.isArray(data) ? data : null;
-          } catch {
-            remoteStoreState = false;
-            return void 0;
-          }
-        }
+        const remoteSync = createRemoteSync(sessionSnapshot);
+        const storeUrl = (sessionId) => remoteSync.storeUrl(sessionId);
+        const pullRemoteSession = (sessionId) => remoteSync.pull(sessionId);
         function sessionSnapshot(sessionId) {
           const drafts = annotationsSession === sessionId ? draftItems(annotations) : draftSessions.get(sessionId) ?? [];
           const sent = {};
           for (const [key, value] of sentBySession.get(sessionId) ?? []) sent[key] = value;
           return { schemaVersion: 1, sessionId, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), drafts, sent };
         }
-        async function pushRemoteSession(sessionId) {
-          if (typeof fetch !== "function") return;
-          try {
-            const response = await fetch(storeUrl(sessionId), {
-              method: "PUT",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(sessionSnapshot(sessionId))
-            });
-            remoteStoreState = response.ok;
-          } catch {
-            remoteStoreState = false;
-          }
-        }
-        let remotePushTimer = null;
-        const remotePushQueue = /* @__PURE__ */ new Set();
-        function scheduleRemotePush(sessionId) {
-          if (typeof sessionId !== "string" || sessionId === "") return;
-          remotePushQueue.add(sessionId);
-          if (remotePushTimer !== null) return;
-          remotePushTimer = window.setTimeout(() => {
-            remotePushTimer = null;
-            const ids = [...remotePushQueue];
-            remotePushQueue.clear();
-            for (const id of ids) void pushRemoteSession(id);
-          }, 600);
-        }
+        const pushRemoteSession = (sessionId) => remoteSync.push(sessionId);
+        const scheduleRemotePush = (sessionId) => remoteSync.schedule(sessionId);
         async function hydrateRemoteSession(sessionId) {
           const remote = await pullRemoteSession(sessionId);
           if (remote === null || remote === void 0) return;

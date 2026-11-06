@@ -35,6 +35,7 @@ import { createSessionApi } from './core/session.js'
 import { createSettings } from './core/settings.js'
 import { createPayload } from './core/payload.js'
 import { createSentStore } from './core/sent-store.js'
+import { createRemoteSync } from './core/remote-sync.js'
 import { compressImage, downscaleDataUrl, fileToDataUrl, dataUrlToFile } from './core/image-codec.js'
 import {
   offsetRange,
@@ -319,8 +320,6 @@ export function createPlugin(React) {
         const instructionOf = () => settings.instructionOf()
         const persistInstructionSettings = (text) => settings.persistInstructionSettings(text)
 
-        let remoteStoreState
-
         /** 已载入会话的草稿（sessionId → 可序列化条目），切换会话时先在内存里换入换出。 */
         const remoteReplyCache = new Map()
 
@@ -338,34 +337,9 @@ export function createPlugin(React) {
           return true
         }
 
-        function storeUrl(sessionId) {
-          return `/selection-annotations/session/${encodeURIComponent(sessionId)}`
-        }
-
-        /** 读一个会话的落盘记录；连不上或格式不对都返回 undefined（调用方退回本地）。 */
-        async function pullRemoteSession(sessionId) {
-          if (typeof fetch !== 'function') {
-            remoteStoreState = false
-            return undefined
-          }
-          try {
-            const response = await fetch(storeUrl(sessionId), { method: 'GET', headers: { accept: 'application/json' } })
-            if (response.status === 204) {
-              remoteStoreState = true
-              return null
-            }
-            if (!response.ok) {
-              remoteStoreState = false
-              return undefined
-            }
-            const data = await response.json()
-            remoteStoreState = true
-            return data !== null && typeof data === 'object' && !Array.isArray(data) ? data : null
-          } catch {
-            remoteStoreState = false
-            return undefined
-          }
-        }
+        const remoteSync = createRemoteSync(sessionSnapshot)
+        const storeUrl = (sessionId) => remoteSync.storeUrl(sessionId)
+        const pullRemoteSession = (sessionId) => remoteSync.pull(sessionId)
 
         /** 当前会话的可落盘快照：草稿与已提交台账（落盘不做体积裁剪）。*/
         function sessionSnapshot(sessionId) {
@@ -376,35 +350,8 @@ export function createPlugin(React) {
           return { schemaVersion: 1, sessionId, updatedAt: new Date().toISOString(), drafts, sent }
         }
 
-        async function pushRemoteSession(sessionId) {
-          if (typeof fetch !== 'function') return
-          try {
-            const response = await fetch(storeUrl(sessionId), {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(sessionSnapshot(sessionId)),
-            })
-            remoteStoreState = response.ok
-          } catch {
-            remoteStoreState = false
-          }
-        }
-
-        let remotePushTimer = null
-        const remotePushQueue = new Set()
-
-        /** 合并 600ms 内的写入，避免每敲一个字就发一次请求。 */
-        function scheduleRemotePush(sessionId) {
-          if (typeof sessionId !== 'string' || sessionId === '') return
-          remotePushQueue.add(sessionId)
-          if (remotePushTimer !== null) return
-          remotePushTimer = window.setTimeout(() => {
-            remotePushTimer = null
-            const ids = [...remotePushQueue]
-            remotePushQueue.clear()
-            for (const id of ids) void pushRemoteSession(id)
-          }, 600)
-        }
+        const pushRemoteSession = (sessionId) => remoteSync.push(sessionId)
+        const scheduleRemotePush = (sessionId) => remoteSync.schedule(sessionId)
 
         /** 把落盘记录并入内存：本地为空时用远端，本地有内容时保留本地并推上去。*/
         async function hydrateRemoteSession(sessionId) {
