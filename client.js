@@ -618,6 +618,108 @@
     });
   }
 
+  // src/core/source-locate.js
+  function offsetRange(root, range) {
+    const measure = (node, offset) => safe(() => {
+      const probe = range.cloneRange();
+      probe.setStart(root, 0);
+      probe.setEnd(node, offset);
+      return probe.toString().length;
+    });
+    const start = measure(range.startContainer, range.startOffset);
+    const end = measure(range.endContainer, range.endOffset);
+    if (start === void 0) return { start: void 0, end: void 0 };
+    return { start, end: end === void 0 || end < start ? start : end };
+  }
+  function pathFromPreviewUrl(url) {
+    const marker = "/session/";
+    const at = url.indexOf(marker);
+    if (at === -1) return void 0;
+    const rest = url.slice(at + marker.length);
+    const slash = rest.indexOf("/");
+    if (slash === -1) return void 0;
+    const raw = rest.slice(slash + 1);
+    return safe(() => decodeURIComponent(raw)) ?? raw;
+  }
+  function lineNumberOf(element) {
+    if (element === null) return void 0;
+    const holder = element.closest("[data-textpreview-line]");
+    if (holder === null) return void 0;
+    const value = Number(holder.getAttribute("data-textpreview-line"));
+    return Number.isFinite(value) ? value : void 0;
+  }
+  function codeLineNumberOf(scope, element) {
+    if (element === null || scope === null || scope === void 0) return void 0;
+    const lines = [...scope.querySelectorAll(".line")];
+    const own = typeof element.closest === "function" ? element.closest(".line") : null;
+    const target = own !== null ? own : lines.find((line) => line.contains(element));
+    if (target === null || target === void 0) return void 0;
+    const index = lines.indexOf(target);
+    return index === -1 ? void 0 : index + 1;
+  }
+  function normalizeWithMap(value) {
+    const chars = [];
+    const map = [];
+    let spaceAt = -1;
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value[i];
+      if (ch === " " || ch === "	" || ch === "\n" || ch === "\r") {
+        if (spaceAt === -1) spaceAt = i;
+        continue;
+      }
+      if (spaceAt !== -1) {
+        if (chars.length > 0) {
+          chars.push(" ");
+          map.push(spaceAt);
+        }
+        spaceAt = -1;
+      }
+      chars.push(ch);
+      map.push(i);
+    }
+    return { text: chars.join(""), map };
+  }
+  function locateInSource(source, quote) {
+    const needle = quote.replace(/\s+/g, " ").trim();
+    if (needle === "") return void 0;
+    const hay = normalizeWithMap(source);
+    const at = hay.text.indexOf(needle);
+    if (at === -1) return void 0;
+    const start = hay.map[at];
+    const end = hay.map[at + needle.length - 1];
+    if (start === void 0 || end === void 0) return void 0;
+    return { start, end: end + 1 };
+  }
+  function lineOfOffset(text, offset) {
+    let line = 1;
+    const limit = Math.max(0, Math.min(offset, text.length));
+    for (let i = 0; i < limit; i += 1) if (text.charCodeAt(i) === 10) line += 1;
+    return line;
+  }
+  function withTimeout(promise, ms) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (outcome) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        resolve(outcome);
+      };
+      const timer = window.setTimeout(() => settle({ ok: false, reason: `${ms}ms 内没有返回` }), ms);
+      Promise.resolve(promise).then(
+        (value) => settle({ ok: true, value }),
+        (error) => settle({ ok: false, reason: error instanceof Error ? error.message : String(error) })
+      );
+    });
+  }
+  function lineRangeWithin(root, startEl, endEl) {
+    const marked = lineNumberOf(startEl) ?? lineNumberOf(endEl);
+    if (marked !== void 0) return { start: marked, end: lineNumberOf(endEl) ?? marked };
+    const start = codeLineNumberOf(root, startEl);
+    if (start === void 0) return { start: void 0, end: void 0 };
+    return { start, end: codeLineNumberOf(root, endEl) ?? start };
+  }
+
   // src/plugin.js
   function createPlugin(React) {
     const h = React.createElement;
@@ -1130,99 +1232,6 @@
           if (annotations.length > 0) scheduleSync();
           void hydrateRemoteSession(sessionId);
         }
-        function offsetRange(root, range) {
-          const measure = (node, offset) => safe(() => {
-            const probe = range.cloneRange();
-            probe.setStart(root, 0);
-            probe.setEnd(node, offset);
-            return probe.toString().length;
-          });
-          const start = measure(range.startContainer, range.startOffset);
-          const end = measure(range.endContainer, range.endOffset);
-          if (start === void 0) return { start: void 0, end: void 0 };
-          return { start, end: end === void 0 || end < start ? start : end };
-        }
-        function pathFromPreviewUrl(url) {
-          const marker = "/session/";
-          const at = url.indexOf(marker);
-          if (at === -1) return void 0;
-          const rest = url.slice(at + marker.length);
-          const slash = rest.indexOf("/");
-          if (slash === -1) return void 0;
-          const raw = rest.slice(slash + 1);
-          return safe(() => decodeURIComponent(raw)) ?? raw;
-        }
-        function lineNumberOf(element) {
-          if (element === null) return void 0;
-          const holder = element.closest("[data-textpreview-line]");
-          if (holder === null) return void 0;
-          const value = Number(holder.getAttribute("data-textpreview-line"));
-          return Number.isFinite(value) ? value : void 0;
-        }
-        function codeLineNumberOf(scope, element) {
-          if (element === null || scope === null || scope === void 0) return void 0;
-          const lines = [...scope.querySelectorAll(".line")];
-          const own = typeof element.closest === "function" ? element.closest(".line") : null;
-          const target = own !== null ? own : lines.find((line) => line.contains(element));
-          if (target === null || target === void 0) return void 0;
-          const index = lines.indexOf(target);
-          return index === -1 ? void 0 : index + 1;
-        }
-        function normalizeWithMap(value) {
-          const chars = [];
-          const map = [];
-          let spaceAt = -1;
-          for (let i = 0; i < value.length; i += 1) {
-            const ch = value[i];
-            if (ch === " " || ch === "	" || ch === "\n" || ch === "\r") {
-              if (spaceAt === -1) spaceAt = i;
-              continue;
-            }
-            if (spaceAt !== -1) {
-              if (chars.length > 0) {
-                chars.push(" ");
-                map.push(spaceAt);
-              }
-              spaceAt = -1;
-            }
-            chars.push(ch);
-            map.push(i);
-          }
-          return { text: chars.join(""), map };
-        }
-        function locateInSource(source, quote) {
-          const needle = quote.replace(/\s+/g, " ").trim();
-          if (needle === "") return void 0;
-          const hay = normalizeWithMap(source);
-          const at = hay.text.indexOf(needle);
-          if (at === -1) return void 0;
-          const start = hay.map[at];
-          const end = hay.map[at + needle.length - 1];
-          if (start === void 0 || end === void 0) return void 0;
-          return { start, end: end + 1 };
-        }
-        function lineOfOffset(text, offset) {
-          let line = 1;
-          const limit = Math.max(0, Math.min(offset, text.length));
-          for (let i = 0; i < limit; i += 1) if (text.charCodeAt(i) === 10) line += 1;
-          return line;
-        }
-        function withTimeout(promise, ms) {
-          return new Promise((resolve) => {
-            let settled = false;
-            const settle = (outcome) => {
-              if (settled) return;
-              settled = true;
-              window.clearTimeout(timer);
-              resolve(outcome);
-            };
-            const timer = window.setTimeout(() => settle({ ok: false, reason: `${ms}ms 内没有返回` }), ms);
-            Promise.resolve(promise).then(
-              (value) => settle({ ok: true, value }),
-              (error) => settle({ ok: false, reason: error instanceof Error ? error.message : String(error) })
-            );
-          });
-        }
         function unwrapRemote(value) {
           if (value !== null && typeof value === "object" && "ok" in value && "value" in value) {
             return value.ok === true ? value.value : void 0;
@@ -1288,13 +1297,6 @@
             lineEnd: lineOfOffset(text, Math.max(hit.start, hit.end - 1)),
             textOrigin: "source"
           };
-        }
-        function lineRangeWithin(root, startEl, endEl) {
-          const marked = lineNumberOf(startEl) ?? lineNumberOf(endEl);
-          if (marked !== void 0) return { start: marked, end: lineNumberOf(endEl) ?? marked };
-          const start = codeLineNumberOf(root, startEl);
-          if (start === void 0) return { start: void 0, end: void 0 };
-          return { start, end: codeLineNumberOf(root, endEl) ?? start };
         }
         function captureSource(range) {
           const startEl = elementOf(range.startContainer);
