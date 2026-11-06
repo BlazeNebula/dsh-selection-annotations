@@ -603,6 +603,60 @@
     return { currentSessionId, inputShell, liveAttachmentIds };
   }
 
+  // src/core/settings.js
+  function createSettings(getStorage, locale) {
+    let imageSettings;
+    let instructionSettings;
+    function loadImageSettings() {
+      const settings = { ...DEFAULT_IMAGE_SETTINGS };
+      const storage = getStorage();
+      if (storage === void 0) return settings;
+      const parsed = safe(() => JSON.parse(storage.getItem(IMAGE_SETTINGS_KEY) ?? "null"));
+      if (parsed === null || typeof parsed !== "object") return settings;
+      settings.compress = parsed.compress !== false;
+      const quality = Number(parsed.quality);
+      if (Number.isFinite(quality)) settings.quality = Math.min(1, Math.max(0.1, quality));
+      const minSize = Number(parsed.minSize);
+      if (Number.isFinite(minSize)) settings.minSize = Math.min(4096, Math.max(0, Math.round(minSize)));
+      return settings;
+    }
+    function imageSettingsOf() {
+      if (imageSettings === void 0) imageSettings = loadImageSettings();
+      return imageSettings;
+    }
+    function persistImageSettings() {
+      const storage = getStorage();
+      if (storage === void 0) return;
+      safe(() => storage.setItem(IMAGE_SETTINGS_KEY, JSON.stringify(imageSettingsOf())));
+    }
+    function loadInstructionSettings() {
+      const storage = getStorage();
+      if (storage === void 0) return DEFAULT_INSTRUCTION;
+      const parsed = safe(() => JSON.parse(storage.getItem(INSTRUCTION_SETTINGS_KEY) ?? "null"));
+      if (parsed === null || typeof parsed !== "object") return DEFAULT_INSTRUCTION;
+      const text = typeof parsed.text === "string" ? parsed.text : "";
+      return text.trim() === "" ? DEFAULT_INSTRUCTION : text;
+    }
+    function instructionOf() {
+      if (instructionSettings === void 0) instructionSettings = loadInstructionSettings();
+      return locale.isDefaultInstruction(instructionSettings) ? locale.defaultInstruction() : instructionSettings;
+    }
+    function persistInstructionSettings(text) {
+      instructionSettings = text;
+      const storage = getStorage();
+      if (storage === void 0) return;
+      safe(() => storage.setItem(INSTRUCTION_SETTINGS_KEY, JSON.stringify({ text })));
+    }
+    return {
+      loadImageSettings,
+      imageSettingsOf,
+      persistImageSettings,
+      loadInstructionSettings,
+      instructionOf,
+      persistInstructionSettings
+    };
+  }
+
   // src/core/image-codec.js
   function jpegName(name) {
     const base = typeof name === "string" && name !== "" ? name : "image";
@@ -837,8 +891,6 @@
         let pendingSent = [];
         let attachedSessionId = void 0;
         let lastAnnotatedKeys = /* @__PURE__ */ new Set();
-        let imageSettings;
-        let instructionSettings;
         let draftSeen = false;
         let maintaining = false;
         let watchUnsub = void 0;
@@ -985,46 +1037,13 @@
             }, CONSUME_POLL_MS);
           }
         }
-        function loadImageSettings() {
-          const settings = { ...DEFAULT_IMAGE_SETTINGS };
-          const storage = draftStorage();
-          if (storage === void 0) return settings;
-          const parsed = safe(() => JSON.parse(storage.getItem(IMAGE_SETTINGS_KEY) ?? "null"));
-          if (parsed === null || typeof parsed !== "object") return settings;
-          settings.compress = parsed.compress !== false;
-          const quality = Number(parsed.quality);
-          if (Number.isFinite(quality)) settings.quality = Math.min(1, Math.max(0.1, quality));
-          const minSize = Number(parsed.minSize);
-          if (Number.isFinite(minSize)) settings.minSize = Math.min(4096, Math.max(0, Math.round(minSize)));
-          return settings;
-        }
-        function imageSettingsOf() {
-          if (imageSettings === void 0) imageSettings = loadImageSettings();
-          return imageSettings;
-        }
-        function persistImageSettings() {
-          const storage = draftStorage();
-          if (storage === void 0) return;
-          safe(() => storage.setItem(IMAGE_SETTINGS_KEY, JSON.stringify(imageSettingsOf())));
-        }
-        function loadInstructionSettings() {
-          const storage = draftStorage();
-          if (storage === void 0) return DEFAULT_INSTRUCTION;
-          const parsed = safe(() => JSON.parse(storage.getItem(INSTRUCTION_SETTINGS_KEY) ?? "null"));
-          if (parsed === null || typeof parsed !== "object") return DEFAULT_INSTRUCTION;
-          const text = typeof parsed.text === "string" ? parsed.text : "";
-          return text.trim() === "" ? DEFAULT_INSTRUCTION : text;
-        }
-        function instructionOf() {
-          if (instructionSettings === void 0) instructionSettings = loadInstructionSettings();
-          return isDefaultInstruction(instructionSettings) ? defaultInstruction() : instructionSettings;
-        }
-        function persistInstructionSettings(text) {
-          instructionSettings = text;
-          const storage = draftStorage();
-          if (storage === void 0) return;
-          safe(() => storage.setItem(INSTRUCTION_SETTINGS_KEY, JSON.stringify({ text })));
-        }
+        const settings = createSettings(() => draftStorage(), locale);
+        const loadImageSettings = () => settings.loadImageSettings();
+        const imageSettingsOf = () => settings.imageSettingsOf();
+        const persistImageSettings = () => settings.persistImageSettings();
+        const loadInstructionSettings = () => settings.loadInstructionSettings();
+        const instructionOf = () => settings.instructionOf();
+        const persistInstructionSettings = (text) => settings.persistInstructionSettings(text);
         let remoteStoreState;
         const remoteReplyCache = /* @__PURE__ */ new Map();
         function absorbRemoteReplies(sessionId, remote) {
@@ -3342,7 +3361,7 @@
           panelEl.appendChild(panelBody);
         }
         function imageSettingsRow() {
-          const settings = imageSettingsOf();
+          const settings2 = imageSettingsOf();
           const box = el("div", "sa-settings");
           const head = el("div", "sa-settings-head");
           const toggle = button2("sa-link", imageSettingsOpen ? t("settings.imagesOpen") : t("settings.imagesClosed"), () => {
@@ -3354,7 +3373,7 @@
             el(
               "span",
               "sa-hint",
-              settings.compress ? t("settings.imagesOn", { n: Math.round(settings.quality * 100) }) : t("settings.imagesOff")
+              settings2.compress ? t("settings.imagesOn", { n: Math.round(settings2.quality * 100) }) : t("settings.imagesOff")
             )
           );
           box.appendChild(head);
@@ -3362,7 +3381,7 @@
           const compressRow = el("label", "sa-setting");
           const compress = document.createElement("input");
           compress.type = "checkbox";
-          compress.checked = settings.compress;
+          compress.checked = settings2.compress;
           compress.addEventListener("change", () => {
             imageSettingsOf().compress = compress.checked;
             persistImageSettings();
@@ -3376,8 +3395,8 @@
           quality.min = "0.5";
           quality.max = "1";
           quality.step = "0.05";
-          quality.value = String(settings.quality);
-          const qualityText = el("span", "sa-setting-value", `${Math.round(settings.quality * 100)}%`);
+          quality.value = String(settings2.quality);
+          const qualityText = el("span", "sa-setting-value", `${Math.round(settings2.quality * 100)}%`);
           quality.addEventListener("input", () => {
             imageSettingsOf().quality = Number(quality.value);
             qualityText.textContent = `${Math.round(Number(quality.value) * 100)}%`;
@@ -3392,7 +3411,7 @@
           size.min = "0";
           size.max = "4096";
           size.step = "10";
-          size.value = String(settings.minSize);
+          size.value = String(settings2.minSize);
           size.addEventListener("change", () => {
             const next = Number(size.value);
             imageSettingsOf().minSize = Number.isFinite(next) ? Math.min(4096, Math.max(0, Math.round(next))) : DEFAULT_IMAGE_SETTINGS.minSize;

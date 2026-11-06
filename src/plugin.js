@@ -32,6 +32,7 @@ import {
 import { log, warn } from './core/log.js'
 import { createLocale } from './core/locale.js'
 import { createSessionApi } from './core/session.js'
+import { createSettings } from './core/settings.js'
 import { compressImage, downscaleDataUrl, fileToDataUrl, dataUrlToFile } from './core/image-codec.js'
 import {
   offsetRange,
@@ -101,10 +102,6 @@ export function createPlugin(React) {
         let attachedSessionId = undefined
         /** 最后一次成功挂附件时页面上已有的批注消息锚点键；发送后据此区分新消息与旧历史。*/
         let lastAnnotatedKeys = new Set()
-        /** 图片设置缓存；第一次用到时从本地存储读。*/
-        let imageSettings
-        /** 批注指令缓存；第一次用到时从本地存储读。*/
-        let instructionSettings
         /** 批注附件是否已被 composer 确认挂上（用来区分「还没同步」与「已被发送消费」）。*/
         let draftSeen = false
         /** 本插件正在自己摘/挂附件时为真：这段发布不能被当成「消息已发送」。*/
@@ -312,56 +309,13 @@ export function createPlugin(React) {
 
         /* --------------------------------------------------------- 未提交批注的会话草稿 */
 
-        /* --------------------------------------------------------------- 图片处理 */
-
-        /** 图片设置：读坏了回落到默认值。*/
-        function loadImageSettings() {
-          const settings = { ...DEFAULT_IMAGE_SETTINGS }
-          const storage = draftStorage()
-          if (storage === undefined) return settings
-          const parsed = safe(() => JSON.parse(storage.getItem(IMAGE_SETTINGS_KEY) ?? 'null'))
-          if (parsed === null || typeof parsed !== 'object') return settings
-          settings.compress = parsed.compress !== false
-          const quality = Number(parsed.quality)
-          if (Number.isFinite(quality)) settings.quality = Math.min(1, Math.max(0.1, quality))
-          const minSize = Number(parsed.minSize)
-          if (Number.isFinite(minSize)) settings.minSize = Math.min(4096, Math.max(0, Math.round(minSize)))
-          return settings
-        }
-
-        function imageSettingsOf() {
-          if (imageSettings === undefined) imageSettings = loadImageSettings()
-          return imageSettings
-        }
-
-        function persistImageSettings() {
-          const storage = draftStorage()
-          if (storage === undefined) return
-          safe(() => storage.setItem(IMAGE_SETTINGS_KEY, JSON.stringify(imageSettingsOf())))
-        }
-
-        /** 批注指令：读坏了或读成空串时回落到默认文案。*/
-        function loadInstructionSettings() {
-          const storage = draftStorage()
-          if (storage === undefined) return DEFAULT_INSTRUCTION
-          const parsed = safe(() => JSON.parse(storage.getItem(INSTRUCTION_SETTINGS_KEY) ?? 'null'))
-          if (parsed === null || typeof parsed !== 'object') return DEFAULT_INSTRUCTION
-          const text = typeof parsed.text === 'string' ? parsed.text : ''
-          return text.trim() === '' ? DEFAULT_INSTRUCTION : text
-        }
-
-        function instructionOf() {
-          if (instructionSettings === undefined) instructionSettings = loadInstructionSettings()
-          // 没改过就用当前语言对应的默认文案；改过就保留用户自己的措辞。
-          return isDefaultInstruction(instructionSettings) ? defaultInstruction() : instructionSettings
-        }
-
-        function persistInstructionSettings(text) {
-          instructionSettings = text
-          const storage = draftStorage()
-          if (storage === undefined) return
-          safe(() => storage.setItem(INSTRUCTION_SETTINGS_KEY, JSON.stringify({ text })))
-        }
+        const settings = createSettings(() => draftStorage(), locale)
+        const loadImageSettings = () => settings.loadImageSettings()
+        const imageSettingsOf = () => settings.imageSettingsOf()
+        const persistImageSettings = () => settings.persistImageSettings()
+        const loadInstructionSettings = () => settings.loadInstructionSettings()
+        const instructionOf = () => settings.instructionOf()
+        const persistInstructionSettings = (text) => settings.persistInstructionSettings(text)
 
         let remoteStoreState
 
