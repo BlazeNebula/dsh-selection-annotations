@@ -1105,6 +1105,75 @@
     return { captureSource, anchorRoot, rangeFromOffsets, matchInRoot, rangeMatchesQuote };
   }
 
+  // src/core/source-resolve.js
+  function createSourceResolver({ ctx, getSessionId, log: log2, timeoutMs }) {
+    function unwrapRemote(value) {
+      if (value !== null && typeof value === "object" && "ok" in value && "value" in value) {
+        return value.ok === true ? value.value : void 0;
+      }
+      return value;
+    }
+    async function resolve(source, quote, onSkip) {
+      try {
+        return await resolveInner(source, quote, onSkip);
+      } catch (error) {
+        log2(`[selection-annotations] 位置精修抛错：${error instanceof Error ? error.message : String(error)}`);
+        return void 0;
+      }
+    }
+    async function resolveInner(source, quote, onSkip) {
+      const skip = (reason) => {
+        log2(`[selection-annotations] 位置精修跳过（${String(source?.path)}）：${reason}`);
+        if (typeof onSkip === "function") onSkip(reason);
+        return void 0;
+      };
+      if (source?.kind !== "file") return void 0;
+      if (typeof source.path !== "string" || source.path === "") return void 0;
+      const sessionId = getSessionId();
+      if (sessionId === void 0) return skip("拿不到当前会话 id");
+      const candidates = [];
+      const agent = safe(() => ctx.sessions?.scope?.(sessionId));
+      if (agent?.remote !== void 0) candidates.push({ label: "sessions.scope().remote", remote: agent.remote });
+      const direct = safe(() => ctx.remote) ?? safe(() => ctx.get("remote"));
+      if (direct !== void 0) candidates.push({ label: "ctx.remote", remote: direct });
+      let usable;
+      for (const entry of candidates) {
+        const probe = safe(() => typeof entry.remote?.workspaceFiles?.read === "function");
+        if (probe === void 0) continue;
+        if (probe === true) {
+          usable = entry;
+          break;
+        }
+      }
+      if (usable === void 0) {
+        return skip(`拿不到 remote.workspaceFiles.read（试过 ${candidates.map((e) => e.label).join(" / ") || "无任何 remote"}）`);
+      }
+      log2(`[selection-annotations] 位置精修：经 ${usable.label} 读 ${source.path}`);
+      const outcome = await withTimeout(
+        safe(() => usable.remote.workspaceFiles.read(sessionId, source.path, {})),
+        timeoutMs
+      );
+      if (outcome.ok === false) return skip(`读取失败：${outcome.reason}`);
+      const file = unwrapRemote(outcome.value);
+      const text = typeof file?.text === "string" ? file.text : void 0;
+      if (text === void 0) return skip("返回里没有 text（path 可能不被接受）");
+      const hit = locateInSource(text, quote);
+      if (hit === void 0) {
+        return skip(
+          file?.eof === false ? `引文不在读取窗口内（只拿到 ${text.length} 字符，eof=false）` : "引文不在原文里（多半是跨了行内 Markdown 标记）"
+        );
+      }
+      return {
+        charStart: hit.start,
+        charEnd: hit.end,
+        lineStart: lineOfOffset(text, hit.start),
+        lineEnd: lineOfOffset(text, Math.max(hit.start, hit.end - 1)),
+        textOrigin: "source"
+      };
+    }
+    return { resolve };
+  }
+
   // src/core/sent-store.js
   function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxBytes, maxItems, onChanged }) {
     const isSentItem2 = (value) => {
@@ -1739,72 +1808,13 @@
           if (annotations.length > 0) scheduleSync();
           void hydrateRemoteSession(sessionId);
         }
-        function unwrapRemote(value) {
-          if (value !== null && typeof value === "object" && "ok" in value && "value" in value) {
-            return value.ok === true ? value.value : void 0;
-          }
-          return value;
-        }
-        async function resolveSourcePosition(source, quote, onSkip) {
-          try {
-            return await resolveSourcePositionInner(source, quote, onSkip);
-          } catch (error) {
-            log(`[selection-annotations] 位置精修抛错：${error instanceof Error ? error.message : String(error)}`);
-            return void 0;
-          }
-        }
-        async function resolveSourcePositionInner(source, quote, onSkip) {
-          const skip = (reason) => {
-            log(`[selection-annotations] 位置精修跳过（${String(source?.path)}）：${reason}`);
-            if (typeof onSkip === "function") onSkip(reason);
-            return void 0;
-          };
-          if (source?.kind !== "file") return void 0;
-          if (typeof source.path !== "string" || source.path === "") return void 0;
-          const sessionId = currentSessionId();
-          if (sessionId === void 0) return skip("拿不到当前会话 id");
-          const candidates = [];
-          const agent = safe(() => ctx.sessions?.scope?.(sessionId));
-          if (agent?.remote !== void 0) candidates.push({ label: "sessions.scope().remote", remote: agent.remote });
-          const direct = safe(() => ctx.remote) ?? safe(() => ctx.get("remote"));
-          if (direct !== void 0) candidates.push({ label: "ctx.remote", remote: direct });
-          let usable;
-          for (const entry of candidates) {
-            const probe = safe(() => typeof entry.remote?.workspaceFiles?.read === "function");
-            if (probe === void 0) {
-              continue;
-            }
-            if (probe === true) {
-              usable = entry;
-              break;
-            }
-          }
-          if (usable === void 0) {
-            return skip(`拿不到 remote.workspaceFiles.read（试过 ${candidates.map((e) => e.label).join(" / ") || "无任何 remote"}）`);
-          }
-          log(`[selection-annotations] 位置精修：经 ${usable.label} 读 ${source.path}`);
-          const outcome = await withTimeout(
-            safe(() => usable.remote.workspaceFiles.read(sessionId, source.path, {})),
-            SOURCE_LOOKUP_TIMEOUT_MS
-          );
-          if (outcome.ok === false) return skip(`读取失败：${outcome.reason}`);
-          const file = unwrapRemote(outcome.value);
-          const text = typeof file?.text === "string" ? file.text : void 0;
-          if (text === void 0) return skip("返回里没有 text（path 可能不被接受）");
-          const hit = locateInSource(text, quote);
-          if (hit === void 0) {
-            return skip(
-              file?.eof === false ? `引文不在读取窗口内（只拿到 ${text.length} 字符，eof=false）` : "引文不在原文里（多半是跨了行内 Markdown 标记）"
-            );
-          }
-          return {
-            charStart: hit.start,
-            charEnd: hit.end,
-            lineStart: lineOfOffset(text, hit.start),
-            lineEnd: lineOfOffset(text, Math.max(hit.start, hit.end - 1)),
-            textOrigin: "source"
-          };
-        }
+        const sourceResolver = createSourceResolver({
+          ctx,
+          getSessionId: () => currentSessionId(),
+          log,
+          timeoutMs: SOURCE_LOOKUP_TIMEOUT_MS
+        });
+        const resolveSourcePosition = (source, quote, onSkip) => sourceResolver.resolve(source, quote, onSkip);
         const sourceCapture = createSourceCapture();
         const captureSource = (range) => sourceCapture.captureSource(range);
         const anchorRoot = (source) => sourceCapture.anchorRoot(source);
