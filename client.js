@@ -87,6 +87,8 @@ window.__ModuleLoader__.load({
 
     /** 界面文案命名空间；DSH 按语言注册后由 bind 解析。*/
     const LOCALE_NS = 'selection-annotations'
+    /** 构建标记：显示在批注总览底部，用来确认当前页面加载的是哪一版代码。*/
+    const PLUGIN_BUILD = '1.3.0+10'
     /** 中文原文即现有措辞，保持与既有测试断言一致。*/
     const MESSAGES = {
       zh: {
@@ -105,6 +107,8 @@ window.__ModuleLoader__.load({
         'pop.createTitle': '新建批注',
         'pop.editTitle': '修改批注 #{n}',
         'panel.empty': '选中回复、消息或文件预览里的文字，点浮动「批注」即可。',
+        'panel.title': '批注总览',
+        'panel.count': '{n} 条',
         'panel.drag': '拖动排序',
         'panel.edit': '编辑',
         'panel.delete': '删除',
@@ -190,6 +194,8 @@ window.__ModuleLoader__.load({
         'pop.createTitle': 'New annotation',
         'pop.editTitle': 'Edit annotation #{n}',
         'panel.empty': 'Select text in a reply, message, or file preview, then click the floating “Annotate”.',
+        'panel.title': 'Annotations',
+        'panel.count': '{n} items',
         'panel.drag': 'Drag to reorder',
         'panel.edit': 'Edit',
         'panel.delete': 'Delete',
@@ -361,36 +367,67 @@ window.__ModuleLoader__.load({
   border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 38%, transparent); border-radius: 999px; }
 .sa-chip:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 22%, transparent); }
 .sa-chip-open { background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 30%, transparent); }
-.sa-panel { width: min(520px, calc(100vw - 32px)); max-height: min(72vh, 560px); overflow: auto; padding: 10px;
-  box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
+.sa-panel { display: flex; flex-direction: column; width: min(560px, calc(100vw - 32px)); max-height: min(72vh, 600px);
+  padding: 0; box-sizing: border-box; overflow: hidden; border-radius: 12px; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.28);
   opacity: 0; visibility: hidden; transform: translateY(6px) scale(0.98); will-change: opacity, transform;
   transition: opacity 180ms ease, transform 180ms ease, visibility 180ms; }
 .sa-float[data-open="1"] .sa-panel { opacity: 1; visibility: visible; transform: none; }
-.sa-item { padding: 10px 0; border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
-.sa-item:last-child { border-bottom: none; }
+.sa-panel-head { display: flex; align-items: center; flex-wrap: wrap; row-gap: 4px; gap: 8px; flex: none; padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
+.sa-panel-title { flex: none; min-width: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+.sa-build { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px; font-style: italic;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: var(--dsw-alias-label-tertiary, GrayText);
+  user-select: text; white-space: nowrap; }
+.sa-panel-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; max-width: 66%; margin-left: auto; }
+.sa-panel-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
+  color: var(--dsw-alias-label-tertiary, GrayText); }
+.sa-panel-count { padding: 2px 7px; border-radius: 999px; font-size: 11px; font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-secondary, GrayText); background: var(--dsw-alias-bg-layer-2, ButtonFace); }
+.sa-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 8px 10px; }
+.sa-panel-empty { padding: 30px 18px; text-align: center; font-size: 12.5px; line-height: 1.7;
+  color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-item { padding: 10px 8px; border-radius: 8px; border-bottom: none; }
+.sa-item + .sa-item { border-top: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 0; }
+.sa-item:hover { background: color-mix(in srgb, var(--dsw-alias-bg-layer-2, ButtonFace) 55%, transparent); }
 .sa-item.sa-dragging { opacity: 0.45; }
 .sa-item.sa-drop-before { box-shadow: inset 0 2px 0 var(--dsw-alias-brand-primary, #247bbf); }
-.sa-drag-handle { cursor: grab; color: var(--dsw-alias-label-secondary, GrayText); font-size: 12px; line-height: 1;
+.sa-drag-handle { cursor: grab; color: var(--dsw-alias-label-tertiary, GrayText); font-size: 12px; line-height: 1;
   padding: 2px 3px; border-radius: 4px; user-select: none; }
 .sa-drag-handle:hover { background: var(--dsw-alias-bg-layer-2, ButtonFace); color: var(--dsw-alias-label-primary, CanvasText); }
 .sa-drag-handle:active { cursor: grabbing; }
-.sa-item-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dsw-alias-label-secondary, GrayText); }
-.sa-item-num { font-weight: 600; color: var(--dsw-alias-brand-primary, #247bbf); }
-.sa-item-src { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sa-item-q { margin-top: 6px; padding-left: 9px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder); }
-.sa-item-label { font-size: 10px; letter-spacing: 0.04em; color: var(--dsw-alias-label-secondary, GrayText); }
-.sa-item-quote { margin: 2px 0 0; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+.sa-item-head { display: flex; align-items: center; gap: 6px; }
+.sa-item-num { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px;
+  padding: 0 5px; border-radius: 5px; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-brand-primary, #247bbf);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 14%, transparent); }
+.sa-item-src { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
+  color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-item-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 120ms ease; }
+.sa-item:hover .sa-item-actions, .sa-item:focus-within .sa-item-actions { opacity: 1; }
+.sa-item-action { font: inherit; font-size: 11.5px; padding: 2px 6px; border-radius: 5px; cursor: pointer;
+  border: none; background: none; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-item-action:hover { background: var(--dsw-alias-bg-layer-2, ButtonFace); color: var(--dsw-alias-label-primary, CanvasText); }
+.sa-item-action.sa-danger:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }
+.sa-item-q { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder); }
+.sa-item-label { font-size: 10.5px; letter-spacing: 0.06em; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-item-quote { margin: 3px 0 0; font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
   color: var(--dsw-alias-label-secondary, GrayText); display: -webkit-box; -webkit-box-orient: vertical;
   -webkit-line-clamp: 3; overflow: hidden; cursor: pointer; }
 .sa-item-quote.sa-q-open { display: block; -webkit-line-clamp: unset; }
 .sa-item-a { margin-top: 8px; }
-.sa-item-note { margin: 2px 0 0; font-size: 13.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word;
+.sa-item-note { margin: 3px 0 0; font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
   color: var(--dsw-alias-label-primary, CanvasText); }
 .sa-link { font: inherit; font-size: 11px; padding: 2px 4px; cursor: pointer; background: none; border: none;
   color: var(--dsw-alias-label-secondary, GrayText); text-decoration: underline; }
 .sa-link:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }
-.sa-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.sa-foot { display: flex; align-items: center; gap: 8px; }
+.sa-foot-action { font: inherit; font-size: 11.5px; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: none;
+  color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-foot-action:hover { color: var(--dsw-alias-state-error-primary, #e5484d);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 35%, transparent); }
 .sa-search { flex: 1; box-sizing: border-box; padding: 5px 8px; font: inherit; font-size: 12px;
   color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-layer-2, ButtonFace);
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
@@ -426,7 +463,6 @@ window.__ModuleLoader__.load({
 .sa-replies-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l1, #3333); border-radius: 10px; background: var(--dsw-alias-bg-layer-1, #0001); }
 .sa-replies { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; padding: 0;
   border: none; background: transparent; }
-.sa-replies[data-sa-collapsed="1"] { display: none; }
 /* 两个区域共用同一个收展头：同样的高度、底色、圆角、图标位置与开合动画。*/
 .sa-section-head { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
   margin: 0; padding: 7px 10px; font: inherit; text-align: left; cursor: pointer; user-select: none;
@@ -548,6 +584,7 @@ window.__ModuleLoader__.load({
         let syncTimer = null
         let repaintTimer = null
         let settleTimer = null
+        let avoidTimer = 0
         let pendingSelection = null
         /** 由槽位标准 props 注入的 composer 动作与当前会话 id —— 比自行解析 scope 更稳。 */
         let latestInputActions = undefined
@@ -574,6 +611,8 @@ window.__ModuleLoader__.load({
         const sentBySession = new Map()
         /** 刚随消息发出、还在等对应消息行出现的负载。*/
         let pendingSent = []
+        /** 附件实际挂到哪个会话的输入外壳：记账沿用它，避免发送后重算会话 id 时串到别的会话。*/
+        let attachedSessionId = undefined
         /** 最后一次成功挂附件时页面上已有的批注消息锚点键；发送后据此区分新消息与旧历史。*/
         let lastAnnotatedKeys = new Set()
         /** 图片设置缓存；第一次用到时从本地存储读。*/
@@ -767,6 +806,9 @@ window.__ModuleLoader__.load({
               items,
               known: lastAnnotatedKeys,
               at: Date.now(),
+              // 发送这一刻的会话就是消息真正去的那一个：记账沿用它，
+              // 避免稍后重算时切到别的会话，把记录写进别人的台账。
+              sessionId: attachedSessionId ?? currentSessionId(),
             })
             lastAnnotatedKeys = new Set()
           }
@@ -1121,11 +1163,25 @@ window.__ModuleLoader__.load({
               if (value === null || typeof value !== 'object' || !Array.isArray(value.items)) continue
               const items = value.items.filter(isSentItem).slice(0, DRAFT_MAX_ITEMS)
               if (items.length === 0) continue
-              table.set(key, { savedAt: Number(value.savedAt) || 0, items })
+              const turn = Number.isFinite(value.turn) ? Number(value.turn) : undefined
+              table.set(key, { savedAt: Number(value.savedAt) || 0, items, ...(turn !== undefined ? { turn } : {}) })
             }
-            if (table.size > 0 && (sentBySession.get(sessionId) ?? new Map()).size === 0) {
-              sentBySession.set(sessionId, table)
-              touched = true
+            if (table.size > 0) {
+              const localTable = sentBySession.get(sessionId) ?? new Map()
+              let merged = false
+              for (const [key, value] of table) {
+                const current = localTable.get(key)
+                if (current === undefined || value.savedAt > current.savedAt) {
+                  localTable.set(key, value)
+                  merged = true
+                }
+              }
+              if (merged) {
+                sentBySession.set(sessionId, localTable)
+                // 合并结果写回本地并重新推送，避免下一次推送把远端补回来的记录冲掉。
+                saveSent(sessionId, localTable)
+                touched = true
+              }
             }
           }
           if (touched) scheduleRepaint()
@@ -1891,7 +1947,8 @@ window.__ModuleLoader__.load({
                 if (value === null || typeof value !== 'object' || !Array.isArray(value.items)) continue
                 const items = value.items.filter(isSentItem).slice(0, DRAFT_MAX_ITEMS)
                 if (items.length === 0) continue
-                table.set(key, { savedAt: Number(value.savedAt) || 0, items })
+                const turn = Number.isFinite(value.turn) ? Number(value.turn) : undefined
+                table.set(key, { savedAt: Number(value.savedAt) || 0, items, ...(turn !== undefined ? { turn } : {}) })
               }
             }
           }
@@ -1976,9 +2033,13 @@ window.__ModuleLoader__.load({
           return new Set(collectAnchorRows().map((entry) => entry.anchorKey))
         }
 
-        function recordSent(sessionId, anchorKey, items) {
+        function recordSent(sessionId, anchorKey, items, turn) {
           const table = loadSent(sessionId)
-          table.set(anchorKey, { savedAt: Date.now(), items })
+          table.set(anchorKey, {
+            savedAt: Date.now(),
+            items,
+            ...(Number.isFinite(turn) ? { turn } : {}),
+          })
           saveSent(sessionId, table)
         }
 
@@ -1988,11 +2049,12 @@ window.__ModuleLoader__.load({
           const now = Date.now()
           pendingSent = pendingSent.filter((entry) => now - entry.at < SENT_PENDING_TTL_MS)
           if (pendingSent.length === 0) return
-          const sessionId = currentSessionId()
-          if (sessionId === undefined) return
           const rows = collectAnchorRows()
           if (rows.length === 0) return
           const pending = pendingSent[0]
+          const sessionId =
+            typeof pending.sessionId === 'string' && pending.sessionId !== '' ? pending.sessionId : currentSessionId()
+          if (sessionId === undefined) return
           // 候选：不在「发送前快照」里、也还没落台账的行；「已完成」尾行不是消息，别拿它当锚点。
           const fresh = rows.filter(
             (entry) =>
@@ -2004,7 +2066,8 @@ window.__ModuleLoader__.load({
           const target = fresh.length > 0 ? fresh[fresh.length - 1] : undefined
           if (target === undefined) return
           pendingSent.shift()
-          recordSent(sessionId, target.anchorKey, pending.items)
+          const turn = turnOfRow(target.row)
+          recordSent(sessionId, target.anchorKey, pending.items, turn)
           scheduleRepaint()
         }
 
@@ -2133,34 +2196,81 @@ window.__ModuleLoader__.load({
           return card
         }
 
-        /** 消息行后面最近的「已完成」尾行；没有就返回 null。*/
-        function turnProcessAnchor(row) {
-          if (typeof row.compareDocumentPosition !== 'function') return null
-          let latest = null
+        /** 这一轮记录行（「已完成」按钮）之后最近的轮次尾行；没有就返回 null。*/
+        function footerAfter(row) {
           for (const button of document.querySelectorAll('[data-turn-process]')) {
+            if (button === row || button.contains(row)) continue
             if ((row.compareDocumentPosition(button) & 4) === 0) continue
-            if (latest === null || (latest.compareDocumentPosition(button) & 4) !== 0) latest = button
+            return button
           }
-          return latest
+          return null
         }
 
-        /** 卡片挂在消息行后；行是这一轮最后一段内容时，改挂到「已完成」之前。*/
-        function sentCardAnchor(row) {
-          const footer = turnProcessAnchor(row)
-          if (footer !== null && footer.parentElement !== null && (typeof footer.contains !== 'function' || !footer.contains(row))) {
-            const laterContent = [...document.querySelectorAll('[data-chat-anchor-key]')].some(
-              (element) =>
-                element !== row &&
-                (row.compareDocumentPosition(element) & 4) !== 0 &&
-                (element.compareDocumentPosition(footer) & 4) !== 0 &&
-                element.getAttribute('data-chat-flow-kind') !== 'turn-process',
-            )
-            if (!laterContent) {
-              const block = (typeof footer.closest === 'function' ? footer.closest('[data-chat-flow-kind="turn-process"]') : null) ?? footer
-              if (block.parentElement !== null) return { parent: block.parentElement, before: block }
-            }
+        /** 批注行所属的轮次块：行可能就在过程块内部（指向助手的答复或过程文字）。*/
+        function turnBlockOf(row) {
+          const block = typeof row.closest === 'function' ? row.closest('[data-chat-flow-kind="turn-process"]') : null
+          if (block !== null && block !== undefined) return block
+          const footer = footerAfter(row)
+          if (footer === null) return null
+          return footer.closest('[data-chat-flow-kind="turn-process"]') ?? footer
+        }
+
+        /** 0.2.2 起每个 flow 项都带 data-chat-turn；老结构再退回过程块/尾行推断。*/
+        function turnOfRow(row) {
+          const holder = typeof row.closest === 'function' ? row.closest('[data-chat-turn]') : null
+          if (holder !== null && holder !== undefined) {
+            const raw = holder.getAttribute('data-chat-turn')
+            const turn = Number(raw)
+            if (Number.isFinite(turn) && turn > 0) return turn
           }
-          return { parent: row.parentElement, before: row.nextSibling }
+          const block = turnBlockOf(row)
+          if (block === null) return undefined
+          const button = typeof block.querySelector === 'function' ? block.querySelector('[data-turn-process]') : null
+          const raw = button === null ? null : button.getAttribute('data-turn-process')
+          const turn = Number(raw)
+          return Number.isFinite(turn) && turn > 0 ? turn : undefined
+        }
+
+        /** 这一轮里第一条内容项（跳过用户消息）：轮次进行中还没有「已完成」按钮时用它当锚点。*/
+        function turnContentItem(turn) {
+          if (!Number.isFinite(turn)) return null
+          for (const item of document.querySelectorAll(`[data-chat-turn="${turn}"]`)) {
+            const kind = item.getAttribute('data-chat-flow-kind') ?? ''
+            if (kind === 'user' || kind === 'steering') continue
+            if (item.parentElement === null) continue
+            return item
+          }
+          return null
+        }
+
+        /** 「已完成」按钮所在的整条 flow 项：0.2.2 里按钮内联在消息体，插到项前才是轮次上方。*/
+        function turnDisclosureItem(turn) {
+          if (!Number.isFinite(turn)) return null
+          const button = document.querySelector(`[data-turn-process="${turn}"]`)
+          if (button === null) return null
+          const flow = typeof button.closest === 'function' ? button.closest('[data-chat-flow-kind]') : null
+          return flow ?? button
+        }
+
+        /** 卡片固定贴在所属轮次内容的上方；轮次进行中或已结束都按轮次标记定位。*/
+        function sentCardAnchor(row) {
+          const turn = turnOfRow(row)
+          const item = turnContentItem(turn) ?? turnDisclosureItem(turn)
+          if (item !== null && item.parentElement !== null && item.parentElement !== document.body) {
+            return { parent: item.parentElement, before: item }
+          }
+          const block = turnBlockOf(row)
+          if (block !== null) {
+            const parent = block.parentElement
+            if (parent !== null && parent !== document.body) return { parent, before: block }
+          }
+          const flow =
+            row.getAttribute?.('data-chat-flow-kind') !== null
+              ? row
+              : (typeof row.closest === 'function' ? (row.closest('[data-chat-flow-kind]') ?? row) : row)
+          const parent = flow.parentElement
+          if (parent === null || parent === document.body) return { parent: row.parentElement, before: row.nextSibling }
+          return { parent, before: flow.nextElementSibling }
         }
 
         /** 旧台账可能把「已完成」尾行当锚点，渲染时改认这一轮里真正的批注消息行。*/
@@ -2192,29 +2302,70 @@ window.__ModuleLoader__.load({
           return resolved?.getAttribute('data-chat-anchor-key') ?? anchorKey
         }
 
-        /** 在历史行下方补出已提交批注卡片；同一行只补一次。*/
+        /** 记录里记下的轮次号：新记录直接存；旧记录从 turn-process 锚点里取。*/
+        function turnOfRecord(record, storedKey) {
+          if (Number.isFinite(record.turn)) return record.turn
+          const legacy = /:turn-process(\d+)$/.exec(storedKey)
+          return legacy === null ? null : Number(legacy[1])
+        }
+
+        /** 「已完成」所在的 flow 项；还没出现按钮（轮次进行中）时退回这一轮的第一条内容项。*/
+        function footerBlockForTurn(turn) {
+          const item = turnDisclosureItem(turn)
+          if (item !== null) return item
+          const content = turnContentItem(turn)
+          if (content !== null) return content
+          if (!Number.isFinite(turn)) return null
+          const button = document.querySelector(`[data-turn-process="${turn}"]`)
+          if (button === null) return null
+          return button.closest('[data-chat-flow-kind="turn-process"]') ?? button
+        }
+
+        /** 在所属轮次的「已完成」之前补出已提交批注卡片；按轮次定位，不依赖消息行是否已加载。*/
         function renderSentCards() {
           const sessionId = currentSessionId()
           if (sessionId === undefined) return
           const table = loadSent(sessionId)
           if (table.size === 0) return
+          // 卡片身份取台账键；锚点只用来挂答复卡。
           for (const stale of document.querySelectorAll('[data-sa-ui="sent"]')) {
-            const anchorKey = stale.getAttribute('data-anchor')
-            if (isTurnProcessAnchor(anchorKey) || !table.has(anchorKey)) stale.remove()
+            const key = stale.getAttribute('data-sa-key')
+            if (key === null || !table.has(key)) stale.remove()
           }
+          let learnedTurn = false
           for (const [storedKey, record] of table) {
             if (record.items.length === 0) continue
             const anchorKey = resolveLegacyAnchor(storedKey)
             const row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`)
-            if (row === null) continue
-            if (document.querySelector(`[data-sa-ui="sent"][data-anchor="${cssEscape(anchorKey)}"]`) !== null) continue
-            const card = buildSentCard(record, anchorKey)
-            // 插在消息行*外面*：过程折叠组/分组行内部布局会让卡片压住正文。
-            // 行后紧跟「已完成」尾行时插到它前面，让卡片落在轮次记录之上。
+            let turn = turnOfRecord(record, storedKey)
+            // 旧记录第一次看到「已完成」时把轮次记下来，之后即使消息行没加载也能定位。
+            if (!Number.isFinite(turn) && row !== null) {
+              const found = turnOfRow(row)
+              if (Number.isFinite(found)) {
+                turn = found
+                record.turn = turn
+                learnedTurn = true
+              }
+            }
+            const footer = footerBlockForTurn(turn)
+            if (row === null && footer === null) continue
+            const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
+            const card = existing ?? buildSentCard(record, anchorKey)
+            card.setAttribute('data-sa-key', storedKey)
+            card.setAttribute('data-anchor', anchorKey)
+            // 位置固定在轮次尾行之前；与消息在折叠组里、是否懒加载无关。
+            if (footer !== null) {
+              if (footer.parentElement !== null) footer.parentElement.insertBefore(card, footer)
+              continue
+            }
             const target = sentCardAnchor(row)
-            if (target.parent !== null) target.parent.insertBefore(card, target.before)
-            else row.appendChild(card)
+            if (target.parent !== null) {
+              if (card.parentElement !== target.parent || card.nextSibling !== target.before) target.parent.insertBefore(card, target.before)
+            } else if (existing === null) {
+              row.appendChild(card)
+            }
           }
+          if (learnedTurn) saveSent(sessionId, table)
         }
 
         /** 逐条答复的判定文案与样式类。*/
@@ -2363,8 +2514,8 @@ window.__ModuleLoader__.load({
           return card
         }
 
-        /** 跟着「已完成」一起收展：找答复卡前一个轮次尾行，读它的展开状态。*/
-        function syncReplyCollapse() {
+        /** 跟着「已完成」一起收展：只同步答复卡片里的内容，卡片本身与标题始终留在外面。*/
+        function syncReplyCollapse(origin) {
           for (const section of document.querySelectorAll('[data-sa-ui="replies"]')) {
             let node = section.previousElementSibling ?? null
             let footer = null
@@ -2377,15 +2528,33 @@ window.__ModuleLoader__.load({
               break
             }
             const button = footer === null ? null : footer.matches?.('[data-turn-process]') ? footer : footer.querySelector?.('[data-turn-process]')
-            if (button !== null && button.getAttribute('aria-expanded') === 'false') section.dataset.saCollapsed = '1'
-            else delete section.dataset.saCollapsed
+            // 只响应用户亲手点开/收起的那一下：同一状态不重复套用，之后答复区可以自己开合。
+            if (button !== null && origin !== undefined && button !== origin) continue
+            const head = typeof section.querySelector === 'function' ? section.querySelector('.sa-section-head') : null
+            const wrap = typeof section.querySelector === 'function' ? section.querySelector('.sa-collapse') : null
+            if (head === null || wrap === null) continue
+            const open = button === null || button.getAttribute('aria-expanded') !== 'false'
+            const seen = section.dataset.saFooterOpen
+            if (seen !== undefined && seen === (open ? '1' : '0')) continue
+            section.dataset.saFooterOpen = open ? '1' : '0'
+            applyCollapsed(head, wrap, open)
+            section.dataset.open = wrap.dataset.open
           }
         }
 
-        /** 答复卡留在「已完成」之下：紧跟其后有轮次尾行时，挪到尾行后面。*/
-        function placeReplyAfterTurnProcess(section) {
+        /** 答复卡留在「已完成」之下：有轮次号时按轮次尾行定位，否则退回相邻节点查找。*/
+        function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement
           if (parent === null) return
+          const block = footerBlockForTurn(turn)
+          if (block !== null && block.parentElement !== null) {
+            let cursor = block
+            while (cursor.nextElementSibling !== null && cursor.nextElementSibling.getAttribute?.('data-sa-ui') === 'replies') {
+              cursor = cursor.nextElementSibling
+            }
+            block.parentElement.insertBefore(section, cursor.nextSibling)
+            return
+          }
           let sibling = typeof section.nextElementSibling === 'undefined' ? null : section.nextElementSibling
           while (sibling !== null && (typeof sibling.getAttribute !== 'function' || sibling.getAttribute('data-chat-flow-kind') !== 'turn-process')) {
             sibling = sibling.nextElementSibling ?? null
@@ -2442,20 +2611,24 @@ window.__ModuleLoader__.load({
           const batches = remoteReplyCache.get(sessionId) ?? []
           if (batches.length === 0) return
           for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) {
-            if (isTurnProcessAnchor(stale.getAttribute('data-anchor'))) stale.remove()
+            const anchorKey = stale.getAttribute('data-anchor')
+            const known = [...table.keys()].some((storedKey) => resolveLegacyAnchor(storedKey) === anchorKey)
+            if (!known) stale.remove()
           }
           const byAnchor = new Map()
           for (const [storedKey, record] of table) {
             const anchorKey = resolveLegacyAnchor(storedKey)
             const current = byAnchor.get(anchorKey)
-            if (current === undefined || current.savedAt < record.savedAt) byAnchor.set(anchorKey, record)
+            if (current === undefined || current.record.savedAt < record.savedAt) {
+              byAnchor.set(anchorKey, { record, turn: turnOfRecord(record, storedKey) })
+            }
           }
-          const records = [...byAnchor.entries()].sort((a, b) => a[1].savedAt - b[1].savedAt)
+          const records = [...byAnchor.entries()].sort((a, b) => a[1].record.savedAt - b[1].record.savedAt)
           const grouped = new Map()
           for (const batch of batches) {
             let target
-            for (const [key, record] of records) {
-              if (record.savedAt <= batch.at) target = key
+            for (const [key, entry] of records) {
+              if (entry.record.savedAt <= batch.at) target = key
             }
             if (target === undefined) continue
             const list = grouped.get(target) ?? []
@@ -2467,7 +2640,8 @@ window.__ModuleLoader__.load({
             const sentCards = document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${escaped}"]`)
             const sentCard = sentCards[sentCards.length - 1]
             if (sentCard === undefined) continue
-            const items = byAnchor.get(anchorKey)?.items ?? []
+            const items = byAnchor.get(anchorKey)?.record.items ?? []
+            const turn = byAnchor.get(anchorKey)?.turn ?? null
             const signature = `${list.map((batch) => String(batch.at)).join('|')}#${items.length}`
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`)
             if (existing !== null) {
@@ -2476,14 +2650,14 @@ window.__ModuleLoader__.load({
               fresh.setAttribute('data-anchor', anchorKey)
               fresh.dataset.signature = signature
               existing.replaceWith(fresh)
-              placeReplyAfterTurnProcess(fresh)
+              placeReplyAfterTurnProcess(fresh, turn)
               continue
             }
             const section = buildReplySection(list, items)
             section.setAttribute('data-anchor', anchorKey)
             section.dataset.signature = signature
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling)
-            placeReplyAfterTurnProcess(section)
+            placeReplyAfterTurnProcess(section, turn)
           }
           syncReplyCollapse()
         }
@@ -2784,6 +2958,7 @@ window.__ModuleLoader__.load({
             }
             // 发出去之前页面上已有的批注消息行：发送后据此区分「新消息」与「旧历史」。
             lastAnnotatedKeys = captureAnchorKeys()
+            attachedSessionId = sessionId
             log(`[selection-annotations] 批注块已挂到本条消息（${annotations.length} 条）`)
           } catch (err) {
             warn('[selection-annotations] 批注附件同步失败：', err)
@@ -3051,6 +3226,22 @@ window.__ModuleLoader__.load({
           element.style.top = `${Math.max(8, top)}px`
         }
 
+        /** DSH 0.2.2 自带的「引用文本」浮层：把批注按钮让到它上方，避免互相遮挡。*/
+        function placeAvoidingTextInteraction(element) {
+          const surface = document.querySelector('[data-text-interaction-surface]')
+          if (surface === null || surface.getAttribute('aria-hidden') === 'true') return false
+          const rect = safe(() => surface.getBoundingClientRect())
+          if (rect === undefined || rect.width < 2 || rect.height < 2) return false
+          const width = element.offsetWidth || 80
+          const height = element.offsetHeight || 32
+          const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8))
+          const above = rect.top - height - 8
+          const top = above >= 8 ? above : Math.min(rect.bottom + 8, window.innerHeight - height - 8)
+          element.style.left = `${left}px`
+          element.style.top = `${Math.max(8, top)}px`
+          return true
+        }
+
         function onSelectionChange() {
           window.clearTimeout(settleTimer)
           settleTimer = window.setTimeout(() => {
@@ -3068,6 +3259,13 @@ window.__ModuleLoader__.load({
             pendingSelection = selection
             toolbar.dataset.open = '1'
             placeAt(toolbar, rect, 8)
+            placeAvoidingTextInteraction(toolbar)
+            // DSH 的引用浮层可能比我们晚一步挂上，再对齐一次。
+            window.clearTimeout(avoidTimer)
+            avoidTimer = window.setTimeout(() => {
+              avoidTimer = 0
+              if (toolbar.dataset.open === '1') placeAvoidingTextInteraction(toolbar)
+            }, 140)
           }, SETTLE_MS)
         }
 
@@ -3657,8 +3855,25 @@ window.__ModuleLoader__.load({
         function renderPanel() {
           panelEl.textContent = ''
 
+          const panelHead = el('div', 'sa-panel-head')
+          panelHead.appendChild(el('span', 'sa-panel-title', t('panel.title')))
+          const build = el('span', 'sa-build', `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`)
+          build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`
+          panelHead.appendChild(build)
+          const meta = el('div', 'sa-panel-meta')
+          const hint = el('span', 'sa-panel-hint', t('panel.foot'))
+          hint.title = t('panel.foot')
+          meta.appendChild(hint)
+          meta.appendChild(el('span', 'sa-panel-count', t('panel.count', { n: annotations.length })))
+          if (annotations.length > 0) {
+            meta.appendChild(button('sa-foot-action', t('panel.clear'), () => clearAnnotations()))
+          }
+          panelHead.appendChild(meta)
+          panelEl.appendChild(panelHead)
+          const panelBody = el('div', 'sa-panel-body')
+
           if (annotations.length === 0) {
-            panelEl.appendChild(el('div', 'sa-hint', t('panel.empty')))
+            panelBody.appendChild(el('div', 'sa-panel-empty', t('panel.empty')))
           }
 
           for (const item of annotations) {
@@ -3694,12 +3909,14 @@ window.__ModuleLoader__.load({
             grip.title = t('panel.drag')
             grip.setAttribute('aria-label', t('panel.drag'))
             head.appendChild(grip)
-            head.appendChild(el('span', 'sa-item-num', `#${item.number}`))
+            head.appendChild(el('span', 'sa-item-num', String(item.number)))
             const summary = el('span', 'sa-item-src', sourceSummary(item))
             summary.title = summary.textContent
             head.appendChild(summary)
-            head.appendChild(button('sa-link', t('panel.edit'), () => openEditPopover(item.id, head)))
-            head.appendChild(button('sa-link', t('panel.delete'), () => removeAnnotation(item.id)))
+            const actions = el('div', 'sa-item-actions')
+            actions.appendChild(button('sa-item-action', t('panel.edit'), () => openEditPopover(item.id, head)))
+            actions.appendChild(button('sa-item-action sa-danger', t('panel.delete'), () => removeAnnotation(item.id)))
+            head.appendChild(actions)
             row.appendChild(head)
             if (item.quote !== '') {
               const q = el('div', 'sa-item-q')
@@ -3746,15 +3963,12 @@ window.__ModuleLoader__.load({
               why.style.marginTop = '2px'
               row.appendChild(why)
             }
-            panelEl.appendChild(row)
+            panelBody.appendChild(row)
           }
 
-          const foot = el('div', 'sa-foot')
-          if (annotations.length > 0) foot.appendChild(button('sa-link', t('panel.clear'), () => clearAnnotations()))
-          foot.appendChild(el('span', 'sa-hint', t('panel.foot')))
-          panelEl.appendChild(foot)
-          panelEl.appendChild(imageSettingsRow())
-          panelEl.appendChild(instructionSettingsRow())
+          panelBody.appendChild(imageSettingsRow())
+          panelBody.appendChild(instructionSettingsRow())
+          panelEl.appendChild(panelBody)
         }
 
         /** 面板底部的图片设置：压缩开关、JPEG 质量、触发压缩的最短边。 */
@@ -4083,18 +4297,18 @@ window.__ModuleLoader__.load({
 
         ctx.effect(() => {
           const observer = new MutationObserver((records) => {
-            let touched = false
+            let touched = null
             for (const record of records) {
               const element = elementOf(record.target)
               if (element !== null && element.getAttribute('data-turn-process') !== null) {
-                touched = true
+                touched = element
                 break
               }
             }
-            if (!touched || turnSyncRaf !== 0) return
+            if (touched === null || turnSyncRaf !== 0) return
             turnSyncRaf = window.requestAnimationFrame(() => {
               turnSyncRaf = 0
-              syncReplyCollapse()
+              syncReplyCollapse(touched)
             })
           })
           observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-expanded', 'data-open'] })
@@ -4248,7 +4462,7 @@ window.__ModuleLoader__.load({
           clear: clearAnnotations,
           update: (id, note) => updateAnnotation(id, note),
           add: (input) => addAnnotation(input),
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings },
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow },
         }
       },
     }

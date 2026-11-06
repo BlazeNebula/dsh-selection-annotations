@@ -43,8 +43,30 @@ function element(tag, attrs = {}, children = []) {
       child.parentElement = el
       return child
     },
+    insertBefore(child, before) {
+      if (child.parentElement !== null) child.remove()
+      const index = before === null || before === undefined ? -1 : el.childNodes.indexOf(before)
+      if (index === -1) el.childNodes.push(child)
+      else el.childNodes.splice(index, 0, child)
+      child.parentElement = el
+      return child
+    },
     append(...items) {
       for (const item of items) el.appendChild(item)
+    },
+    get previousElementSibling() {
+      const siblings = el.parentElement === null ? [] : el.parentElement.childNodes
+      for (let index = siblings.indexOf(el) - 1; index >= 0; index -= 1) {
+        if (siblings[index].nodeType === 1) return siblings[index]
+      }
+      return null
+    },
+    get nextElementSibling() {
+      const siblings = el.parentElement === null ? [] : el.parentElement.childNodes
+      for (let index = siblings.indexOf(el) + 1; index < siblings.length; index += 1) {
+        if (siblings[index].nodeType === 1) return siblings[index]
+      }
+      return null
     },
     remove() {
       const parent = el.parentElement
@@ -230,8 +252,8 @@ function makeEnvironment(options = {}) {
         },
       }
     },
-    querySelector: () => null,
-    querySelectorAll: () => [],
+    querySelector: (selector) => body.querySelector(selector),
+    querySelectorAll: (selector) => body.querySelectorAll(selector),
   }
 
   const loaded = []
@@ -1207,6 +1229,116 @@ test('已提交批注按消息锚点落台账，可从历史消息行查回', ()
   assert.ok(storage.length >= 1, '已提交台账要落进 localStorage')
 })
 
+test('台账记录轮次号：读取时保留，渲染按轮次定位', () => {
+  const harness = makeHarness()
+  const internals = harness.debug._internals
+  internals.adoptSession('s1')
+  internals.recordSent('s1', '3:user', [{ index: 1, quote: '原文', note: '批注' }], 57)
+  assert.equal(internals.loadSent('s1').get('3:user').turn, 57)
+})
+
+test('轮次进行中：已发送卡紧跟批注消息，落在过程区块上方', () => {
+  const harness = makeHarness()
+  const internals = harness.debug._internals
+  internals.adoptSession('s1')
+  const column = harness.env.element('div')
+  harness.env.document.body.appendChild(column)
+  const userRow = harness.env.element('div')
+  userRow.setAttribute('data-chat-flow-kind', 'user')
+  userRow.setAttribute('data-chat-anchor-key', '4:user')
+  const process = harness.env.element('div')
+  process.setAttribute('data-chat-flow-kind', 'turn-process')
+  const running = harness.env.element('div')
+  running.setAttribute('data-chat-running', 'true')
+  column.append(userRow, process, running)
+  // 轮次进行中还没有「已完成」尾行：位置只由消息行决定。
+  const anchor = internals.sentCardAnchor(userRow)
+  assert.equal(anchor.parent, column, '卡片挂到消息所在列')
+  assert.equal(anchor.before, process, '插在过程区块之前')
+  assert.equal(userRow.nextElementSibling, process, '未插入前消息紧接着过程区块')
+})
+
+test('轮次进行中（还没有已完成按钮）：卡片仍落在过程区块上方', () => {
+  const harness = makeHarness()
+  const internals = harness.debug._internals
+  const column = harness.env.element('div')
+  harness.env.document.body.appendChild(column)
+  const user = harness.env.element('div')
+  user.setAttribute('data-chat-turn', '9')
+  user.setAttribute('data-chat-flow-kind', 'user')
+  const process = harness.env.element('div')
+  process.setAttribute('data-chat-turn', '9')
+  process.setAttribute('data-chat-flow-kind', 'assistant-step')
+  const inner = harness.env.element('div')
+  inner.setAttribute('data-chat-anchor-key', '9:assistant-step1:4')
+  process.appendChild(inner)
+  column.append(user, process)
+  const anchor = internals.sentCardAnchor(inner)
+  assert.equal(anchor.parent, column, '卡片挂到列上')
+  assert.equal(anchor.before, process, '卡片在过程区块上方，不在它下面')
+  assert.equal(internals.turnOfRow(inner), 9, '进行中的轮次也能读到轮次号')
+})
+
+test('0.2.2 结构：按钮内联在消息体里，卡片仍插到该轮上方', () => {
+  const harness = makeHarness()
+  const internals = harness.debug._internals
+  const column = harness.env.element('div')
+  harness.env.document.body.appendChild(column)
+  const item = harness.env.element('div')
+  item.setAttribute('data-chat-turn', '7')
+  item.setAttribute('data-chat-flow-kind', 'assistant-step')
+  const button = harness.env.element('button')
+  button.setAttribute('data-turn-process', '7')
+  const inner = harness.env.element('div')
+  inner.setAttribute('data-chat-anchor-key', '9:assistant-step2:4')
+  item.append(button, inner)
+  column.appendChild(item)
+  const anchor = internals.sentCardAnchor(inner)
+  assert.equal(anchor.parent, column, '卡片挂到列上')
+  assert.equal(anchor.before, item, '卡片插在整条消息之前，不会落进消息体内')
+  assert.equal(internals.turnOfRow(inner), 7, '轮次直接读 data-chat-turn')
+})
+
+test('批注落在过程块内部：卡片仍贴在该轮上方，并记下轮次', () => {
+  const harness = makeHarness()
+  const internals = harness.debug._internals
+  const column = harness.env.element('div')
+  harness.env.document.body.appendChild(column)
+  const block = harness.env.element('div')
+  block.setAttribute('data-chat-flow-kind', 'turn-process')
+  const button = harness.env.element('button')
+  button.setAttribute('data-turn-process', '7')
+  const inner = harness.env.element('div')
+  inner.setAttribute('data-chat-anchor-key', '9:assistant-step2:4')
+  block.append(button, inner)
+  column.appendChild(block)
+  const anchor = internals.sentCardAnchor(inner)
+  assert.equal(anchor.parent, column, '卡片挂到轮次块所在的列')
+  assert.equal(anchor.before, block, '卡片贴在整轮的上方，不会落进过程块里')
+  assert.equal(internals.turnOfRow(inner), 7, '过程块内部的批注也要记下轮次')
+})
+
+test('已发送卡按轮次固定：消息行没加载也能放到「已完成」之前', () => {
+  const harness = makeHarness()
+  const internals = harness.debug._internals
+  internals.adoptSession('s1')
+  const column = harness.env.element('div')
+  harness.env.document.body.appendChild(column)
+  const footer = harness.env.element('div')
+  footer.setAttribute('data-chat-flow-kind', 'turn-process')
+  const button = harness.env.element('button')
+  button.setAttribute('data-turn-process', '57')
+  footer.appendChild(button)
+  column.appendChild(footer)
+  // 消息行故意不在 DOM 里：位置只由轮次号决定。
+  internals.recordSent('s1', '12:turn-process57', [{ index: 1, quote: '原文', note: '批注' }], 57)
+  internals.renderSentCards()
+  const card = harness.env.document.querySelector('[data-sa-ui="sent"]')
+  assert.ok(card !== null, '消息行不在时也要出卡片')
+  assert.equal(card.getAttribute('data-sa-key'), '12:turn-process57')
+  assert.equal(footer.previousElementSibling, card, '卡片固定在「已完成」之前')
+})
+
 test('逐条答复卡片：同一批注以最后一批为准，判定与理由都进卡片', () => {
   const harness = makeHarness()
   const { buildReplySection, mergeReplyBatches } = harness.debug._internals
@@ -1269,6 +1401,38 @@ test('已发送区与答复区共用同一套收展头、箭头与开合容器',
   assert.equal(replyHead.getAttribute('aria-expanded'), 'true', '答复区默认展开')
   assert.equal(replies.querySelector('.sa-collapse').dataset.open, '1')
   assert.equal(replies.querySelector('.sa-section-title').textContent, '批注答复 ×1')
+})
+
+test('收展同步：收「已完成」只收起答复内容，卡片与标题仍留在外面', () => {
+  const harness = makeHarness()
+  const { buildReplySection, syncReplyCollapse } = harness.debug._internals
+  const footer = harness.env.element('div')
+  footer.setAttribute('data-chat-flow-kind', 'turn-process')
+  const button = harness.env.element('button')
+  button.setAttribute('data-turn-process', '1')
+  button.setAttribute('aria-expanded', 'false')
+  footer.appendChild(button)
+  harness.env.document.body.appendChild(footer)
+  const card = buildReplySection([{ at: 2, replies: [{ index: 1, verdict: 'accepted', reason: '已改' }] }])
+  harness.env.document.body.appendChild(card)
+
+  syncReplyCollapse()
+  assert.equal(card.querySelector('.sa-collapse').dataset.open, '0', '答复内容跟着「已完成」收起')
+  assert.equal(card.querySelector('.sa-section-head').getAttribute('aria-expanded'), 'false')
+  assert.equal(card.getAttribute('data-sa-ui'), 'replies', '卡片本身没有被隐藏')
+
+  button.setAttribute('aria-expanded', 'true')
+  syncReplyCollapse()
+  assert.equal(card.querySelector('.sa-collapse').dataset.open, '1', '「已完成」展开后答复内容跟着展开')
+  assert.equal(card.querySelector('.sa-section-head').getAttribute('aria-expanded'), 'true')
+
+  // 用户手动收起答复区之后，同一次「已完成」状态的重绘不应把它改回去
+  const manualHead = card.querySelector('.sa-section-head')
+  const manualWrap = card.querySelector('.sa-collapse')
+  manualHead.setAttribute('aria-expanded', 'false')
+  manualWrap.dataset.open = '0'
+  syncReplyCollapse()
+  assert.equal(manualWrap.dataset.open, '0', '同一状态不重复套用，答复区可以自己收')
 })
 
 test('批注可以带图片：图片草稿与 JSON 一起挂上，只等 JSON 的上传', async () => {  const harness = makeHarness()
