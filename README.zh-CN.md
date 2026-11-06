@@ -225,8 +225,24 @@ window.__dshSelectionAnnotations.update(id, note)  // 手工改一条（调试�
 ## 开发
 
 ```sh
-npm test
+npm test           # 先校验 client.js 与 src/ 一致，再跑测试
+npm run build      # 由 src/ 重新生成 client.js（改完源码必须跑）
 ```
+
+### 源码结构
+
+浏览器侧仍然只能是单文件 `client.js`（DSH 的客户端加载器只取一个构建产物），
+它由 `src/` 下的片段按 `scripts/parts.mjs` 的顺序拼成。**不要直接改 `client.js`**：
+下次 `npm run build` 会覆盖它，`npm test` 也会先报不一致。
+
+- `src/shell/`：loader 外壳、`return { … apply(ctx) {` 的开头与收尾。
+- `src/parts/00-config.js`：文件名、数量上限、默认指令、构建号。
+- `src/parts/01-locale.js`：中英词典、`t()`、默认指令的中英选择。
+- `src/parts/02-constants.js` / `03-styles.js`：时间常量与全部 CSS。
+- `src/parts/04-log.js` 起：日志、状态、会话与输入外壳、图片、远端同步、草稿、锚点与原文定位、高亮、已发送卡、答复卡、负载与附件同步、重绘、选区与工具条、弹层、悬停、总览面板、组件与注册。
+
+这些片段共享同一个 `apply(ctx)` 闭包，所以不能写 `import`/`export`；
+拆分的目的只是把 4,000 多行的单文件变成按职责可导航的多个文件。
 
 测试在纯 Node 里跑 —— 不需要浏览器，也不需要装 DSH：
 
@@ -241,7 +257,7 @@ npm test
 
 | 半边 | 改动如何生效 |
 |---|---|
-| 客户端 `client.js` | 由 `@deepseek-ai/dsh-client-hmr` 热换（约 500ms 轮询）。**刷新页面**即可。 |
+| 客户端 `src/` → `client.js` | 改完源码跑 `npm run build`，再由 `@deepseek-ai/dsh-client-hmr` 热换（约 500ms 轮询）。**刷新页面**即可。 |
 | 宿主 `lib/index.js`，已经成功加载过一次 | **不会热重载。** disable→enable 不行，`remove_bundle` + `install_bundle` 也不行（Node ESM 模块缓存）。**必须重启宿主进程。** |
 | 宿主 `lib/index.js`，之前加载失败过（`fiberPhase: null`） | 做一次 disable→enable 就会重新 import —— **立即生效** |
 

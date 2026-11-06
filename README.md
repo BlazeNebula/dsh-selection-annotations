@@ -243,8 +243,27 @@ Warnings from the plugin are prefixed `[selection-annotations]`.
 ## Development
 
 ```sh
-npm test
+npm test           # verifies client.js matches src/, then runs the suite
+npm run build      # regenerate client.js from src/ (required after editing src/)
 ```
+
+### Source layout
+
+The browser half must stay a single file (`client.js`) because DSH's client loader takes
+exactly one bundle. It is stitched from the fragments under `src/`, in the order listed by
+`scripts/parts.mjs`. **Do not edit `client.js` directly** — `npm run build` overwrites it and
+`npm test` fails when the two drift apart.
+
+- `src/shell/` — loader shell, the opening of `return { … apply(ctx) {`, and the closing tail.
+- `src/parts/00-config.js` — file name, limits, default instruction, build marker.
+- `src/parts/01-locale.js` — zh/en dictionaries, `t()`, default-instruction selection.
+- `src/parts/02-constants.js` / `03-styles.js` — timing constants and all CSS.
+- From `src/parts/04-log.js` on: logging, state, session/input shell, images, remote sync,
+  drafts, anchors and source lookup, highlighting, sent cards, reply cards, payload and
+  attachment sync, repaint, selection/toolbar, popover, hover, overview panel, components.
+
+The fragments share one `apply(ctx)` closure, so they cannot use `import`/`export`; the split
+exists to keep each responsibility in a navigable file instead of one 4,000-line bundle.
 
 The suite runs in plain Node — no browser, no DSH install:
 
@@ -261,7 +280,7 @@ Reload behaviour while developing:
 
 | Half | How a change takes effect |
 |---|---|
-| Client `client.js` | Hot-swapped by `@deepseek-ai/dsh-client-hmr` (~500ms poll). **Refresh the page.** |
+| Client `src/` → `client.js` | Run `npm run build`, then `@deepseek-ai/dsh-client-hmr` hot-swaps it (~500ms poll). **Refresh the page.** |
 | Host `lib/index.js`, already loaded once | **Does not hot-reload.** Neither disable→enable nor `remove_bundle` + `install_bundle` helps (Node ESM module cache). **Restart the host process.** |
 | Host `lib/index.js`, previously failed to load (`fiberPhase: null`) | A single disable→enable re-imports it — **takes effect immediately** |
 

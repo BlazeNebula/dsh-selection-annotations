@@ -1,0 +1,28 @@
+// client.js 的拼装顺序：header → 常量/样式 → apply 开头 → 各功能片段 → 收尾。
+// 浏览器侧仍然是单文件 bundle，因此每一段都不能出现 import/export。
+export const PARTS = [
+  'shell/01-header.js',
+  'parts/00-config.js',
+  'parts/01-locale.js',
+  'parts/02-constants.js',
+  'parts/03-styles.js',
+  'shell/02-return-open.js',
+  'parts/04-log.js',
+  'parts/05-state.js',
+  'parts/06-session.js',
+  'parts/07-images.js',
+  'parts/08-remote.js',
+  'parts/09-drafts.js',
+  'parts/10-source.js',
+  'parts/11-highlight.js',
+  'parts/12-sent.js',
+  'parts/13-replies.js',
+  'parts/14-payload.js',
+  'parts/15-repaint.js',
+  'parts/16-selection.js',
+  'parts/17-popover.js',
+  'parts/18-hover.js',
+  'parts/19-panel.js',
+  'parts/20-components.js',
+  'shell/99-tail.js',
+]
