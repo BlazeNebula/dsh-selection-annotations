@@ -69,4 +69,17 @@ export const DEFAULT_INSTRUCTION_EN = [
 export const LOCALE_NS = 'selection-annotations'
     /** 构建标记：显示在批注总览底部，用来确认当前页面加载的是哪一版代码。*/
 export const PLUGIN_BUILD = '1.3.0+10'
+
+    /** 未提交草稿的本地存储前缀：按会话分键。*/
+export const DRAFT_STORAGE_PREFIX = 'dsh-selection-annotations:draft:'
+export const DRAFT_MAX_SESSIONS = 24
+export const DRAFT_MAX_ITEMS = 200
+    /** 已提交批注的本地台账前缀：按会话分键。*/
+export const SENT_STORAGE_PREFIX = 'dsh-selection-annotations:sent:'
+export const SENT_MAX_ENTRIES = 120
+export const SENT_MAX_BYTES = 2 * 1024 * 1024
+    /** 轮询宿主答复的间隔；模型答复通常紧跟发送。*/
+export const REPLY_POLL_MS = 6000
+    /** 刚发出的批注负载等消息行出现的最长时间。*/
+export const SENT_PENDING_TTL_MS = 60000
     /** 中文原文即现有措辞，保持与既有测试断言一致。*/

@@ -13,6 +13,14 @@ import {
   MAX_QUOTE,
   PAYLOAD_KIND,
   PLUGIN_BUILD,
+  DRAFT_STORAGE_PREFIX,
+  DRAFT_MAX_SESSIONS,
+  DRAFT_MAX_ITEMS,
+  SENT_STORAGE_PREFIX,
+  SENT_MAX_ENTRIES,
+  SENT_MAX_BYTES,
+  REPLY_POLL_MS,
+  SENT_PENDING_TTL_MS,
 } from './core/config.js'
 import { MESSAGES } from './core/messages.js'
 import {
@@ -31,6 +39,7 @@ import {
 } from './core/constants.js'
 import { log, warn } from './core/log.js'
 import { createLocale } from './core/locale.js'
+import { mergeReplyBatches, shouldDiscardEmpty } from './core/annotation-utils.js'
 import { createSessionApi } from './core/session.js'
 import { createSettings } from './core/settings.js'
 import { createPayload } from './core/payload.js'
@@ -83,22 +92,8 @@ export function createPlugin(React) {
         let latestSessionId = undefined
         /** 批注集合归属的会话；切换会话时按会话换入换出草稿，避免批注跑到别的会话里。*/
         let annotationsSession = undefined
-        /** 未提交批注草稿的本地存储前缀：按会话分键，切走再回来、刷新页面都还能接着改。*/
-        const DRAFT_STORAGE_PREFIX = 'dsh-selection-annotations:draft:'
-        /** 最多保留多少个会话的草稿；超出按保存时间淘汰最旧的。*/
-        const DRAFT_MAX_SESSIONS = 24
-        /** 单个会话最多保存多少条草稿批注，避免异常数据把存储写满。*/
-        const DRAFT_MAX_ITEMS = 200
         /** 已载入会话的草稿（sessionId → 可序列化条目），切换会话时先在内存里换入换出。 */
         const draftSessions = new Map()
-        /** 已提交批注的本地台账前缀：按会话分键，用消息锚点键索引，供对话历史回看。*/
-        const SENT_STORAGE_PREFIX = 'dsh-selection-annotations:sent:'
-        /** 每个会话最多保留多少条已提交记录。*/
-        const SENT_MAX_ENTRIES = 120
-        /** 已提交台账的体积预算：超出时先丢图片，文字永远保留。*/
-        const SENT_MAX_BYTES = 2 * 1024 * 1024
-        /** 轮询宿主答复的间隔：模型答复通常紧跟发送，6 秒足够且只请求本机路由。*/
-        const REPLY_POLL_MS = 6000
         /** 已提交批注台账（sessionId → Map(anchorKey → 记录)）。 */
         const sentBySession = new Map()
         /** 刚随消息发出、还在等对应消息行出现的负载。*/
@@ -871,7 +866,6 @@ export function createPlugin(React) {
         }
 
         /** 刚发出的负载在页面上等多久；超时就放弃关联（用户可能只是移除了附件）。*/
-        const SENT_PENDING_TTL_MS = 60000
 
         /* ------------------------------------------------- 已提交批注的历史回看 */
 
@@ -1263,20 +1257,6 @@ export function createPlugin(React) {
           partial: ['verdict.partial', 'partial'],
           rejected: ['verdict.rejected', 'rejected'],
           needs_info: ['verdict.needs_info', 'needs_info'],
-        }
-
-        /** 一批答复里的每条答复按 index 去重：同一 index 以最后一批为准。*/
-        function mergeReplyBatches(batches) {
-          const byIndex = new Map()
-          for (const batch of batches) {
-            for (const reply of batch.replies) {
-              if (reply === null || typeof reply !== 'object') continue
-              const index = Number(reply.index)
-              if (!Number.isFinite(index)) continue
-              byIndex.set(index, { ...reply, index, at: Number(batch.at) || 0 })
-            }
-          }
-          return [...byIndex.values()].sort((a, b) => a.index - b.index)
         }
 
         /**
@@ -2283,13 +2263,6 @@ export function createPlugin(React) {
             if (pendingRefine === guarded) pendingRefine = undefined
           })
           return guarded
-        }
-
-        /** 新划出来但既没写文字也没加图：被动确认（点框外、悬停收起）时应当丢弃。*/
-        function shouldDiscardEmpty(mode, note, images) {
-          if (mode === 'edit') return false
-          if (typeof note === 'string' && note.trim() !== '') return false
-          return !Array.isArray(images) || images.length === 0
         }
 
         /**

@@ -291,6 +291,14 @@
   ].join("");
   var LOCALE_NS = "selection-annotations";
   var PLUGIN_BUILD = "1.3.0+10";
+  var DRAFT_STORAGE_PREFIX = "dsh-selection-annotations:draft:";
+  var DRAFT_MAX_SESSIONS = 24;
+  var DRAFT_MAX_ITEMS = 200;
+  var SENT_STORAGE_PREFIX = "dsh-selection-annotations:sent:";
+  var SENT_MAX_ENTRIES = 120;
+  var SENT_MAX_BYTES = 2 * 1024 * 1024;
+  var REPLY_POLL_MS = 6e3;
+  var SENT_PENDING_TTL_MS = 6e4;
 
   // src/core/messages.js
   var MESSAGES = {
@@ -562,6 +570,25 @@
         }, "selection-annotations: locale changes");
       }
     };
+  }
+
+  // src/core/annotation-utils.js
+  function mergeReplyBatches(batches) {
+    const byIndex = /* @__PURE__ */ new Map();
+    for (const batch of batches) {
+      for (const reply of batch.replies) {
+        if (reply === null || typeof reply !== "object") continue;
+        const index = Number(reply.index);
+        if (!Number.isFinite(index)) continue;
+        byIndex.set(index, { ...reply, index, at: Number(batch.at) || 0 });
+      }
+    }
+    return [...byIndex.values()].sort((a, b) => a.index - b.index);
+  }
+  function shouldDiscardEmpty(mode, note, images) {
+    if (mode === "edit") return false;
+    if (typeof note === "string" && note.trim() !== "") return false;
+    return !Array.isArray(images) || images.length === 0;
   }
 
   // src/core/session.js
@@ -1226,14 +1253,7 @@
         let latestInputActions = void 0;
         let latestSessionId = void 0;
         let annotationsSession = void 0;
-        const DRAFT_STORAGE_PREFIX = "dsh-selection-annotations:draft:";
-        const DRAFT_MAX_SESSIONS = 24;
-        const DRAFT_MAX_ITEMS = 200;
         const draftSessions = /* @__PURE__ */ new Map();
-        const SENT_STORAGE_PREFIX = "dsh-selection-annotations:sent:";
-        const SENT_MAX_ENTRIES = 120;
-        const SENT_MAX_BYTES = 2 * 1024 * 1024;
-        const REPLY_POLL_MS = 6e3;
         const sentBySession = /* @__PURE__ */ new Map();
         let pendingSent = [];
         let attachedSessionId = void 0;
@@ -1856,7 +1876,6 @@
           scheduleRepaint();
           saveDraft(annotationsSession);
         }
-        const SENT_PENDING_TTL_MS = 6e4;
         const sentStore = createSentStore({
           getStorage: () => draftStorage(),
           tableFor: sentBySession,
@@ -2180,18 +2199,6 @@
           rejected: ["verdict.rejected", "rejected"],
           needs_info: ["verdict.needs_info", "needs_info"]
         };
-        function mergeReplyBatches(batches) {
-          const byIndex = /* @__PURE__ */ new Map();
-          for (const batch of batches) {
-            for (const reply of batch.replies) {
-              if (reply === null || typeof reply !== "object") continue;
-              const index = Number(reply.index);
-              if (!Number.isFinite(index)) continue;
-              byIndex.set(index, { ...reply, index, at: Number(batch.at) || 0 });
-            }
-          }
-          return [...byIndex.values()].sort((a, b) => a.index - b.index);
-        }
         function buildReplySection(batches, items = []) {
           const replies = mergeReplyBatches(batches);
           const byIndex = /* @__PURE__ */ new Map();
@@ -3033,11 +3040,6 @@
             if (pendingRefine === guarded) pendingRefine = void 0;
           });
           return guarded;
-        }
-        function shouldDiscardEmpty(mode, note, images) {
-          if (mode === "edit") return false;
-          if (typeof note === "string" && note.trim() !== "") return false;
-          return !Array.isArray(images) || images.length === 0;
         }
         function commitPopover(discardEmpty = false) {
           if (popoverMode === "edit") {
