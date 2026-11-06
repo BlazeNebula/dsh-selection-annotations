@@ -1,4 +1,12 @@
 import { truncateQuote } from './util.js'
+import { mergeReplyBatches } from './annotation-utils.js'
+
+const VERDICT_LABELS = {
+  accepted: ['verdict.accepted', 'accepted'],
+  partial: ['verdict.partial', 'partial'],
+  rejected: ['verdict.rejected', 'rejected'],
+  needs_info: ['verdict.needs_info', 'needs_info'],
+}
 
 /**
  * 两个区域共用的收展头、矢量箭头与可折展容器，以及已提交批注的卡片。
@@ -123,5 +131,123 @@ export function createCards({ t, openImageViewer }) {
     return card
   }
 
-  return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard }
+  function buildReplySection(batches, items = []) {
+    const replies = mergeReplyBatches(batches)
+    const byIndex = new Map()
+    for (const item of Array.isArray(items) ? items : []) {
+      if (Number.isFinite(item?.index)) byIndex.set(item.index, item)
+    }
+    const card = document.createElement('div')
+    card.className = 'sa-replies'
+    card.setAttribute('data-sa-ui', 'replies')
+
+    const counts = { accepted: 0, partial: 0, rejected: 0, needs_info: 0 }
+    for (const reply of replies) {
+      if (Object.hasOwn(counts, reply.verdict)) counts[reply.verdict] += 1
+    }
+    const parts = []
+    if (counts.accepted) parts.push(t('summary.accepted', { n: counts.accepted }))
+    if (counts.partial) parts.push(t('summary.partial', { n: counts.partial }))
+    if (counts.rejected) parts.push(t('summary.rejected', { n: counts.rejected }))
+    if (counts.needs_info) parts.push(t('summary.needsInfo', { n: counts.needs_info }))
+    const head = buildSectionHead(t('replies.title', { n: replies.length }), parts.join(' · '))
+    card.appendChild(head)
+
+    const body = document.createElement('div')
+    body.className = 'sa-replies-body'
+    for (const reply of replies) {
+      const item = byIndex.get(reply.index)
+      const [labelKey, tone] = VERDICT_LABELS[reply.verdict] ?? ['verdict.fallback', 'accepted']
+      const group = document.createElement('div')
+      group.className = `sa-reply-item sa-tone-${tone}`
+      group.setAttribute('data-sa-batch-at', String(Number.isFinite(reply.at) ? reply.at : 0))
+      group.setAttribute('data-sa-reply-index', String(reply.index))
+
+      const cardHead = document.createElement('div')
+      cardHead.className = 'sa-reply-head'
+      const index = document.createElement('span')
+      index.className = 'sa-reply-index'
+      index.textContent = t('reply.index', { n: reply.index })
+      const verdict = document.createElement('span')
+      verdict.className = `sa-a-verdict sa-reply-${tone}`
+      verdict.textContent = t(labelKey)
+      cardHead.append(index, verdict)
+      group.appendChild(cardHead)
+
+      const content = document.createElement('div')
+      content.className = 'sa-reply-body'
+
+      if (item !== undefined) {
+        const q = document.createElement('div')
+        q.className = 'sa-q'
+        const quoteText = typeof item.quote === 'string' ? item.quote.trim() : ''
+        if (quoteText !== '') {
+          const qLabel = document.createElement('div')
+          qLabel.className = 'sa-q-label'
+          qLabel.textContent = t('label.quote')
+          q.appendChild(qLabel)
+          const quote = document.createElement('div')
+          quote.className = 'sa-q-quote'
+          quote.setAttribute('data-sa-field', 'quote')
+          quote.textContent = quoteText
+          quote.title = t('expand')
+          // 超过三行时折叠；点一下展开，再点收回。
+          quote.addEventListener('click', () => {
+            quote.className = quote.className.includes('sa-q-open') ? 'sa-q-quote' : 'sa-q-quote sa-q-open'
+          })
+          q.appendChild(quote)
+        }
+        if (typeof item.note === 'string' && item.note.trim() !== '') {
+          const noteLabel = document.createElement('div')
+          noteLabel.className = 'sa-q-label'
+          noteLabel.textContent = t('label.note')
+          q.appendChild(noteLabel)
+          const note = document.createElement('div')
+          note.className = 'sa-q-note'
+          note.setAttribute('data-sa-field', 'note')
+          note.textContent = item.note
+          q.appendChild(note)
+        }
+        content.appendChild(q)
+      }
+
+      const a = document.createElement('div')
+      a.className = 'sa-a'
+      const aHead = document.createElement('div')
+      aHead.className = 'sa-a-head'
+      const aLabel = document.createElement('span')
+      aLabel.className = 'sa-a-label'
+      aLabel.textContent = item !== undefined ? t('label.answer') : t('reply.fallbackLabel', { n: reply.index })
+      aHead.appendChild(aLabel)
+      a.appendChild(aHead)
+      const reason = document.createElement('div')
+      reason.className = 'sa-a-reason'
+      reason.setAttribute('data-sa-field', 'reason')
+      reason.textContent = typeof reply.reason === 'string' ? reply.reason : ''
+      a.appendChild(reason)
+      if (typeof reply.next === 'string' && reply.next.trim() !== '') {
+        const next = document.createElement('div')
+        next.className = 'sa-a-next'
+        next.setAttribute('data-sa-field', 'next')
+        next.textContent = t('next.prefix', { text: reply.next })
+        a.appendChild(next)
+      }
+      content.appendChild(a)
+      group.appendChild(content)
+      body.appendChild(group)
+    }
+    const wrap = collapsible(body, true)
+    applyCollapsed(head, wrap, true)
+    card.dataset.open = '1'
+    head.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      applyCollapsed(head, wrap, wrap.dataset.open !== '1')
+      card.dataset.open = wrap.dataset.open
+    })
+    card.append(wrap)
+    return card
+  }
+
+  return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection }
 }
