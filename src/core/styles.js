@@ -64,6 +64,8 @@ export const CSS = `
   font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: var(--dsw-alias-label-tertiary, GrayText);
   user-select: text; white-space: nowrap; }
 .sa-panel-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; max-width: 66%; margin-left: auto; }
+.sa-panel-foot { flex: none; display: flex; justify-content: flex-end; padding: 8px 14px 10px;
+  border-top: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-panel-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
   color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-panel-count { padding: 2px 7px; border-radius: 999px; font-size: 11px; font-variant-numeric: tabular-nums;
@@ -226,6 +228,22 @@ export const CSS = `
   font-size: 12.5px; color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-note { margin-top: 4px; font-size: 14px; line-height: 1.6; color: var(--dsw-alias-label-primary, CanvasText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.sa-sent-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; cursor: zoom-in;
-  border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
+/* 三处区域的文字亮度：除「答复」正文（.sa-a-reason）外统一压到 80%。
+   用 color-mix 与黑色混合，亮度按比例下降；正文保持原色，作为唯一的第一层。*/
+.sa-panel, .sa-sent, .sa-replies {
+  --sa-dim-primary: color-mix(in srgb, var(--dsw-alias-label-primary, CanvasText) 80%, #000);
+  --sa-dim-secondary: color-mix(in srgb, var(--dsw-alias-label-secondary, GrayText) 80%, #000);
+  --sa-dim-tertiary: color-mix(in srgb, var(--dsw-alias-label-tertiary, GrayText) 80%, #000);
+  --sa-dim-brand: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 80%, #000);
+}
+.sa-panel, .sa-panel-title, .sa-item-note, .sa-sent-note, .sa-q-note, .sa-section-head, .sa-replies-head,
+.sa-item-action:hover, .sa-drag-handle:hover { color: var(--sa-dim-primary); }
+.sa-panel-count, .sa-panel-empty, .sa-item-src, .sa-item-action, .sa-item-label, .sa-item-quote,
+.sa-foot-action, .sa-hint, .sa-section-meta, .sa-reply-index, .sa-q-quote, .sa-a-next, .sa-sent-quote { color: var(--sa-dim-secondary); }
+.sa-build, .sa-panel-hint, .sa-drag-handle, .sa-q-label, .sa-a-label { color: var(--sa-dim-tertiary); }
+.sa-item-num, .sa-sent-num { color: var(--sa-dim-brand); }
+.sa-reply-accepted { color: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3fb950) 80%, #000); }
+.sa-reply-partial { color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #d29922) 80%, #000); }
+.sa-reply-rejected { color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #f85149) 80%, #000); }
+.sa-reply-needs_info { color: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 80%, #000); }
 `

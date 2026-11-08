@@ -76,8 +76,8 @@ export function createCards({ t, openImageViewer }) {
     const head = buildSectionHead(t('sent.title', { n: record.items.length }))
     const body = document.createElement('div')
     body.className = 'sa-sent-body'
-    const wrap = collapsible(body, false)
-    applyCollapsed(head, wrap, false)
+    const wrap = collapsible(body, true)
+    applyCollapsed(head, wrap, true)
     for (const item of record.items) {
       const line = document.createElement('div')
       line.className = 'sa-sent-item'

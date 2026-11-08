@@ -2,8 +2,8 @@ import { el, button } from './util.js'
 import { PLUGIN_BUILD } from './config.js'
 
 /**
- * 批注总览面板：固定头（标题、构建号、说明、条数、清空）、可在其中拖拽排序的列表、
- * 图片与指令设置区。所有批注数据通过 getAnnotations() 读取，不持有引用。
+ * 批注总览面板：固定头（标题、说明、条数、清空）、可在其中拖拽排序的列表、
+ * 图片与指令设置区、末尾一行的构建号。所有批注数据通过 getAnnotations() 读取，不持有引用。
  */
 export function createPanelRenderer({
   t,
@@ -23,9 +23,6 @@ export function createPanelRenderer({
 
     const panelHead = el('div', 'sa-panel-head')
     panelHead.appendChild(el('span', 'sa-panel-title', t('panel.title')))
-    const build = el('span', 'sa-build', `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`)
-    build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`
-    panelHead.appendChild(build)
     const meta = el('div', 'sa-panel-meta')
     const hint = el('span', 'sa-panel-hint', t('panel.foot'))
     hint.title = t('panel.foot')
@@ -135,6 +132,12 @@ export function createPanelRenderer({
     panelBody.appendChild(imageSettingsRow())
     panelBody.appendChild(instructionSettingsRow())
     panelEl.appendChild(panelBody)
+
+    const panelFoot = el('div', 'sa-panel-foot')
+    const build = el('span', 'sa-build', `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`)
+    build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`
+    panelFoot.appendChild(build)
+    panelEl.appendChild(panelFoot)
   }
 
   return { render }

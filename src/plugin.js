@@ -96,7 +96,6 @@ export function createPlugin(React) {
         let syncTimer = null
         let repaintTimer = null
         let settleTimer = null
-        let avoidTimer = 0
         let pendingSelection = null
         /** 由槽位标准 props 注入的 composer 动作与当前会话 id —— 比自行解析 scope 更稳。 */
         let latestInputActions = undefined
@@ -834,8 +833,15 @@ export function createPlugin(React) {
             card.setAttribute('data-sa-key', storedKey)
             card.setAttribute('data-anchor', anchorKey)
             // 位置固定在轮次尾行之前；与消息在折叠组里、是否懒加载无关。
+            // 已经在位就不要重复 insertBefore：把节点反复摘下再插回会打断正在进行的点击，
+            // 表现为「偶尔点一下没反应，要多点几次才收展」。
             if (footer !== null) {
-              if (footer.parentElement !== null) footer.parentElement.insertBefore(card, footer)
+              if (
+                footer.parentElement !== null &&
+                (card.parentElement !== footer.parentElement || card.nextSibling !== footer)
+              ) {
+                footer.parentElement.insertBefore(card, footer)
+              }
               continue
             }
             const target = sentCardAnchor(row)
@@ -995,7 +1001,6 @@ export function createPlugin(React) {
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling)
             placeReplyAfterTurnProcess(section, turn)
           }
-          syncReplyCollapse()
         }
 
         /* ------------------------------------------------------- 原生附件块（随消息发送） */
@@ -1447,20 +1452,14 @@ export function createPlugin(React) {
           element.style.top = `${Math.max(8, top)}px`
         }
 
-        /** DSH 0.2.2 自带的「引用文本」浮层：把批注按钮让到它上方，避免互相遮挡。*/
-        function placeAvoidingTextInteraction(element) {
-          const surface = document.querySelector('[data-text-interaction-surface]')
-          if (surface === null || surface.getAttribute('aria-hidden') === 'true') return false
-          const rect = safe(() => surface.getBoundingClientRect())
-          if (rect === undefined || rect.width < 2 || rect.height < 2) return false
+        /** 工具条放在选区下方，与选区上方固定的「引用文本」按钮上下错开。*/
+        function placeToolbar(element, rect) {
           const width = element.offsetWidth || 80
           const height = element.offsetHeight || 32
           const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8))
-          const above = rect.top - height - 8
-          const top = above >= 8 ? above : Math.min(rect.bottom + 8, window.innerHeight - height - 8)
+          const top = Math.min(rect.bottom + 8, window.innerHeight - height - 8)
           element.style.left = `${left}px`
           element.style.top = `${Math.max(8, top)}px`
-          return true
         }
 
         function onSelectionChange() {
@@ -1479,14 +1478,7 @@ export function createPlugin(React) {
             }
             pendingSelection = selection
             toolbar.dataset.open = '1'
-            placeAt(toolbar, rect, 8)
-            placeAvoidingTextInteraction(toolbar)
-            // DSH 的引用浮层可能比我们晚一步挂上，再对齐一次。
-            window.clearTimeout(avoidTimer)
-            avoidTimer = window.setTimeout(() => {
-              avoidTimer = 0
-              if (toolbar.dataset.open === '1') placeAvoidingTextInteraction(toolbar)
-            }, 140)
+            placeToolbar(toolbar, rect)
           }, SETTLE_MS)
         }
 
@@ -2008,8 +2000,6 @@ export function createPlugin(React) {
         /** 面板尺寸变化时（例如手动拖高设置输入框）重新贴底。*/
         let panelRaf = 0
         let panelObserver = null
-        /** 「已完成」收展状态变化后，把答复卡同步收展。*/
-        let turnSyncRaf = 0
         // 输入框被手动拖高、或内容增减导致面板尺寸变化时，重新计算位置让底边不动。
         if (typeof ResizeObserver === 'function') {
           panelObserver = new ResizeObserver(() => {
@@ -2397,29 +2387,18 @@ export function createPlugin(React) {
           }
         })
 
+        // 只跟随用户点「已完成」这一次操作，不监听 aria-expanded 的程序性变化：
+        // 否则 DSH 自己在轮到结束时收起过程块，会把默认展开的答复区一起收掉。
         ctx.effect(() => {
-          const observer = new MutationObserver((records) => {
-            let touched = null
-            for (const record of records) {
-              const element = elementOf(record.target)
-              if (element !== null && element.getAttribute('data-turn-process') !== null) {
-                touched = element
-                break
-              }
-            }
-            if (touched === null || turnSyncRaf !== 0) return
-            turnSyncRaf = window.requestAnimationFrame(() => {
-              turnSyncRaf = 0
-              syncReplyCollapse(touched)
-            })
-          })
-          observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-expanded', 'data-open'] })
+          const onTurnProcessClick = (event) => {
+            const target = elementOf(event.target)
+            const button = target === null ? null : target.closest('[data-turn-process]')
+            if (button === null) return
+            window.requestAnimationFrame(() => syncReplyCollapse(button))
+          }
+          document.addEventListener('click', onTurnProcessClick, true)
           return () => {
-            observer.disconnect()
-            if (turnSyncRaf !== 0) {
-              window.cancelAnimationFrame(turnSyncRaf)
-              turnSyncRaf = 0
-            }
+            document.removeEventListener('click', onTurnProcessClick, true)
           }
         })
 
@@ -2553,7 +2532,7 @@ export function createPlugin(React) {
           clear: clearAnnotations,
           update: (id, note) => updateAnnotation(id, note),
           add: (input) => addAnnotation(input),
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow },
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar },
         }
     },
   }

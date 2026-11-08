@@ -9,7 +9,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const SOURCE = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+const SOURCE = readFileSync(process.env.CLIENT_FILE ?? new URL('../client.js', import.meta.url), 'utf8')
 
 /** 测试用的「源文件」：第 3 行有引文，且引文外面包着 Markdown 强调标记。 */
 const SOURCE_TEXT = [
@@ -1391,8 +1391,8 @@ test('已发送区与答复区共用同一套收展头、箭头与开合容器',
   const sent = buildSentCard({ items: [{ index: 1, quote: '原文', note: '批注' }] }, '3:user')
   const sentHead = sent.querySelector('.sa-section-head')
   assert.equal(sentHead.tagName, 'BUTTON', '已发送区也是整行按钮，不再是胶囊')
-  assert.equal(sentHead.getAttribute('aria-expanded'), 'false', '已发送区默认收起')
-  assert.equal(sent.querySelector('.sa-collapse').dataset.open, '0')
+  assert.equal(sentHead.getAttribute('aria-expanded'), 'true', '已发送区默认展开')
+  assert.equal(sent.querySelector('.sa-collapse').dataset.open, '1')
   assert.equal(sentHead.querySelector('.sa-section-chevron').tagName, 'SVG')
 
   const replies = buildReplySection([{ at: 1, replies: [{ index: 1, verdict: 'accepted', reason: '已改' }] }])
@@ -1551,6 +1551,28 @@ test('正文选区上右键：接管系统菜单，弹出「批注 / 复制」',
     ['批注选中文字', '复制'],
   )
   assert.equal(menu.style.left, '120px', '菜单贴着右键位置出现')
+})
+
+test('工具条放在选区下方，与上方的原生「引用文本」按钮错开', (t) => {
+  const harness = makeHarness()
+  const internals = harness.debug._internals
+  if (typeof internals.placeToolbar !== 'function') {
+    t.skip('旧构建没有这个内部函数')
+    return
+  }
+  const toolbar = harness.env.document.body.querySelector('.sa-toolbar')
+  assert.ok(toolbar !== null, '工具条要挂在 body 上')
+  toolbar.offsetWidth = 80
+  toolbar.offsetHeight = 30
+
+  const rect = { left: 600, top: 400, right: 700, bottom: 420, width: 100, height: 20 }
+  internals.placeToolbar(toolbar, rect)
+  assert.equal(toolbar.style.left, '610px', '水平居中在选区')
+  assert.equal(toolbar.style.top, '428px', '落在选区下方 8px（420 + 8）')
+
+  // 贴到视口底部时仍留在下方，只做边界收拢，不翻回上方去压原生按钮。
+  internals.placeToolbar(toolbar, { left: 600, top: 740, right: 700, bottom: 760, width: 100, height: 20 })
+  assert.equal(toolbar.style.top, '762px', '收拢到视口内（800 - 30 - 8）')
 })
 
 test('没有选区时右键：不接管，系统菜单原样出现', () => {

@@ -66,6 +66,8 @@
   font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: var(--dsw-alias-label-tertiary, GrayText);
   user-select: text; white-space: nowrap; }
 .sa-panel-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; max-width: 66%; margin-left: auto; }
+.sa-panel-foot { flex: none; display: flex; justify-content: flex-end; padding: 8px 14px 10px;
+  border-top: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-panel-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
   color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-panel-count { padding: 2px 7px; border-radius: 999px; font-size: 11px; font-variant-numeric: tabular-nums;
@@ -228,8 +230,24 @@
   font-size: 12.5px; color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-note { margin-top: 4px; font-size: 14px; line-height: 1.6; color: var(--dsw-alias-label-primary, CanvasText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.sa-sent-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; cursor: zoom-in;
-  border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
+/* 三处区域的文字亮度：除「答复」正文（.sa-a-reason）外统一压到 80%。
+   用 color-mix 与黑色混合，亮度按比例下降；正文保持原色，作为唯一的第一层。*/
+.sa-panel, .sa-sent, .sa-replies {
+  --sa-dim-primary: color-mix(in srgb, var(--dsw-alias-label-primary, CanvasText) 80%, #000);
+  --sa-dim-secondary: color-mix(in srgb, var(--dsw-alias-label-secondary, GrayText) 80%, #000);
+  --sa-dim-tertiary: color-mix(in srgb, var(--dsw-alias-label-tertiary, GrayText) 80%, #000);
+  --sa-dim-brand: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 80%, #000);
+}
+.sa-panel, .sa-panel-title, .sa-item-note, .sa-sent-note, .sa-q-note, .sa-section-head, .sa-replies-head,
+.sa-item-action:hover, .sa-drag-handle:hover { color: var(--sa-dim-primary); }
+.sa-panel-count, .sa-panel-empty, .sa-item-src, .sa-item-action, .sa-item-label, .sa-item-quote,
+.sa-foot-action, .sa-hint, .sa-section-meta, .sa-reply-index, .sa-q-quote, .sa-a-next, .sa-sent-quote { color: var(--sa-dim-secondary); }
+.sa-build, .sa-panel-hint, .sa-drag-handle, .sa-q-label, .sa-a-label { color: var(--sa-dim-tertiary); }
+.sa-item-num, .sa-sent-num { color: var(--sa-dim-brand); }
+.sa-reply-accepted { color: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3fb950) 80%, #000); }
+.sa-reply-partial { color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #d29922) 80%, #000); }
+.sa-reply-rejected { color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #f85149) 80%, #000); }
+.sa-reply-needs_info { color: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 80%, #000); }
 `;
 
   // src/core/config.js
@@ -1244,8 +1262,8 @@
       const head = buildSectionHead(t("sent.title", { n: record.items.length }));
       const body = document.createElement("div");
       body.className = "sa-sent-body";
-      const wrap = collapsible(body, false);
-      applyCollapsed(head, wrap, false);
+      const wrap = collapsible(body, true);
+      applyCollapsed(head, wrap, true);
       for (const item of record.items) {
         const line = document.createElement("div");
         line.className = "sa-sent-item";
@@ -1429,9 +1447,6 @@
       panelEl.textContent = "";
       const panelHead = el("div", "sa-panel-head");
       panelHead.appendChild(el("span", "sa-panel-title", t("panel.title")));
-      const build = el("span", "sa-build", `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`);
-      build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`;
-      panelHead.appendChild(build);
       const meta = el("div", "sa-panel-meta");
       const hint = el("span", "sa-panel-hint", t("panel.foot"));
       hint.title = t("panel.foot");
@@ -1538,6 +1553,11 @@
       panelBody.appendChild(imageSettingsRow());
       panelBody.appendChild(instructionSettingsRow());
       panelEl.appendChild(panelBody);
+      const panelFoot = el("div", "sa-panel-foot");
+      const build = el("span", "sa-build", `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`);
+      build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`;
+      panelFoot.appendChild(build);
+      panelEl.appendChild(panelFoot);
     }
     return { render };
   }
@@ -1905,7 +1925,6 @@
         let syncTimer = null;
         let repaintTimer = null;
         let settleTimer = null;
-        let avoidTimer = 0;
         let pendingSelection = null;
         let latestInputActions = void 0;
         let latestSessionId = void 0;
@@ -2475,7 +2494,9 @@
             card.setAttribute("data-sa-key", storedKey);
             card.setAttribute("data-anchor", anchorKey);
             if (footer !== null) {
-              if (footer.parentElement !== null) footer.parentElement.insertBefore(card, footer);
+              if (footer.parentElement !== null && (card.parentElement !== footer.parentElement || card.nextSibling !== footer)) {
+                footer.parentElement.insertBefore(card, footer);
+              }
               continue;
             }
             const target = sentCardAnchor(row);
@@ -2617,7 +2638,6 @@
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling);
             placeReplyAfterTurnProcess(section, turn);
           }
-          syncReplyCollapse();
         }
         const payloadApi = createPayload({ t, instructionOf });
         const describeSource = (source) => payloadApi.describeSource(source);
@@ -2981,19 +3001,13 @@
           element.style.left = `${left}px`;
           element.style.top = `${Math.max(8, top)}px`;
         }
-        function placeAvoidingTextInteraction(element) {
-          const surface = document.querySelector("[data-text-interaction-surface]");
-          if (surface === null || surface.getAttribute("aria-hidden") === "true") return false;
-          const rect = safe(() => surface.getBoundingClientRect());
-          if (rect === void 0 || rect.width < 2 || rect.height < 2) return false;
+        function placeToolbar(element, rect) {
           const width = element.offsetWidth || 80;
           const height = element.offsetHeight || 32;
           const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8));
-          const above = rect.top - height - 8;
-          const top = above >= 8 ? above : Math.min(rect.bottom + 8, window.innerHeight - height - 8);
+          const top = Math.min(rect.bottom + 8, window.innerHeight - height - 8);
           element.style.left = `${left}px`;
           element.style.top = `${Math.max(8, top)}px`;
-          return true;
         }
         function onSelectionChange() {
           window.clearTimeout(settleTimer);
@@ -3011,13 +3025,7 @@
             }
             pendingSelection = selection;
             toolbar.dataset.open = "1";
-            placeAt(toolbar, rect, 8);
-            placeAvoidingTextInteraction(toolbar);
-            window.clearTimeout(avoidTimer);
-            avoidTimer = window.setTimeout(() => {
-              avoidTimer = 0;
-              if (toolbar.dataset.open === "1") placeAvoidingTextInteraction(toolbar);
-            }, 140);
+            placeToolbar(toolbar, rect);
           }, SETTLE_MS);
         }
         let popoverMode = "create";
@@ -3460,7 +3468,6 @@
         });
         let panelRaf = 0;
         let panelObserver = null;
-        let turnSyncRaf = 0;
         if (typeof ResizeObserver === "function") {
           panelObserver = new ResizeObserver(() => {
             if (!panelOpen || panelRaf !== 0) return;
@@ -3797,28 +3804,15 @@
           };
         });
         ctx.effect(() => {
-          const observer = new MutationObserver((records) => {
-            let touched = null;
-            for (const record of records) {
-              const element = elementOf2(record.target);
-              if (element !== null && element.getAttribute("data-turn-process") !== null) {
-                touched = element;
-                break;
-              }
-            }
-            if (touched === null || turnSyncRaf !== 0) return;
-            turnSyncRaf = window.requestAnimationFrame(() => {
-              turnSyncRaf = 0;
-              syncReplyCollapse(touched);
-            });
-          });
-          observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ["aria-expanded", "data-open"] });
+          const onTurnProcessClick = (event) => {
+            const target = elementOf2(event.target);
+            const button3 = target === null ? null : target.closest("[data-turn-process]");
+            if (button3 === null) return;
+            window.requestAnimationFrame(() => syncReplyCollapse(button3));
+          };
+          document.addEventListener("click", onTurnProcessClick, true);
           return () => {
-            observer.disconnect();
-            if (turnSyncRaf !== 0) {
-              window.cancelAnimationFrame(turnSyncRaf);
-              turnSyncRaf = 0;
-            }
+            document.removeEventListener("click", onTurnProcessClick, true);
           };
         });
         ctx.slots.inject(
@@ -3944,7 +3938,7 @@
           clear: clearAnnotations,
           update: (id, note) => updateAnnotation(id, note),
           add: (input) => addAnnotation(input),
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow }
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar }
         };
       }
     };
