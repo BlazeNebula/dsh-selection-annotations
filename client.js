@@ -238,7 +238,7 @@
   --sa-dim-tertiary: color-mix(in srgb, var(--dsw-alias-label-tertiary, GrayText) 80%, #000);
   --sa-dim-brand: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 80%, #000);
 }
-.sa-panel, .sa-panel-title, .sa-item-note, .sa-sent-note, .sa-q-note, .sa-section-head, .sa-replies-head,
+.sa-panel, .sa-panel-title, .sa-section-head, .sa-replies-head,
 .sa-item-action:hover, .sa-drag-handle:hover { color: var(--sa-dim-primary); }
 .sa-panel-count, .sa-panel-empty, .sa-item-src, .sa-item-action, .sa-item-label, .sa-item-quote,
 .sa-foot-action, .sa-hint, .sa-section-meta, .sa-reply-index, .sa-q-quote, .sa-a-next, .sa-sent-quote { color: var(--sa-dim-secondary); }
