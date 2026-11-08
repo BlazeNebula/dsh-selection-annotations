@@ -483,7 +483,15 @@ export function createPlugin(React) {
           }
           const root = anchorRoot(item.source)
           if (root === null || root === undefined) return undefined
-          const range = matchInRoot(root, item.quote, item.source.charStart)
+          // 精修后 source 里的 charStart/charEnd 是原文坐标，不能拿来在渲染后的正文里比远近。
+          // 页面定位只认保存的渲染坐标；没有就交给 quote 自己找（重复片段取第一处）。
+          const savedOffset =
+            item.source.textOrigin === 'source'
+              ? Number.isFinite(item.source.renderedCharStart)
+                ? item.source.renderedCharStart
+                : undefined
+              : item.source.charStart
+          const range = matchInRoot(root, item.quote, savedOffset)
           if (range !== undefined) item.liveRange = range
           return range
         }
@@ -1706,7 +1714,13 @@ export function createPlugin(React) {
             annotations = annotations.map((item) => {
               if (item.id !== id) return item
               hit = true
-              return { ...item, source: { ...item.source, ...precise } }
+              // 先留一份渲染坐标给页面高亮用：精修后 charStart/charEnd 换成原文坐标，
+              // 再拿它去渲染后的正文里找重复片段会挑错位置。渲染坐标不进负载。
+              const rendered =
+                item.source.textOrigin === 'source' && Number.isFinite(item.source.renderedCharStart)
+                  ? {}
+                  : { renderedCharStart: item.source.charStart, renderedCharEnd: item.source.charEnd }
+              return { ...item, source: { ...item.source, ...rendered, ...precise } }
             })
             if (!hit) return
             emit()
@@ -2532,7 +2546,7 @@ export function createPlugin(React) {
           clear: clearAnnotations,
           update: (id, note) => updateAnnotation(id, note),
           add: (input) => addAnnotation(input),
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar },
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar },
         }
     },
   }

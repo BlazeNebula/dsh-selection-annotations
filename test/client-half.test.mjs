@@ -1033,6 +1033,39 @@ test('位置精修只补位置：原文与批注文字不变，负载随之更�
   const after = await payloadOf(harness.uploads[harness.uploads.length - 1])
   assert.equal(after.annotations[0].source.textOrigin, 'source', '精修后的负载要跟着更新')
   assert.equal(after.annotations[0].source.lineStart, 3)
+  assert.equal(item.source.renderedCharStart, 1, '页面定位用的渲染坐标要留下')
+  assert.equal(item.source.renderedCharEnd, 7)
+  assert.equal('renderedCharStart' in after.annotations[0].source, false, '渲染坐标不进负载')
+})
+
+test('页面高亮用渲染坐标：精修成原文坐标后仍挑对重复片段', () => {
+  const harness = makeHarness()
+  const root = harness.env.element('div', { 'data-code-preview': '' }, [
+    harness.env.node('foo bar foo baz foo'),
+  ])
+  harness.env.document.body.appendChild(root)
+  harness.env.setRangeRoot(root)
+  const { locateRange } = harness.debug._internals
+
+  const second = locateRange({
+    quote: 'foo',
+    source: {
+      kind: 'file',
+      path: 'a.md',
+      textOrigin: 'source',
+      charStart: 0,
+      charEnd: 3,
+      renderedCharStart: 8,
+      renderedCharEnd: 11,
+    },
+  })
+  assert.equal(second.startOffset, 8, '按保存时的渲染偏移挑第二处')
+
+  const fallback = locateRange({
+    quote: 'foo',
+    source: { kind: 'file', path: 'a.md', textOrigin: 'source', charStart: 0, charEnd: 3 },
+  })
+  assert.equal(fallback.startOffset, 0, '没有渲染坐标时退回第一处，不拿原文偏移硬比')
 })
 
 test('读不到源文件时安静退回渲染坐标', async () => {

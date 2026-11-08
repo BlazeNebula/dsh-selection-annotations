@@ -261,51 +261,38 @@
   var DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100 };
   var INSTRUCTION_SETTINGS_KEY = "dsh-selection-annotations:instruction-settings";
   var DEFAULT_INSTRUCTION = [
-    "这是用户发来的批注数据块。它与用户消息正文相互独立：用户可能同时发了正文，",
-    "也可能只发了这个批注块（此时它就是本条消息的全部内容）。annotations[].quote 是用户选中的原文；",
-    "annotations[].source 给出它的位置：",
-    "工作区文件用 path + lineStart/lineEnd（1 基行号）+ charStart/charEnd；",
-    "对话消息用 role + anchorKey + charStart/charEnd；",
-    "逐条答复区域用 kind + batchAt + index + field + charStart/charEnd：",
-    'kind 为 "reply"，batchAt 是该批答复的时间戳，index 是这条答复对应的批注编号，',
-    "field 取 quote / note / reason / next（跨字段时为 item），charStart/charEnd 是字段渲染文本的字符偏移。",
-    "已发送批注区域用 kind + anchorKey + index + field + charStart/charEnd：",
-    'kind 为 "sent"，anchorKey 是该卡片所属消息的锚点键，index 是已发送批注的编号，field 取 quote / note（跨字段为 item）。',
-    "charStart/charEnd 是半开区间 [charStart, charEnd)，",
-    '口径由 source.textOrigin 指明："source" = 文件原文的字符偏移，',
-    '"rendered" = 该锚点元素渲染后正文的字符偏移。工作区文件但凡能读到原文就给 "source"；',
-    '拿不到原文（或引文跨了 Markdown 标记）时退回 "rendered"。',
-    "annotations[].images 是该条批注附带的图片，order 是图片在本条消息图片附件中的 1 基顺序，",
-    "请把 order 与消息里图片的出现顺序对照。处理完这批批注后，",
-    "必须调用 annotation_replies 工具提交逐条答复，不要在正文里重复逐条内容：",
-    "replies 里每一项对应一条批注，index 与 annotations[].index 一致，",
-    "verdict 取 accepted / partial / rejected / needs_info，",
-    "reason 写理由，next 写下一步。正文只用来说明整体改动或提出需要澄清的问题。"
+    "这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n",
+    "\n",
+    "## 怎么读\n",
+    "- `quote`：用户选中的原文。\n",
+    "- `source`：位置。工作区文件用 `path` + `lineStart/lineEnd`（1 基行号）+ `charStart/charEnd`；对话消息用 `role` + `anchorKey` + `charStart/charEnd`。\n",
+    '- `kind: "reply"`（逐条答复区域）：`batchAt` 是批次时间戳，`index` 是批注编号，`field` 取 `quote` / `note` / `reason` / `next`（跨字段为 `item`）。\n',
+    '- `kind: "sent"`（已发送批注区域）：`anchorKey` 是卡片所属消息，`index` 是批注编号，`field` 取 `quote` / `note`（跨字段为 `item`）。\n',
+    '- `charStart/charEnd`：半开区间。`textOrigin: "source"` 指文件原文偏移，`"rendered"` 指渲染文本偏移；能读原文时优先 source。\n',
+    "- `images`：该条批注的图片，`order` 是它在消息图片附件里的 1 基顺序。\n",
+    "\n",
+    "## 怎么答\n",
+    "- 处理完必须调用 `annotation_replies` 工具，不要在正文里逐条重复。\n",
+    "- 每条批注对应 replies 里的一项，`index` 与批注编号一致。\n",
+    "- `verdict` 取 `accepted` / `partial` / `rejected` / `needs_info`；`reason` 写理由，`next` 写下一步。\n",
+    "- 正文只写整体说明或需要澄清的问题。"
   ].join("");
   var DEFAULT_INSTRUCTION_EN = [
-    "This is an annotation payload sent by the user. It is independent of the user message body: ",
-    "the user may have sent a body as well, or only this payload (in which case it is the entire message). ",
-    "annotations[].quote is the text the user selected; annotations[].source gives its position: ",
-    "workspace files use path + lineStart/lineEnd (1-based lines) + charStart/charEnd; ",
-    "chat messages use role + anchorKey + charStart/charEnd; ",
-    "the reply area uses kind + batchAt + index + field + charStart/charEnd: ",
-    'kind is "reply", batchAt is the batch timestamp, index is the annotation number the reply belongs to, ',
-    "field is quote / note / reason / next (item when the selection spans fields), and charStart/charEnd ",
-    "are character offsets into the field's rendered text. ",
-    "The sent-annotations area uses kind + anchorKey + index + field + charStart/charEnd: ",
-    'kind is "sent", anchorKey is the message anchor of that card, index is the sent annotation number, ',
-    "field is quote / note (item across fields). ",
-    "charStart/charEnd is the half-open range [charStart, charEnd); ",
-    'source.textOrigin tells you the basis: "source" means character offsets in the original file, ',
-    '"rendered" means offsets in the rendered text of the anchored element. ',
-    'Use "source" whenever the workspace file text can be read; fall back to "rendered" when it cannot ',
-    "(or when the quote crosses Markdown markers). ",
-    "annotations[].images lists images attached to that annotation; order is the 1-based position ",
-    "of the image among this message's image attachments—match order against how images appear in the message. ",
-    "After handling this batch you must call the annotation_replies tool to submit per-annotation replies ",
-    "instead of repeating them in the body: each entry in replies matches one annotation, index matches ",
-    "annotations[].index, verdict is accepted / partial / rejected / needs_info, reason explains it, ",
-    "and next states the next step. Use the body only for an overall summary or clarifying questions."
+    "This is an annotation payload sent by the user. It is independent of the user message body, which may or may not be present.\n",
+    "\n",
+    "## How to read it\n",
+    "- `quote`: the text the user selected.\n",
+    "- `source`: the position. Workspace files use `path` + `lineStart/lineEnd` (1-based lines) + `charStart/charEnd`; chat messages use `role` + `anchorKey` + `charStart/charEnd`.\n",
+    '- `kind: "reply"` (per-answer area): `batchAt` is the batch timestamp, `index` is the annotation number, `field` is `quote` / `note` / `reason` / `next` (`item` when the selection spans fields).\n',
+    '- `kind: "sent"` (sent-annotations area): `anchorKey` is the message the card belongs to, `index` is the annotation number, `field` is `quote` / `note` (`item` across fields).\n',
+    '- `charStart/charEnd`: a half-open range. `textOrigin: "source"` means offsets in the original file text, `"rendered"` means offsets in the rendered text; prefer source when the file can be read.\n',
+    "- `images`: images attached to that annotation; `order` is the 1-based position among this message's image attachments.\n",
+    "\n",
+    "## How to answer\n",
+    "- When done, you must call the `annotation_replies` tool instead of repeating replies in the body.\n",
+    "- Each annotation maps to one entry in replies; `index` matches the annotation number.\n",
+    "- `verdict` is `accepted` / `partial` / `rejected` / `needs_info`; `reason` explains it, `next` states the next step.\n",
+    "- Use the body only for an overall summary or clarifying questions."
   ].join("");
   var LOCALE_NS = "selection-annotations";
   var PLUGIN_BUILD = "1.3.0+10";
@@ -2217,7 +2204,8 @@
           }
           const root = anchorRoot(item.source);
           if (root === null || root === void 0) return void 0;
-          const range = matchInRoot(root, item.quote, item.source.charStart);
+          const savedOffset = item.source.textOrigin === "source" ? Number.isFinite(item.source.renderedCharStart) ? item.source.renderedCharStart : void 0 : item.source.charStart;
+          const range = matchInRoot(root, item.quote, savedOffset);
           if (range !== void 0) item.liveRange = range;
           return range;
         }
@@ -3212,7 +3200,8 @@
             annotations = annotations.map((item) => {
               if (item.id !== id) return item;
               hit = true;
-              return { ...item, source: { ...item.source, ...precise } };
+              const rendered = item.source.textOrigin === "source" && Number.isFinite(item.source.renderedCharStart) ? {} : { renderedCharStart: item.source.charStart, renderedCharEnd: item.source.charEnd };
+              return { ...item, source: { ...item.source, ...rendered, ...precise } };
             });
             if (!hit) return;
             emit();
@@ -3938,7 +3927,7 @@
           clear: clearAnnotations,
           update: (id, note) => updateAnnotation(id, note),
           add: (input) => addAnnotation(input),
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar }
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar }
         };
       }
     };
