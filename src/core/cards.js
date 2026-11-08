@@ -136,6 +136,8 @@ export function createCards({ t, openImageViewer, markdown, onJump }) {
         }
         if (gallery.childNodes.length > 0) text.appendChild(gallery)
       }
+      const itemAnchor = jumpAnchorOf(item)
+      if (itemAnchor !== '') text.appendChild(jumpRow(itemAnchor))
       line.append(num, text)
       body.appendChild(line)
     }
@@ -144,8 +146,14 @@ export function createCards({ t, openImageViewer, markdown, onJump }) {
       event.stopPropagation()
       applyCollapsed(head, wrap, wrap.dataset.open !== '1')
     })
-    card.append(head, jumpRow(anchorKey), wrap)
+    card.append(head, wrap)
     return card
+  }
+
+  function jumpAnchorOf(item) {
+    return item !== undefined && item?.source?.kind === 'message' && typeof item?.source?.anchorKey === 'string'
+      ? item.source.anchorKey
+      : ''
   }
 
   function buildReplySection(batches, items = [], anchorKey) {
@@ -169,7 +177,6 @@ export function createCards({ t, openImageViewer, markdown, onJump }) {
     if (counts.needs_info) parts.push(t('summary.needsInfo', { n: counts.needs_info }))
     const head = buildSectionHead(t('replies.title', { n: replies.length }), parts.join(' · '))
     card.appendChild(head)
-    if (typeof anchorKey === 'string' && anchorKey !== '') card.appendChild(jumpRow(anchorKey))
 
     const body = document.createElement('div')
     body.className = 'sa-replies-body'
@@ -256,6 +263,8 @@ export function createCards({ t, openImageViewer, markdown, onJump }) {
       }
       content.appendChild(a)
       group.appendChild(content)
+      const replyAnchor = jumpAnchorOf(item)
+      if (replyAnchor !== '') group.appendChild(jumpRow(replyAnchor))
       body.appendChild(group)
     }
     const wrap = collapsible(body, true)

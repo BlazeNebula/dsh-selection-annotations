@@ -5,7 +5,11 @@
  * 不影响插件加载。所有挂载出去的 React 根都会在容器离开文档后自动卸掉。
  */
 export function createMarkdown({ h, MarkdownText, createRoot, labels }) {
-  const usable = typeof MarkdownText === 'function' && typeof createRoot === 'function'
+  const usable =
+    MarkdownText !== undefined &&
+    MarkdownText !== null &&
+    (typeof MarkdownText === 'function' || typeof MarkdownText === 'object') &&
+    typeof createRoot === 'function'
   const active = new Map()
   let labelsKey = ''
   let labelsValue = {}
