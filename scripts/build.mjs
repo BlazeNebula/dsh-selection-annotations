@@ -13,7 +13,7 @@ const options = {
   platform: 'browser',
   target: 'chrome120',
   // React 由宿主注入（__ModuleLoader__ 的 factory(require)），不打进产物。
-  external: ['react'],
+  external: ['react', 'react-dom/client', '@deepseek-ai/dsh-client-ui-primitives'],
   charset: 'utf8',
   legalComments: 'none',
   logLevel: 'silent',

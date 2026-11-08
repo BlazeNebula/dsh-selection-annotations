@@ -46,6 +46,7 @@ import { createPayload } from './core/payload.js'
 import { createSourceCapture } from './core/source-capture.js'
 import { createSourceResolver } from './core/source-resolve.js'
 import { createCards } from './core/cards.js'
+import { createMarkdown } from './core/markdown.js'
 import { createPanelRenderer } from './core/panel-render.js'
 import { createSentStore } from './core/sent-store.js'
 import { createRemoteSync } from './core/remote-sync.js'
@@ -72,7 +73,7 @@ import { safe, toBase64, cssEscape, truncateQuote, el, button } from './core/uti
  * 仍在此处：批注状态、会话切换、选区与弹层、总览面板、React 组件。
  * 迁移原则：行为不变，一次一个模块，npm test 全绿后提交。
  */
-export function createPlugin(React) {
+export function createPlugin(React, extras = {}) {
   const h = React.createElement
 
   return {
@@ -676,7 +677,16 @@ export function createPlugin(React) {
           scheduleRepaint()
         }
 
-        const cards = createCards({ t, openImageViewer })
+        const markdown = createMarkdown({
+          h,
+          MarkdownText: extras.MarkdownText,
+          createRoot: extras.createRoot,
+          labels: () => ({
+            code: { copyLabel: t('markdown.copy'), copiedLabel: t('markdown.copied') },
+            footnotes: t('markdown.footnotes'),
+          }),
+        })
+        const cards = createCards({ t, openImageViewer, markdown })
         const sectionChevron = () => cards.sectionChevron()
         const buildSectionHead = (label, meta) => cards.buildSectionHead(label, meta)
         const collapsible = (body, open) => cards.collapsible(body, open)
@@ -2391,6 +2401,7 @@ export function createPlugin(React) {
           })
           observer.observe(document.body, { childList: true, subtree: true, characterData: true })
           return () => {
+            markdown.dispose()
             document.removeEventListener('selectionchange', onSelectionChange)
             document.removeEventListener('contextmenu', onContextMenu, true)
             document.removeEventListener('pointerdown', onMenuPointerDown, true)

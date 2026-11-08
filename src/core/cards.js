@@ -11,7 +11,7 @@ const VERDICT_LABELS = {
 /**
  * 两个区域共用的收展头、矢量箭头与可折展容器，以及已提交批注的卡片。
  */
-export function createCards({ t, openImageViewer }) {
+export function createCards({ t, openImageViewer, markdown }) {
   function sectionChevron() {
     const ns = 'http://www.w3.org/2000/svg'
     const svg = document.createElementNS(ns, 'svg')
@@ -223,7 +223,11 @@ export function createCards({ t, openImageViewer }) {
       const reason = document.createElement('div')
       reason.className = 'sa-a-reason'
       reason.setAttribute('data-sa-field', 'reason')
-      reason.textContent = typeof reply.reason === 'string' ? reply.reason : ''
+      if (markdown !== undefined && typeof markdown.mount === 'function') {
+        markdown.mount(reason, typeof reply.reason === 'string' ? reply.reason : '')
+      } else {
+        reason.textContent = typeof reply.reason === 'string' ? reply.reason : ''
+      }
       a.appendChild(reason)
       if (typeof reply.next === 'string' && reply.next.trim() !== '') {
         const next = document.createElement('div')

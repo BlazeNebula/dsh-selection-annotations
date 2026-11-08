@@ -30,6 +30,7 @@ export const DEFAULT_INSTRUCTION = [
       '- 处理完必须调用 `annotation_replies` 工具，不要在正文里逐条重复。\n',
       '- 每条批注对应 replies 里的一项，`index` 与批注编号一致。\n',
       '- `verdict` 取 `accepted` / `partial` / `rejected` / `needs_info`；`reason` 写理由，`next` 写下一步。\n',
+      '- 答复正文按 Markdown 渲染，优先用要点列表；加粗、行内代码、代码块与表格都可用。\n',
       '- 正文只写整体说明或需要澄清的问题。',
     ].join('')
 
@@ -49,6 +50,7 @@ export const DEFAULT_INSTRUCTION_EN = [
       '- When done, you must call the `annotation_replies` tool instead of repeating replies in the body.\n',
       '- Each annotation maps to one entry in replies; `index` matches the annotation number.\n',
       '- `verdict` is `accepted` / `partial` / `rejected` / `needs_info`; `reason` explains it, `next` states the next step.\n',
+      '- Reply bodies render as Markdown: prefer bullet lists; bold, inline code, code fences and tables are supported.\n',
       '- Use the body only for an overall summary or clarifying questions.',
     ].join('')
 

@@ -275,6 +275,7 @@
     "- 处理完必须调用 `annotation_replies` 工具，不要在正文里逐条重复。\n",
     "- 每条批注对应 replies 里的一项，`index` 与批注编号一致。\n",
     "- `verdict` 取 `accepted` / `partial` / `rejected` / `needs_info`；`reason` 写理由，`next` 写下一步。\n",
+    "- 答复正文按 Markdown 渲染，优先用要点列表；加粗、行内代码、代码块与表格都可用。\n",
     "- 正文只写整体说明或需要澄清的问题。"
   ].join("");
   var DEFAULT_INSTRUCTION_EN = [
@@ -292,6 +293,7 @@
     "- When done, you must call the `annotation_replies` tool instead of repeating replies in the body.\n",
     "- Each annotation maps to one entry in replies; `index` matches the annotation number.\n",
     "- `verdict` is `accepted` / `partial` / `rejected` / `needs_info`; `reason` explains it, `next` states the next step.\n",
+    "- Reply bodies render as Markdown: prefer bullet lists; bold, inline code, code fences and tables are supported.\n",
     "- Use the body only for an overall summary or clarifying questions."
   ].join("");
   var LOCALE_NS = "selection-annotations";
@@ -356,6 +358,9 @@
       "sent.title": "已发送的批注 ×{n}",
       "replies.title": "批注答复 ×{n}",
       "replies.waiting": "批注答复：等待参数",
+      "markdown.copy": "复制",
+      "markdown.copied": "已复制",
+      "markdown.footnotes": "脚注",
       "verdict.accepted": "采纳",
       "verdict.partial": "部分采纳",
       "verdict.rejected": "不采纳",
@@ -443,6 +448,9 @@
       "sent.title": "Sent annotations ×{n}",
       "replies.title": "Annotation replies ×{n}",
       "replies.waiting": "Annotation replies: waiting for arguments",
+      "markdown.copy": "Copy",
+      "markdown.copied": "Copied",
+      "markdown.footnotes": "Footnotes",
       "verdict.accepted": "Accepted",
       "verdict.partial": "Partially accepted",
       "verdict.rejected": "Rejected",
@@ -1192,7 +1200,7 @@
     rejected: ["verdict.rejected", "rejected"],
     needs_info: ["verdict.needs_info", "needs_info"]
   };
-  function createCards({ t, openImageViewer }) {
+  function createCards({ t, openImageViewer, markdown }) {
     function sectionChevron() {
       const ns = "http://www.w3.org/2000/svg";
       const svg = document.createElementNS(ns, "svg");
@@ -1388,7 +1396,11 @@
         const reason = document.createElement("div");
         reason.className = "sa-a-reason";
         reason.setAttribute("data-sa-field", "reason");
-        reason.textContent = typeof reply.reason === "string" ? reply.reason : "";
+        if (markdown !== void 0 && typeof markdown.mount === "function") {
+          markdown.mount(reason, typeof reply.reason === "string" ? reply.reason : "");
+        } else {
+          reason.textContent = typeof reply.reason === "string" ? reply.reason : "";
+        }
         a.appendChild(reason);
         if (typeof reply.next === "string" && reply.next.trim() !== "") {
           const next = document.createElement("div");
@@ -1414,6 +1426,52 @@
       return card;
     }
     return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection };
+  }
+
+  // src/core/markdown.js
+  function createMarkdown({ h, MarkdownText, createRoot, labels }) {
+    const usable = typeof MarkdownText === "function" && typeof createRoot === "function";
+    const active = /* @__PURE__ */ new Map();
+    let labelsKey = "";
+    let labelsValue = {};
+    function unmount(container) {
+      const root = active.get(container);
+      if (root === void 0) return;
+      active.delete(container);
+      try {
+        root.unmount();
+      } catch {
+      }
+    }
+    function prune() {
+      for (const [container] of active) {
+        if (container.isConnected === false) unmount(container);
+      }
+    }
+    function mount(container, text) {
+      if (typeof text !== "string") return;
+      prune();
+      if (!usable) {
+        container.textContent = text;
+        return;
+      }
+      unmount(container);
+      const root = createRoot(container);
+      active.set(container, root);
+      container.setAttribute("data-sa-md", "1");
+      const fresh = typeof labels === "function" ? labels() : {};
+      const key = JSON.stringify(fresh);
+      if (key !== labelsKey) {
+        labelsKey = key;
+        labelsValue = fresh;
+      }
+      root.render(h(MarkdownText, { text, variant: "body", labels: labelsValue }));
+    }
+    function dispose() {
+      for (const [container] of active) unmount(container);
+      active.clear();
+    }
+    return { mount, prune, dispose, usable };
   }
 
   // src/core/panel-render.js
@@ -1896,7 +1954,7 @@
   }
 
   // src/plugin.js
-  function createPlugin(React) {
+  function createPlugin(React, extras = {}) {
     const h = React.createElement;
     return {
       name: "@u2a5f/dsh-selection-annotations",
@@ -2344,7 +2402,16 @@
           recordSent(sessionId, target.anchorKey, pending.items, turn);
           scheduleRepaint();
         }
-        const cards = createCards({ t, openImageViewer });
+        const markdown = createMarkdown({
+          h,
+          MarkdownText: extras.MarkdownText,
+          createRoot: extras.createRoot,
+          labels: () => ({
+            code: { copyLabel: t("markdown.copy"), copiedLabel: t("markdown.copied") },
+            footnotes: t("markdown.footnotes")
+          })
+        });
+        const cards = createCards({ t, openImageViewer, markdown });
         const sectionChevron = () => cards.sectionChevron();
         const buildSectionHead = (label, meta) => cards.buildSectionHead(label, meta);
         const collapsible = (body, open) => cards.collapsible(body, open);
@@ -3783,6 +3850,7 @@
           });
           observer.observe(document.body, { childList: true, subtree: true, characterData: true });
           return () => {
+            markdown.dispose();
             document.removeEventListener("selectionchange", onSelectionChange);
             document.removeEventListener("contextmenu", onContextMenu, true);
             document.removeEventListener("pointerdown", onMenuPointerDown, true);
@@ -3938,7 +4006,19 @@
     id: "@u2a5f/dsh-selection-annotations",
     factory(require2) {
       const React = require2("react");
-      return createPlugin(React);
+      let MarkdownText;
+      let createRoot;
+      try {
+        MarkdownText = require2("@deepseek-ai/dsh-client-ui-primitives").MarkdownText;
+      } catch {
+        MarkdownText = void 0;
+      }
+      try {
+        createRoot = require2("react-dom/client").createRoot;
+      } catch {
+        createRoot = void 0;
+      }
+      return createPlugin(React, { MarkdownText, createRoot });
     }
   });
 })();
