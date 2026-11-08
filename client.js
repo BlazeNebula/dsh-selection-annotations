@@ -163,6 +163,15 @@
 .sa-section-chevron { flex: none; display: block; width: 14px; height: 14px;
   color: var(--dsw-alias-label-secondary, #8b949e); transition: transform 180ms ease; }
 .sa-section-head[aria-expanded="true"] .sa-section-chevron { transform: rotate(90deg); }
+.sa-jump-row { display: flex; justify-content: flex-end; margin: 4px 2px 0; }
+.sa-jump { border: 0; background: none; padding: 0; cursor: pointer;
+  font-size: 11.5px; line-height: 1.4; color: var(--sa-dim-secondary, var(--dsw-alias-label-secondary, #8b949e)); }
+.sa-jump:hover { color: var(--dsw-alias-label-primary, CanvasText); text-decoration: underline; }
+.sa-flash { animation: sa-flash 1.4s ease; }
+@keyframes sa-flash {
+  0%, 100% { background-color: transparent; }
+  25% { background-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #d29922) 16%, transparent); }
+}
 .sa-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; margin-top: 6px;
   transition: grid-template-rows 180ms ease, opacity 180ms ease; }
 .sa-collapse[data-open="1"] { grid-template-rows: 1fr; opacity: 1; }
@@ -361,6 +370,7 @@
       "markdown.copy": "复制",
       "markdown.copied": "已复制",
       "markdown.footnotes": "脚注",
+      "jump.source": "回到原文",
       "verdict.accepted": "采纳",
       "verdict.partial": "部分采纳",
       "verdict.rejected": "不采纳",
@@ -451,6 +461,7 @@
       "markdown.copy": "Copy",
       "markdown.copied": "Copied",
       "markdown.footnotes": "Footnotes",
+      "jump.source": "Back to source",
       "verdict.accepted": "Accepted",
       "verdict.partial": "Partially accepted",
       "verdict.rejected": "Rejected",
@@ -1200,7 +1211,7 @@
     rejected: ["verdict.rejected", "rejected"],
     needs_info: ["verdict.needs_info", "needs_info"]
   };
-  function createCards({ t, openImageViewer, markdown }) {
+  function createCards({ t, openImageViewer, markdown, onJump }) {
     function sectionChevron() {
       const ns = "http://www.w3.org/2000/svg";
       const svg = document.createElementNS(ns, "svg");
@@ -1248,6 +1259,21 @@
       wrap.dataset.open = open ? "1" : "0";
       head.dataset.open = open ? "1" : "0";
       head.setAttribute("aria-expanded", String(open));
+    }
+    function jumpRow(anchorKey) {
+      const row = document.createElement("div");
+      row.className = "sa-jump-row";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "sa-jump";
+      btn.textContent = t("jump.source");
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof onJump === "function") onJump(anchorKey);
+      });
+      row.appendChild(btn);
+      return row;
     }
     function buildSentCard(record, anchorKey) {
       const card = document.createElement("div");
@@ -1308,10 +1334,10 @@
         event.stopPropagation();
         applyCollapsed(head, wrap, wrap.dataset.open !== "1");
       });
-      card.append(head, wrap);
+      card.append(head, jumpRow(anchorKey), wrap);
       return card;
     }
-    function buildReplySection(batches, items = []) {
+    function buildReplySection(batches, items = [], anchorKey) {
       const replies = mergeReplyBatches(batches);
       const byIndex = /* @__PURE__ */ new Map();
       for (const item of Array.isArray(items) ? items : []) {
@@ -1331,6 +1357,7 @@
       if (counts.needs_info) parts.push(t("summary.needsInfo", { n: counts.needs_info }));
       const head = buildSectionHead(t("replies.title", { n: replies.length }), parts.join(" · "));
       card.appendChild(head);
+      if (typeof anchorKey === "string" && anchorKey !== "") card.appendChild(jumpRow(anchorKey));
       const body = document.createElement("div");
       body.className = "sa-replies-body";
       for (const reply of replies) {
@@ -2267,6 +2294,60 @@
           if (range !== void 0) item.liveRange = range;
           return range;
         }
+        function turnOfAnchor(anchorKey) {
+          const match = /^(\d+):/.exec(anchorKey);
+          return match === null ? void 0 : Number(match[1]);
+        }
+        function navButtonForTurn(turn) {
+          const buttons = document.querySelectorAll("button[data-index]");
+          for (const candidate of buttons) {
+            const label = candidate.getAttribute("aria-label");
+            if (typeof label !== "string" || label === "") continue;
+            if (!/轮|turn/i.test(label)) continue;
+            const numbers = label.match(/\d+/g);
+            if (numbers !== null && numbers.includes(String(turn))) return candidate;
+          }
+          return null;
+        }
+        const messageRow = (anchorKey) => document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`);
+        function flashSource(node) {
+          node.classList.add("sa-flash");
+          window.setTimeout(() => node.classList.remove("sa-flash"), 1500);
+          node.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+        function jumpToAnchorKey(anchorKey) {
+          if (typeof anchorKey !== "string" || anchorKey === "") return;
+          const immediate = messageRow(anchorKey);
+          if (immediate !== null) {
+            flashSource(immediate);
+            return;
+          }
+          const turn = turnOfAnchor(anchorKey);
+          if (!Number.isFinite(turn)) {
+            warn("[selection-annotations] 无法从锚点键确定轮次", anchorKey);
+            return;
+          }
+          const nav = navButtonForTurn(turn);
+          if (nav === null) {
+            warn("[selection-annotations] 当前视图找不到第", turn, "轮的导航刻度");
+            return;
+          }
+          nav.click();
+          let tries = 0;
+          const timer = window.setInterval(() => {
+            tries += 1;
+            const row = messageRow(anchorKey);
+            if (row !== null) {
+              window.clearInterval(timer);
+              flashSource(row);
+              return;
+            }
+            if (tries > 24) {
+              window.clearInterval(timer);
+              warn("[selection-annotations] 已请求加载，但没等到锚点行出现");
+            }
+          }, 80);
+        }
         let sequence = 0;
         function renumber() {
           annotations = annotations.map((item, index) => item.number === index + 1 ? item : { ...item, number: index + 1 });
@@ -2411,7 +2492,7 @@
             footnotes: t("markdown.footnotes")
           })
         });
-        const cards = createCards({ t, openImageViewer, markdown });
+        const cards = createCards({ t, openImageViewer, markdown, onJump: (anchorKey) => jumpToAnchorKey(anchorKey) });
         const sectionChevron = () => cards.sectionChevron();
         const buildSectionHead = (label, meta) => cards.buildSectionHead(label, meta);
         const collapsible = (body, open) => cards.collapsible(body, open);
@@ -2563,7 +2644,7 @@
           }
           if (learnedTurn) saveSent(sessionId, table);
         }
-        const buildReplySection = (batches, items) => cards.buildReplySection(batches, items);
+        const buildReplySection = (batches, items, anchorKey) => cards.buildReplySection(batches, items, anchorKey);
         function syncReplyCollapse(origin) {
           for (const section of document.querySelectorAll('[data-sa-ui="replies"]')) {
             let node = section.previousElementSibling ?? null;
@@ -2680,14 +2761,14 @@
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`);
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue;
-              const fresh = buildReplySection(list, items);
+              const fresh = buildReplySection(list, items, anchorKey);
               fresh.setAttribute("data-anchor", anchorKey);
               fresh.dataset.signature = signature;
               existing.replaceWith(fresh);
               placeReplyAfterTurnProcess(fresh, turn);
               continue;
             }
-            const section = buildReplySection(list, items);
+            const section = buildReplySection(list, items, anchorKey);
             section.setAttribute("data-anchor", anchorKey);
             section.dataset.signature = signature;
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling);

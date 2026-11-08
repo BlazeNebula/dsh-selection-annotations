@@ -11,7 +11,7 @@ const VERDICT_LABELS = {
 /**
  * 两个区域共用的收展头、矢量箭头与可折展容器，以及已提交批注的卡片。
  */
-export function createCards({ t, openImageViewer, markdown }) {
+export function createCards({ t, openImageViewer, markdown, onJump }) {
   function sectionChevron() {
     const ns = 'http://www.w3.org/2000/svg'
     const svg = document.createElementNS(ns, 'svg')
@@ -64,6 +64,23 @@ export function createCards({ t, openImageViewer, markdown }) {
     wrap.dataset.open = open ? '1' : '0'
     head.dataset.open = open ? '1' : '0'
     head.setAttribute('aria-expanded', String(open))
+  }
+
+  /** 「回到原文」入口：只对消息类锚点显示，点击交给宿主跳转。 */
+  function jumpRow(anchorKey) {
+    const row = document.createElement('div')
+    row.className = 'sa-jump-row'
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'sa-jump'
+    btn.textContent = t('jump.source')
+    btn.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (typeof onJump === 'function') onJump(anchorKey)
+    })
+    row.appendChild(btn)
+    return row
   }
 
   /** 一条已提交批注在历史里的卡片：默认收起，点开看引文与批注文字。 */
@@ -127,11 +144,11 @@ export function createCards({ t, openImageViewer, markdown }) {
       event.stopPropagation()
       applyCollapsed(head, wrap, wrap.dataset.open !== '1')
     })
-    card.append(head, wrap)
+    card.append(head, jumpRow(anchorKey), wrap)
     return card
   }
 
-  function buildReplySection(batches, items = []) {
+  function buildReplySection(batches, items = [], anchorKey) {
     const replies = mergeReplyBatches(batches)
     const byIndex = new Map()
     for (const item of Array.isArray(items) ? items : []) {
@@ -152,6 +169,7 @@ export function createCards({ t, openImageViewer, markdown }) {
     if (counts.needs_info) parts.push(t('summary.needsInfo', { n: counts.needs_info }))
     const head = buildSectionHead(t('replies.title', { n: replies.length }), parts.join(' · '))
     card.appendChild(head)
+    if (typeof anchorKey === 'string' && anchorKey !== '') card.appendChild(jumpRow(anchorKey))
 
     const body = document.createElement('div')
     body.className = 'sa-replies-body'

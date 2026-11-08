@@ -497,6 +497,70 @@ export function createPlugin(React, extras = {}) {
           return range
         }
 
+        /** 从锚点键里取轮次（形如 14:assistant-step60:1）。 */
+        function turnOfAnchor(anchorKey) {
+          const match = /^(\d+):/.exec(anchorKey)
+          return match === null ? undefined : Number(match[1])
+        }
+
+        /** 轮次导航的刻度按钮：轮次只写在本地化的 aria-label 里，没有 data-turn。 */
+        function navButtonForTurn(turn) {
+          const buttons = document.querySelectorAll('button[data-index]')
+          for (const candidate of buttons) {
+            const label = candidate.getAttribute('aria-label')
+            if (typeof label !== 'string' || label === '') continue
+            if (!/轮|turn/i.test(label)) continue
+            const numbers = label.match(/\d+/g)
+            if (numbers !== null && numbers.includes(String(turn))) return candidate
+          }
+          return null
+        }
+
+        const messageRow = (anchorKey) =>
+          document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`)
+
+        /** 滚到目标行并闪一下，告诉用户「就是这一条」。 */
+        function flashSource(node) {
+          node.classList.add('sa-flash')
+          window.setTimeout(() => node.classList.remove('sa-flash'), 1500)
+          node.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        }
+
+        /** 消息类回跳：先在 DOM 里找行；找不到就点对应轮次的导航刻度，等它把历史加载出来。 */
+        function jumpToAnchorKey(anchorKey) {
+          if (typeof anchorKey !== 'string' || anchorKey === '') return
+          const immediate = messageRow(anchorKey)
+          if (immediate !== null) {
+            flashSource(immediate)
+            return
+          }
+          const turn = turnOfAnchor(anchorKey)
+          if (!Number.isFinite(turn)) {
+            warn('[selection-annotations] 无法从锚点键确定轮次', anchorKey)
+            return
+          }
+          const nav = navButtonForTurn(turn)
+          if (nav === null) {
+            warn('[selection-annotations] 当前视图找不到第', turn, '轮的导航刻度')
+            return
+          }
+          nav.click()
+          let tries = 0
+          const timer = window.setInterval(() => {
+            tries += 1
+            const row = messageRow(anchorKey)
+            if (row !== null) {
+              window.clearInterval(timer)
+              flashSource(row)
+              return
+            }
+            if (tries > 24) {
+              window.clearInterval(timer)
+              warn('[selection-annotations] 已请求加载，但没等到锚点行出现')
+            }
+          }, 80)
+        }
+
         /* ------------------------------------------------------------------ 批注集合 */
 
         let sequence = 0
@@ -686,7 +750,7 @@ export function createPlugin(React, extras = {}) {
             footnotes: t('markdown.footnotes'),
           }),
         })
-        const cards = createCards({ t, openImageViewer, markdown })
+        const cards = createCards({ t, openImageViewer, markdown, onJump: (anchorKey) => jumpToAnchorKey(anchorKey) })
         const sectionChevron = () => cards.sectionChevron()
         const buildSectionHead = (label, meta) => cards.buildSectionHead(label, meta)
         const collapsible = (body, open) => cards.collapsible(body, open)
@@ -872,7 +936,7 @@ export function createPlugin(React, extras = {}) {
           if (learnedTurn) saveSent(sessionId, table)
         }
 
-        const buildReplySection = (batches, items) => cards.buildReplySection(batches, items)
+        const buildReplySection = (batches, items, anchorKey) => cards.buildReplySection(batches, items, anchorKey)
 
         /** 跟着「已完成」一起收展：只同步答复卡片里的内容，卡片本身与标题始终留在外面。*/
         function syncReplyCollapse(origin) {
@@ -1006,14 +1070,14 @@ export function createPlugin(React, extras = {}) {
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`)
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue
-              const fresh = buildReplySection(list, items)
+              const fresh = buildReplySection(list, items, anchorKey)
               fresh.setAttribute('data-anchor', anchorKey)
               fresh.dataset.signature = signature
               existing.replaceWith(fresh)
               placeReplyAfterTurnProcess(fresh, turn)
               continue
             }
-            const section = buildReplySection(list, items)
+            const section = buildReplySection(list, items, anchorKey)
             section.setAttribute('data-anchor', anchorKey)
             section.dataset.signature = signature
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling)
