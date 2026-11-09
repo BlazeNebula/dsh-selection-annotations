@@ -26,7 +26,7 @@ const PAYLOAD = {
 const REPORT = JSON.stringify(PAYLOAD, null, 2)
 
 /** 组装一个只提供 pre-step 事件与假附件服务的 ctx。 */
-function makeCtx(files, config) {
+function makeCtx(files, config, { tools = true } = {}) {
   let preStep
   const ctx = {
     on(name, handler) {
@@ -43,6 +43,8 @@ function makeCtx(files, config) {
       }
     },
   }
+  // 真实宿主一定提供 tools；给夹具补一个最小实现，避免「未注册」告警污染其它用例的输出。
+  if (tools) ctx.tools = { register: () => () => {} }
   apply(ctx, config)
   assert.ok(typeof preStep === 'function', 'apply 必须注册 agent/pre-step')
   return preStep
@@ -221,6 +223,8 @@ function makeReminderCtx() {
         return () => {}
       },
     },
+    // 真实宿主一定有 tools；补个最小实现，免得「未注册」告警混进这些用例的输出。
+    tools: { register: () => () => {} },
   }
   apply(ctx, undefined)
   return {
@@ -323,4 +327,22 @@ test('annotation_replies 执行后把逐条答复写进会话落盘文件', asyn
     else process.env.DSH_HOME = previousHome
     await removeDir(home, { recursive: true, force: true })
   }
+})
+
+test('缺少 tools 服务时给出告警，其它接缝照常注册', (t) => {
+  const warn = t.mock.method(console, 'warn', () => {})
+  let preStep
+  const ctx = {
+    on(name, handler) {
+      if (name === 'agent/pre-step') preStep = handler
+    },
+    get() {
+      return undefined
+    },
+  }
+
+  assert.doesNotThrow(() => apply(ctx, undefined))
+  assert.equal(warn.mock.callCount(), 1, '缺 tools 必须恰好告警一次')
+  assert.match(String(warn.mock.calls[0].arguments[0]), /annotation_replies 未注册/u)
+  assert.equal(typeof preStep, 'function', 'pre-step 仍要注册：缺工具不该让插件整体失效')
 })
