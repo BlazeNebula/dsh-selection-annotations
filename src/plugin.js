@@ -331,6 +331,9 @@ export function createPlugin(React, extras = {}) {
         /** 已载入会话的草稿（sessionId → 可序列化条目），切换会话时先在内存里换入换出。 */
         const remoteReplyCache = new Map()
 
+        /** 本次页面加载的时刻：只有这之后到达的答复才触发「已发送」收起，历史记录保持原样。*/
+        const replyCollapseEpoch = Date.now()
+
         /** 记住宿主写入的答复批次；有变化时返回 true。*/
         function absorbRemoteReplies(sessionId, remote) {
           if (!Array.isArray(remote?.replies)) return false
@@ -1000,6 +1003,8 @@ export function createPlugin(React, extras = {}) {
             const items = byAnchor.get(anchorKey)?.record.items ?? []
             const turn = byAnchor.get(anchorKey)?.turn ?? null
             const signature = `${list.map((batch) => String(batch.at)).join('|')}#${items.length}`
+            const latestAt = list.reduce((max, batch) => Math.max(max, Number(batch.at) || 0), 0)
+            const freshArrival = latestAt > replyCollapseEpoch
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`)
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue
@@ -1008,7 +1013,7 @@ export function createPlugin(React, extras = {}) {
               fresh.dataset.signature = signature
               existing.replaceWith(fresh)
               placeReplyAfterTurnProcess(fresh, turn)
-              collapseSentForReplies(sentCard, signature)
+              if (freshArrival) collapseSentForReplies(sentCard, signature)
               continue
             }
             const section = buildReplySection(list, items)
@@ -1016,7 +1021,7 @@ export function createPlugin(React, extras = {}) {
             section.dataset.signature = signature
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling)
             placeReplyAfterTurnProcess(section, turn)
-            collapseSentForReplies(sentCard, signature)
+            if (freshArrival) collapseSentForReplies(sentCard, signature)
           }
         }
 
