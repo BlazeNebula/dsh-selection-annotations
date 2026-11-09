@@ -2145,7 +2145,6 @@
         const instructionOf = () => settings.instructionOf();
         const persistInstructionSettings = (text) => settings.persistInstructionSettings(text);
         const remoteReplyCache = /* @__PURE__ */ new Map();
-        const replyCollapseEpoch = Date.now();
         function absorbRemoteReplies(sessionId, remote) {
           if (!Array.isArray(remote?.replies)) return false;
           const batches = remote.replies.filter(
@@ -2685,8 +2684,6 @@
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
             const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}`;
-            const latestAt = list.reduce((max, batch) => Math.max(max, Number(batch.at) || 0), 0);
-            const freshArrival = latestAt > replyCollapseEpoch;
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`);
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue;
@@ -2695,7 +2692,7 @@
               fresh.dataset.signature = signature;
               existing.replaceWith(fresh);
               placeReplyAfterTurnProcess(fresh, turn);
-              if (freshArrival) collapseSentForReplies(sentCard, signature);
+              collapseSentForReplies(sentCard, signature);
               continue;
             }
             const section = buildReplySection(list, items);
@@ -2703,7 +2700,7 @@
             section.dataset.signature = signature;
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling);
             placeReplyAfterTurnProcess(section, turn);
-            if (freshArrival) collapseSentForReplies(sentCard, signature);
+            collapseSentForReplies(sentCard, signature);
           }
         }
         const payloadApi = createPayload({ t, instructionOf });
