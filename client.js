@@ -2417,20 +2417,8 @@
         const collapsible = (body, open) => cards.collapsible(body, open);
         const applyCollapsed = (head, wrap, open) => cards.applyCollapsed(head, wrap, open);
         const buildSentCard = (record, anchorKey) => cards.buildSentCard(record, anchorKey);
-        function footerAfter(row) {
-          for (const button3 of document.querySelectorAll("[data-turn-process]")) {
-            if (button3 === row || button3.contains(row)) continue;
-            if ((row.compareDocumentPosition(button3) & 4) === 0) continue;
-            return button3;
-          }
-          return null;
-        }
         function turnBlockOf(row) {
-          const block = typeof row.closest === "function" ? row.closest('[data-chat-flow-kind="turn-process"]') : null;
-          if (block !== null && block !== void 0) return block;
-          const footer = footerAfter(row);
-          if (footer === null) return null;
-          return footer.closest('[data-chat-flow-kind="turn-process"]') ?? footer;
+          return typeof row.closest === "function" ? row.closest('[data-chat-flow-kind="turn-process"]') : null;
         }
         function turnOfRow(row) {
           const holder = typeof row.closest === "function" ? row.closest("[data-chat-turn]") : null;

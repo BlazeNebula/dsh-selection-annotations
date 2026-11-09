@@ -693,23 +693,11 @@ export function createPlugin(React, extras = {}) {
         const applyCollapsed = (head, wrap, open) => cards.applyCollapsed(head, wrap, open)
         const buildSentCard = (record, anchorKey) => cards.buildSentCard(record, anchorKey)
 
-        /** 这一轮记录行（「已完成」按钮）之后最近的轮次尾行；没有就返回 null。*/
-        function footerAfter(row) {
-          for (const button of document.querySelectorAll('[data-turn-process]')) {
-            if (button === row || button.contains(row)) continue
-            if ((row.compareDocumentPosition(button) & 4) === 0) continue
-            return button
-          }
-          return null
-        }
-
         /** 批注行所属的轮次块：行可能就在过程块内部（指向助手的答复或过程文字）。*/
         function turnBlockOf(row) {
-          const block = typeof row.closest === 'function' ? row.closest('[data-chat-flow-kind="turn-process"]') : null
-          if (block !== null && block !== undefined) return block
-          const footer = footerAfter(row)
-          if (footer === null) return null
-          return footer.closest('[data-chat-flow-kind="turn-process"]') ?? footer
+          // 只认「行本身就在轮次块里」这一种情况。以前还会退到「行之后最近的已完成按钮」，
+          // 但历史轮次的 DOM 被裁掉时，那个按钮可能属于后面某一轮，会把轮次学错（曾把第 101 轮记成第 112 轮）。
+          return typeof row.closest === 'function' ? row.closest('[data-chat-flow-kind="turn-process"]') : null
         }
 
         /** 0.2.2 起每个 flow 项都带 data-chat-turn；老结构再退回过程块/尾行推断。*/
