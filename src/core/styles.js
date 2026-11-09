@@ -161,15 +161,6 @@ export const CSS = `
 .sa-section-chevron { flex: none; display: block; width: 14px; height: 14px;
   color: var(--dsw-alias-label-secondary, #8b949e); transition: transform 180ms ease; }
 .sa-section-head[aria-expanded="true"] .sa-section-chevron { transform: rotate(90deg); }
-.sa-jump-row { display: flex; justify-content: flex-end; margin: 4px 2px 0; }
-.sa-jump { border: 0; background: none; padding: 0; cursor: pointer;
-  font-size: 11.5px; line-height: 1.4; color: var(--sa-dim-secondary, var(--dsw-alias-label-secondary, #8b949e)); }
-.sa-jump:hover { color: var(--dsw-alias-label-primary, CanvasText); text-decoration: underline; }
-.sa-flash { animation: sa-flash 1.4s ease; }
-@keyframes sa-flash {
-  0%, 100% { background-color: transparent; }
-  25% { background-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #d29922) 16%, transparent); }
-}
 .sa-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; margin-top: 6px;
   transition: grid-template-rows 180ms ease, opacity 180ms ease; }
 .sa-collapse[data-open="1"] { grid-template-rows: 1fr; opacity: 1; }

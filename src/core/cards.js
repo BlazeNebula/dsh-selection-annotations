@@ -11,7 +11,7 @@ const VERDICT_LABELS = {
 /**
  * 两个区域共用的收展头、矢量箭头与可折展容器，以及已提交批注的卡片。
  */
-export function createCards({ t, openImageViewer, markdown, onJump }) {
+export function createCards({ t, openImageViewer, markdown }) {
   function sectionChevron() {
     const ns = 'http://www.w3.org/2000/svg'
     const svg = document.createElementNS(ns, 'svg')
@@ -64,23 +64,6 @@ export function createCards({ t, openImageViewer, markdown, onJump }) {
     wrap.dataset.open = open ? '1' : '0'
     head.dataset.open = open ? '1' : '0'
     head.setAttribute('aria-expanded', String(open))
-  }
-
-  /** 「回到原文」入口：只对消息类锚点显示，点击交给宿主跳转。 */
-  function jumpRow(anchorKey) {
-    const row = document.createElement('div')
-    row.className = 'sa-jump-row'
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = 'sa-jump'
-    btn.textContent = t('jump.source')
-    btn.addEventListener('click', (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      if (typeof onJump === 'function') onJump(anchorKey)
-    })
-    row.appendChild(btn)
-    return row
   }
 
   /** 一条已提交批注在历史里的卡片：默认收起，点开看引文与批注文字。 */
@@ -136,8 +119,6 @@ export function createCards({ t, openImageViewer, markdown, onJump }) {
         }
         if (gallery.childNodes.length > 0) text.appendChild(gallery)
       }
-      const itemAnchor = jumpAnchorOf(item)
-      if (itemAnchor !== '') text.appendChild(jumpRow(itemAnchor))
       line.append(num, text)
       body.appendChild(line)
     }
@@ -150,13 +131,7 @@ export function createCards({ t, openImageViewer, markdown, onJump }) {
     return card
   }
 
-  function jumpAnchorOf(item) {
-    return item !== undefined && item?.source?.kind === 'message' && typeof item?.source?.anchorKey === 'string'
-      ? item.source.anchorKey
-      : ''
-  }
-
-  function buildReplySection(batches, items = [], anchorKey) {
+  function buildReplySection(batches, items = []) {
     const replies = mergeReplyBatches(batches)
     const byIndex = new Map()
     for (const item of Array.isArray(items) ? items : []) {
@@ -263,8 +238,6 @@ export function createCards({ t, openImageViewer, markdown, onJump }) {
       }
       content.appendChild(a)
       group.appendChild(content)
-      const replyAnchor = jumpAnchorOf(item)
-      if (replyAnchor !== '') group.appendChild(jumpRow(replyAnchor))
       body.appendChild(group)
     }
     const wrap = collapsible(body, true)
