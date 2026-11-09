@@ -1448,9 +1448,17 @@
         if (container.isConnected === false) unmount(container);
       }
     }
+    let pruneTimer = 0;
+    function schedulePrune() {
+      if (pruneTimer !== 0) return;
+      pruneTimer = window.setTimeout(() => {
+        pruneTimer = 0;
+        prune();
+      }, 0);
+    }
     function mount(container, text) {
       if (typeof text !== "string") return;
-      prune();
+      schedulePrune();
       if (!usable) {
         container.textContent = text;
         return;
@@ -1468,6 +1476,10 @@
       root.render(h(MarkdownText, { text, variant: "body", labels: labelsValue }));
     }
     function dispose() {
+      if (pruneTimer !== 0) {
+        window.clearTimeout(pruneTimer);
+        pruneTimer = 0;
+      }
       for (const [container] of active) unmount(container);
       active.clear();
     }

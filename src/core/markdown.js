@@ -32,9 +32,24 @@ export function createMarkdown({ h, MarkdownText, createRoot, labels }) {
     }
   }
 
+  let pruneTimer = 0
+
+  /**
+   * 卡片是先搭好 DOM 再插进页面的，挂载时容器还没连上文档。
+   * 如果每次 mount 都立刻清理「未连接」的根，会把同一批里刚挂好的前一个答复一起卸掉，
+   * 表现为一条答复有内容、其余空白。因此把清理推迟到当前这一批插进页面之后。
+   */
+  function schedulePrune() {
+    if (pruneTimer !== 0) return
+    pruneTimer = window.setTimeout(() => {
+      pruneTimer = 0
+      prune()
+    }, 0)
+  }
+
   function mount(container, text) {
     if (typeof text !== 'string') return
-    prune()
+    schedulePrune()
     if (!usable) {
       container.textContent = text
       return
@@ -53,6 +68,10 @@ export function createMarkdown({ h, MarkdownText, createRoot, labels }) {
   }
 
   function dispose() {
+    if (pruneTimer !== 0) {
+      window.clearTimeout(pruneTimer)
+      pruneTimer = 0
+    }
     for (const [container] of active) unmount(container)
     active.clear()
   }
