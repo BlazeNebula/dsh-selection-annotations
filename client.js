@@ -2637,6 +2637,13 @@
           safe(() => renderReplySections());
           if (panelOpen) refreshPanel();
         }
+        function collapseSentForReplies(sentCard, signature) {
+          if (sentCard.dataset.saReplySig === signature) return;
+          sentCard.dataset.saReplySig = signature;
+          const head = sentCard.querySelector(".sa-section-head");
+          const wrap = sentCard.querySelector(".sa-collapse");
+          if (head !== null && wrap !== null) applyCollapsed(head, wrap, false);
+        }
         function renderReplySections() {
           const sessionId = currentSessionId();
           if (sessionId === void 0) return;
@@ -2685,6 +2692,7 @@
               fresh.dataset.signature = signature;
               existing.replaceWith(fresh);
               placeReplyAfterTurnProcess(fresh, turn);
+              collapseSentForReplies(sentCard, signature);
               continue;
             }
             const section = buildReplySection(list, items);
@@ -2692,6 +2700,7 @@
             section.dataset.signature = signature;
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling);
             placeReplyAfterTurnProcess(section, turn);
+            collapseSentForReplies(sentCard, signature);
           }
         }
         const payloadApi = createPayload({ t, instructionOf });

@@ -945,6 +945,15 @@ export function createPlugin(React, extras = {}) {
           if (panelOpen) refreshPanel()
         }
 
+        /** 答复齐了就把同一条消息的「已发送」收起来；只在新答复到达时做一次，不覆盖用户手动展开。*/
+        function collapseSentForReplies(sentCard, signature) {
+          if (sentCard.dataset.saReplySig === signature) return
+          sentCard.dataset.saReplySig = signature
+          const head = sentCard.querySelector('.sa-section-head')
+          const wrap = sentCard.querySelector('.sa-collapse')
+          if (head !== null && wrap !== null) applyCollapsed(head, wrap, false)
+        }
+
         /**
          * 把答复挂到对应的「已发送的批注」卡片后面。
          *
@@ -999,6 +1008,7 @@ export function createPlugin(React, extras = {}) {
               fresh.dataset.signature = signature
               existing.replaceWith(fresh)
               placeReplyAfterTurnProcess(fresh, turn)
+              collapseSentForReplies(sentCard, signature)
               continue
             }
             const section = buildReplySection(list, items)
@@ -1006,6 +1016,7 @@ export function createPlugin(React, extras = {}) {
             section.dataset.signature = signature
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling)
             placeReplyAfterTurnProcess(section, turn)
+            collapseSentForReplies(sentCard, signature)
           }
         }
 
