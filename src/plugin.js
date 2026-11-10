@@ -230,7 +230,11 @@ export function createPlugin(React, extras = {}) {
               const thumbs = []
               for (const image of images) {
                 if (typeof image?.thumb !== 'string' || image.thumb === '') continue
-                thumbs.push({ name: typeof image.name === 'string' ? image.name : t('image.alt'), dataUrl: image.thumb })
+                thumbs.push({
+                  name: typeof image.name === 'string' ? image.name : t('image.alt'),
+                  dataUrl: image.thumb,
+                  preview: typeof image.preview === 'string' && image.preview !== '' ? image.preview : image.dataUrl,
+                })
               }
               return thumbs.length > 0 ? { ...annotation, thumbs } : annotation
             })
@@ -669,7 +673,10 @@ export function createPlugin(React, extras = {}) {
               entry.row.getAttribute('data-chat-flow-kind') !== 'turn-process',
           )
           // 兜底：纯批注消息可能复用已有的组行（锚点键不变），那就取最后一个还没记账的行。
-          const target = fresh.length > 0 ? fresh[fresh.length - 1] : undefined
+          // 优先认「带 批注.json 附件」的行：插队（steering）消息的气泡里也能看到这个附件，
+          // 否则容易取到过程里的推理行，把记账锚点挂错地方。
+          const attached = fresh.filter((entry) => /批注\.json/.test(entry.row.textContent ?? ''))
+          const target = attached.length > 0 ? attached[attached.length - 1] : fresh[fresh.length - 1]
           if (target === undefined) return
           pendingSent.shift()
           const turn = turnOfRow(target.row)
@@ -838,6 +845,18 @@ export function createPlugin(React, extras = {}) {
             const card = existing ?? buildSentCard(record, anchorKey)
             card.setAttribute('data-sa-key', storedKey)
             card.setAttribute('data-anchor', anchorKey)
+            // 批注优先挂在用户消息气泡下方：插队（steering）消息还没有轮次尾行时也能出现，
+            // 位置也贴着「自己这一条」，不必等整轮结束。
+            const bubbleKind = row === null ? '' : (row.getAttribute('data-chat-flow-kind') ?? '')
+            const onBubble =
+              row !== null &&
+              (bubbleKind === 'user' || bubbleKind === 'steering' || row.hasAttribute('data-pending-steering'))
+            if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {
+              if (card.parentElement !== row.parentElement || card.previousSibling !== row) {
+                row.parentElement.insertBefore(card, row.nextSibling)
+              }
+              continue
+            }
             // 位置固定在轮次尾行之前；与消息在折叠组里、是否懒加载无关。
             // 已经在位就不要重复 insertBefore：把节点反复摘下再插回会打断正在进行的点击，
             // 表现为「偶尔点一下没反应，要多点几次才收展」。
@@ -1565,8 +1584,9 @@ export function createPlugin(React, extras = {}) {
             const processed = await compressImage(file, imageSettingsOf())
             const dataUrl = await fileToDataUrl(processed)
             const url = safe(() => URL.createObjectURL(processed))
-            // 已提交台账只存这张小图：清单里够看清是哪张，点开还能放大。
+            // 已提交台账只存缩略图 + 中等预览：清单里看清是哪张，点开看大图用的是 preview。
             const thumb = await downscaleDataUrl(processed, 480, 0.65)
+            const preview = await downscaleDataUrl(processed, 1400, 0.78)
             popInputImages.push({
               id: `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
               file: processed,
@@ -1574,6 +1594,7 @@ export function createPlugin(React, extras = {}) {
               url: typeof url === 'string' ? url : undefined,
               dataUrl,
               thumb,
+              preview,
               bytes: Number(processed.size) || 0,
             })
             renderPopImages()

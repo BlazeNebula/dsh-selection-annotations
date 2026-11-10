@@ -44,7 +44,13 @@ export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxB
     if (JSON.stringify(Object.fromEntries(kept)).length > maxBytes) {
       stored = kept.map(([key, value]) => [
         key,
-        { ...value, items: value.items.map((item) => ({ ...item, thumbs: [] })) },
+        {
+          ...value,
+          items: value.items.map((item) => ({
+            ...item,
+            thumbs: (item.thumbs ?? []).map((thumb) => ({ name: thumb.name, dataUrl: thumb.dataUrl })),
+          })),
+        },
       ])
       if (JSON.stringify(Object.fromEntries(stored)).length > maxBytes) {
         stored = stored.slice(Math.max(0, stored.length - 40))

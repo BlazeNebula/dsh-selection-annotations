@@ -113,7 +113,7 @@ export function createCards({ t, openImageViewer, markdown }) {
           img.addEventListener('click', (event) => {
             event.preventDefault()
             event.stopPropagation()
-            openImageViewer(thumb.dataUrl, thumb.name)
+            openImageViewer(typeof thumb.preview === 'string' && thumb.preview !== '' ? thumb.preview : thumb.dataUrl, thumb.name)
           })
           gallery.appendChild(img)
         }

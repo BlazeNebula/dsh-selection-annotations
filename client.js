@@ -1294,7 +1294,7 @@
             img.addEventListener("click", (event) => {
               event.preventDefault();
               event.stopPropagation();
-              openImageViewer(thumb.dataUrl, thumb.name);
+              openImageViewer(typeof thumb.preview === "string" && thumb.preview !== "" ? thumb.preview : thumb.dataUrl, thumb.name);
             });
             gallery.appendChild(img);
           }
@@ -1657,7 +1657,13 @@
       if (JSON.stringify(Object.fromEntries(kept)).length > maxBytes) {
         stored = kept.map(([key, value]) => [
           key,
-          { ...value, items: value.items.map((item) => ({ ...item, thumbs: [] })) }
+          {
+            ...value,
+            items: value.items.map((item) => ({
+              ...item,
+              thumbs: (item.thumbs ?? []).map((thumb) => ({ name: thumb.name, dataUrl: thumb.dataUrl }))
+            }))
+          }
         ]);
         if (JSON.stringify(Object.fromEntries(stored)).length > maxBytes) {
           stored = stored.slice(Math.max(0, stored.length - 40));
@@ -2071,7 +2077,11 @@
               const thumbs = [];
               for (const image of images) {
                 if (typeof image?.thumb !== "string" || image.thumb === "") continue;
-                thumbs.push({ name: typeof image.name === "string" ? image.name : t("image.alt"), dataUrl: image.thumb });
+                thumbs.push({
+                  name: typeof image.name === "string" ? image.name : t("image.alt"),
+                  dataUrl: image.thumb,
+                  preview: typeof image.preview === "string" && image.preview !== "" ? image.preview : image.dataUrl
+                });
               }
               return thumbs.length > 0 ? { ...annotation, thumbs } : annotation;
             });
@@ -2407,7 +2417,8 @@
           const fresh = rows.filter(
             (entry) => !pending.known.has(entry.anchorKey) && !loadSent(sessionId).has(entry.anchorKey) && entry.row.getAttribute("data-chat-flow-kind") !== "turn-process"
           );
-          const target = fresh.length > 0 ? fresh[fresh.length - 1] : void 0;
+          const attached = fresh.filter((entry) => /批注\.json/.test(entry.row.textContent ?? ""));
+          const target = attached.length > 0 ? attached[attached.length - 1] : fresh[fresh.length - 1];
           if (target === void 0) return;
           pendingSent.shift();
           const turn = turnOfRow(target.row);
@@ -2548,6 +2559,14 @@
             const card = existing ?? buildSentCard(record, anchorKey);
             card.setAttribute("data-sa-key", storedKey);
             card.setAttribute("data-anchor", anchorKey);
+            const bubbleKind = row === null ? "" : row.getAttribute("data-chat-flow-kind") ?? "";
+            const onBubble = row !== null && (bubbleKind === "user" || bubbleKind === "steering" || row.hasAttribute("data-pending-steering"));
+            if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {
+              if (card.parentElement !== row.parentElement || card.previousSibling !== row) {
+                row.parentElement.insertBefore(card, row.nextSibling);
+              }
+              continue;
+            }
             if (footer !== null) {
               if (footer.parentElement !== null && (card.parentElement !== footer.parentElement || card.nextSibling !== footer)) {
                 footer.parentElement.insertBefore(card, footer);
@@ -3153,6 +3172,7 @@
             const dataUrl = await fileToDataUrl(processed);
             const url = safe(() => URL.createObjectURL(processed));
             const thumb = await downscaleDataUrl(processed, 480, 0.65);
+            const preview = await downscaleDataUrl(processed, 1400, 0.78);
             popInputImages.push({
               id: `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
               file: processed,
@@ -3160,6 +3180,7 @@
               url: typeof url === "string" ? url : void 0,
               dataUrl,
               thumb,
+              preview,
               bytes: Number(processed.size) || 0
             });
             renderPopImages();
