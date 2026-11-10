@@ -1584,9 +1584,8 @@ export function createPlugin(React, extras = {}) {
             const processed = await compressImage(file, imageSettingsOf())
             const dataUrl = await fileToDataUrl(processed)
             const url = safe(() => URL.createObjectURL(processed))
-            // 已提交台账只存缩略图 + 中等预览：清单里看清是哪张，点开看大图用的是 preview。
+            // 台账里留缩略图给清单，另留发送出去的那张图本身：点开看的是原尺寸，不再二次缩。
             const thumb = await downscaleDataUrl(processed, 480, 0.65)
-            const preview = await downscaleDataUrl(processed, 1400, 0.78)
             popInputImages.push({
               id: `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
               file: processed,
@@ -1594,7 +1593,6 @@ export function createPlugin(React, extras = {}) {
               url: typeof url === 'string' ? url : undefined,
               dataUrl,
               thumb,
-              preview,
               bytes: Number(processed.size) || 0,
             })
             renderPopImages()

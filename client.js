@@ -3172,7 +3172,6 @@
             const dataUrl = await fileToDataUrl(processed);
             const url = safe(() => URL.createObjectURL(processed));
             const thumb = await downscaleDataUrl(processed, 480, 0.65);
-            const preview = await downscaleDataUrl(processed, 1400, 0.78);
             popInputImages.push({
               id: `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
               file: processed,
@@ -3180,7 +3179,6 @@
               url: typeof url === "string" ? url : void 0,
               dataUrl,
               thumb,
-              preview,
               bytes: Number(processed.size) || 0
             });
             renderPopImages();
