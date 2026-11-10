@@ -212,6 +212,8 @@ export const CSS = `
 .sa-reply-needs_info { color: var(--dsw-alias-state-business-primary, #58a6ff); }
 .sa-a-reason { font-size: 15px; line-height: 1.75; color: var(--dsw-alias-label-primary, CanvasText);
   white-space: pre-wrap; word-break: break-word; }
+/* Markdown 渲染后不要再保留 pre-wrap：源码里的换行会被当成额外空行。 */
+.sa-a-reason[data-sa-md="1"] { white-space: normal; }
 .sa-a-next { margin-top: 2px; padding: 6px 10px; border-radius: 6px;
   border-left: 2px solid var(--sa-tone, var(--dsw-alias-border-l1, ButtonBorder));
   background: var(--dsw-alias-bg-layer-2, #ffffff08); font-size: 12.5px; line-height: 1.5;
