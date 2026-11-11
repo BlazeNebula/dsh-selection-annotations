@@ -116,6 +116,8 @@ export function createPlugin(React, extras = {}) {
         const sentBySession = new Map()
         /** 刚随消息发出、还在等对应消息行出现的负载。*/
         let pendingSent = []
+        /** 上一批已清空但还没记账的批注；扫描超时后放回界面，避免用户什么都看不到。*/
+        let consumedSnapshot = null
         /** 附件实际挂到哪个会话的输入外壳：记账沿用它，避免发送后重算会话 id 时串到别的会话。*/
         let attachedSessionId = undefined
         /** 最后一次成功挂附件时页面上已有的批注消息锚点键；发送后据此区分新消息与旧历史。*/
@@ -255,6 +257,8 @@ export function createPlugin(React, extras = {}) {
             })
             lastAnnotatedKeys = new Set()
           }
+          // 界面上按发送成功清空，但留一份快照：若一直没能记账，扫描超时后把快照放回来。
+          consumedSnapshot = { items: annotations.slice(), at: Date.now() }
           annotations = []
           emit()
           scheduleRepaint()
@@ -611,7 +615,10 @@ export function createPlugin(React, extras = {}) {
         })
         const loadSent = (sessionId) => sentStore.loadSent(sessionId)
         const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table)
-        const recordSent = (sessionId, anchorKey, items, turn) => sentStore.recordSent(sessionId, anchorKey, items, turn)
+        const recordSent = (sessionId, anchorKey, items, turn) => {
+          sentStore.recordSent(sessionId, anchorKey, items, turn)
+          consumedSnapshot = null
+        }
 
         /**
          * 页面上所有用户消息行（锚点键）。
@@ -664,10 +671,26 @@ export function createPlugin(React, extras = {}) {
         }
 
         /** 把新出现的候选行与刚发出的批注负载按出现顺序配对。*/
+        /** 记账一直没成功：把快照放回界面，至少让用户看到自己写了什么（台账里没有，卡片也不会出现）。*/
+        function restoreConsumedSnapshot() {
+          if (consumedSnapshot === null) return
+          const known = new Set(annotations.map((item) => item.id))
+          const restored = consumedSnapshot.items.filter((item) => !known.has(item.id))
+          consumedSnapshot = null
+          if (restored.length === 0) return
+          annotations = [...restored, ...annotations]
+          emit()
+          scheduleRepaint()
+          saveDraft(annotationsSession)
+          warn('[selection-annotations] 这批批注没能记进已发送台账，已放回界面。')
+        }
+
         function scanSentMessages() {
           if (pendingSent.length === 0) return
           const now = Date.now()
+          const before = pendingSent.length
           pendingSent = pendingSent.filter((entry) => now - entry.at < SENT_PENDING_TTL_MS)
+          if (pendingSent.length < before && pendingSent.length === 0) restoreConsumedSnapshot()
           if (pendingSent.length === 0) return
           const rows = collectAnchorRows()
           if (rows.length === 0) return
@@ -690,7 +713,13 @@ export function createPlugin(React, extras = {}) {
             const kind = entry.row.getAttribute('data-chat-flow-kind') ?? ''
             return kind === 'user' || kind === 'steering'
           })
-          const pool = attached.length > 0 ? attached : bubbles
+          // 最后兜底：既没有附件文字、也不是 user/steering 的行，只在 kind 为空/分组行里挑，
+          // 仍排除过程块里的推理行与工具调用行。
+          const loose = fresh.filter((entry) => {
+            const kind = entry.row.getAttribute('data-chat-flow-kind') ?? ''
+            return kind === '' || kind.startsWith('group:')
+          })
+          const pool = attached.length > 0 ? attached : bubbles.length > 0 ? bubbles : loose
           // 同一时间可能有多个会话的 DOM 留在页面里；取轮次最大的那一条，避免挂到旧会话的气泡上。
           let target = pool[0]
           let bestTurn = -1

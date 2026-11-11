@@ -2120,6 +2120,7 @@
         const draftSessions = /* @__PURE__ */ new Map();
         const sentBySession = /* @__PURE__ */ new Map();
         let pendingSent = [];
+        let consumedSnapshot = null;
         let attachedSessionId = void 0;
         let lastAnnotatedKeys = /* @__PURE__ */ new Set();
         let draftSeen = false;
@@ -2220,6 +2221,7 @@
             });
             lastAnnotatedKeys = /* @__PURE__ */ new Set();
           }
+          consumedSnapshot = { items: annotations.slice(), at: Date.now() };
           annotations = [];
           emit();
           scheduleRepaint();
@@ -2499,7 +2501,10 @@
         });
         const loadSent = (sessionId) => sentStore.loadSent(sessionId);
         const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table);
-        const recordSent = (sessionId, anchorKey, items, turn) => sentStore.recordSent(sessionId, anchorKey, items, turn);
+        const recordSent = (sessionId, anchorKey, items, turn) => {
+          sentStore.recordSent(sessionId, anchorKey, items, turn);
+          consumedSnapshot = null;
+        };
         function collectAnchorRows() {
           const rows = [];
           const seen = /* @__PURE__ */ new Set();
@@ -2531,10 +2536,24 @@
         function captureAnchorKeys() {
           return new Set(collectAnchorRows().map((entry) => entry.anchorKey));
         }
+        function restoreConsumedSnapshot() {
+          if (consumedSnapshot === null) return;
+          const known = new Set(annotations.map((item) => item.id));
+          const restored = consumedSnapshot.items.filter((item) => !known.has(item.id));
+          consumedSnapshot = null;
+          if (restored.length === 0) return;
+          annotations = [...restored, ...annotations];
+          emit();
+          scheduleRepaint();
+          saveDraft(annotationsSession);
+          warn("[selection-annotations] 这批批注没能记进已发送台账，已放回界面。");
+        }
         function scanSentMessages() {
           if (pendingSent.length === 0) return;
           const now = Date.now();
+          const before = pendingSent.length;
           pendingSent = pendingSent.filter((entry) => now - entry.at < SENT_PENDING_TTL_MS);
+          if (pendingSent.length < before && pendingSent.length === 0) restoreConsumedSnapshot();
           if (pendingSent.length === 0) return;
           const rows = collectAnchorRows();
           if (rows.length === 0) return;
@@ -2553,7 +2572,11 @@
             const kind = entry.row.getAttribute("data-chat-flow-kind") ?? "";
             return kind === "user" || kind === "steering";
           });
-          const pool = attached.length > 0 ? attached : bubbles;
+          const loose = fresh.filter((entry) => {
+            const kind = entry.row.getAttribute("data-chat-flow-kind") ?? "";
+            return kind === "" || kind.startsWith("group:");
+          });
+          const pool = attached.length > 0 ? attached : bubbles.length > 0 ? bubbles : loose;
           let target = pool[0];
           let bestTurn = -1;
           for (const entry of pool) {
