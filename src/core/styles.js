@@ -235,7 +235,7 @@ export const CSS = `
 .sa-collapse[data-open="1"] { grid-template-rows: 1fr; opacity: 1; }
 .sa-collapse-inner { min-height: 0; overflow: hidden; }
 .sa-replies-head { font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); }
-.sa-replies-body { display: flex; flex-direction: column; gap: 10px; }
+.sa-replies-body { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; }
 
 /* 每条答复一张独立卡片：抬升表面 + 判定色左边线，肉眼先分条、再读内容 */
 .sa-reply-item { display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
@@ -296,7 +296,7 @@ export const CSS = `
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: var(--dsw-alias-bg-layer-1, Canvas); }
 .sa-sent-item { display: flex; gap: 6px; padding: 8px 0; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;
   border-top: 1px solid var(--dsw-alias-border-secondary, #3333); }
-.sa-sent-item:first-child { border-top: none; padding-top: 2px; }
+.sa-sent-item:first-child { border-top: none; padding-top: 0; }
 .sa-sent-num { flex: none; min-width: 14px; font-weight: 600; color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-sent-text { min-width: 0; }
 .sa-sent-quote { padding-left: 8px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder);
