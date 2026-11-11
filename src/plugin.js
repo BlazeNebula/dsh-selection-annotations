@@ -265,6 +265,8 @@ export function createPlugin(React, extras = {}) {
           // 草稿存储也要跟着清掉：否则刷新后这批已发出的批注会「复活」。
           saveDraft(annotationsSession)
           log(`[selection-annotations] 批注已随消息发出（${reason}）`)
+          // 立刻试一次记账：多数时候消息行已经在 DOM 里，不用等到下一次重绘。
+          safe(() => scanSentMessages())
         }
 
         /**
@@ -720,10 +722,14 @@ export function createPlugin(React, extras = {}) {
             return kind === '' || kind.startsWith('group:')
           })
           const pool = attached.length > 0 ? attached : bubbles.length > 0 ? bubbles : loose
+          // 等气泡最多 1.2 秒：消息气泡有时要等回合开始才挂出来，但「已发送」不该因此迟到太久。
+          const wait = Date.now() - pending.at
+          const fallback = pool.length === 0 && wait > 1200 ? fresh.slice(-1) : []
+          const usable = pool.length > 0 ? pool : fallback
           // 同一时间可能有多个会话的 DOM 留在页面里；取轮次最大的那一条，避免挂到旧会话的气泡上。
-          let target = pool[0]
+          let target = usable[0]
           let bestTurn = -1
-          for (const entry of pool) {
+          for (const entry of usable) {
             const turn = turnOfRow(entry.row)
             const score = Number.isFinite(turn) ? turn : 0
             if (score >= bestTurn) {

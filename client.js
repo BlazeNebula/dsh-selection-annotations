@@ -2227,6 +2227,7 @@
           scheduleRepaint();
           saveDraft(annotationsSession);
           log(`[selection-annotations] 批注已随消息发出（${reason}）`);
+          safe(() => scanSentMessages());
         }
         function scheduleConsumeCheck() {
           if (consumeTimer !== null) return;
@@ -2577,9 +2578,12 @@
             return kind === "" || kind.startsWith("group:");
           });
           const pool = attached.length > 0 ? attached : bubbles.length > 0 ? bubbles : loose;
-          let target = pool[0];
+          const wait = Date.now() - pending.at;
+          const fallback = pool.length === 0 && wait > 1200 ? fresh.slice(-1) : [];
+          const usable = pool.length > 0 ? pool : fallback;
+          let target = usable[0];
           let bestTurn = -1;
-          for (const entry of pool) {
+          for (const entry of usable) {
             const turn2 = turnOfRow(entry.row);
             const score = Number.isFinite(turn2) ? turn2 : 0;
             if (score >= bestTurn) {
