@@ -1802,6 +1802,25 @@ export function createPlugin(React, extras = {}) {
           element.style.top = `${Math.max(8, top)}px`
         }
 
+        /** 按当前选区把工具条摆出来；松手时会直接调它，不再等去抖计时。*/
+        function showSelectionToolbar() {
+          const selection = readSelection()
+          if (selection === null) {
+            hideToolbar()
+            return
+          }
+          const rect = safe(() => selection.range.getBoundingClientRect())
+          if (rect === undefined || (rect.width === 0 && rect.height === 0)) {
+            hideToolbar()
+            return
+          }
+          pendingSelection = selection
+          toolbar.dataset.open = '1'
+          const fresh = lastPointerUp !== null && Date.now() - lastPointerUp.at < 1500
+          selectionPointer = fresh ? lastPointerUp : null
+          placeToolbar(toolbar, rect, fresh ? lastPointerUp : null)
+        }
+
         function onSelectionChange() {
           window.clearTimeout(settleTimer)
           settleTimer = window.setTimeout(() => {
@@ -1810,21 +1829,7 @@ export function createPlugin(React, extras = {}) {
               hideToolbar()
               return
             }
-            const selection = readSelection()
-            if (selection === null) {
-              hideToolbar()
-              return
-            }
-            const rect = safe(() => selection.range.getBoundingClientRect())
-            if (rect === undefined || (rect.width === 0 && rect.height === 0)) {
-              hideToolbar()
-              return
-            }
-            pendingSelection = selection
-            toolbar.dataset.open = '1'
-            const fresh = lastPointerUp !== null && Date.now() - lastPointerUp.at < 1500
-            selectionPointer = fresh ? lastPointerUp : null
-            placeToolbar(toolbar, rect, fresh ? lastPointerUp : null)
+            showSelectionToolbar()
           }, SETTLE_MS)
         }
 
@@ -2829,11 +2834,14 @@ export function createPlugin(React, extras = {}) {
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return
             pointerSelecting = false
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() }
+            // 松手即渲染：选区已经定了，不需要再等 220ms 的去抖。
+            window.clearTimeout(settleTimer)
+            settleTimer = null
+            showSelectionToolbar()
             if (toolbar.dataset.open === '1' && pendingSelection !== null) {
               const rect = safe(() => pendingSelection.range.getBoundingClientRect())
               if (rect !== undefined) placeToolbar(toolbar, rect, lastPointerUp)
             }
-            onSelectionChange()
           }
           document.addEventListener('pointerup', onPointerUp, true)
           const onPointerMove = (event) => {

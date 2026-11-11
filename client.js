@@ -3485,6 +3485,23 @@
           element.style.left = `${left}px`;
           element.style.top = `${Math.max(8, top)}px`;
         }
+        function showSelectionToolbar() {
+          const selection = readSelection();
+          if (selection === null) {
+            hideToolbar();
+            return;
+          }
+          const rect = safe(() => selection.range.getBoundingClientRect());
+          if (rect === void 0 || rect.width === 0 && rect.height === 0) {
+            hideToolbar();
+            return;
+          }
+          pendingSelection = selection;
+          toolbar.dataset.open = "1";
+          const fresh = lastPointerUp !== null && Date.now() - lastPointerUp.at < 1500;
+          selectionPointer = fresh ? lastPointerUp : null;
+          placeToolbar(toolbar, rect, fresh ? lastPointerUp : null);
+        }
         function onSelectionChange() {
           window.clearTimeout(settleTimer);
           settleTimer = window.setTimeout(() => {
@@ -3493,21 +3510,7 @@
               hideToolbar();
               return;
             }
-            const selection = readSelection();
-            if (selection === null) {
-              hideToolbar();
-              return;
-            }
-            const rect = safe(() => selection.range.getBoundingClientRect());
-            if (rect === void 0 || rect.width === 0 && rect.height === 0) {
-              hideToolbar();
-              return;
-            }
-            pendingSelection = selection;
-            toolbar.dataset.open = "1";
-            const fresh = lastPointerUp !== null && Date.now() - lastPointerUp.at < 1500;
-            selectionPointer = fresh ? lastPointerUp : null;
-            placeToolbar(toolbar, rect, fresh ? lastPointerUp : null);
+            showSelectionToolbar();
           }, SETTLE_MS);
         }
         let popoverMode = "create";
@@ -4369,11 +4372,13 @@
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return;
             pointerSelecting = false;
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() };
+            window.clearTimeout(settleTimer);
+            settleTimer = null;
+            showSelectionToolbar();
             if (toolbar.dataset.open === "1" && pendingSelection !== null) {
               const rect = safe(() => pendingSelection.range.getBoundingClientRect());
               if (rect !== void 0) placeToolbar(toolbar, rect, lastPointerUp);
             }
-            onSelectionChange();
           };
           document.addEventListener("pointerup", onPointerUp, true);
           const onPointerMove = (event) => {
