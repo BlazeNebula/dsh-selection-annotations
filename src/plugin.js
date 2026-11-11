@@ -1366,6 +1366,11 @@ export function createPlugin(React, extras = {}) {
         const popNoteLabel = document.createElement('div')
         popNoteLabel.className = 'sa-pop-label'
         popNoteLabel.textContent = t('pop.noteLabel')
+        /** 输入前缀时的补全提示：回车/Tab 换成采纳 token。*/
+        const popSuggest = document.createElement('button')
+        popSuggest.type = 'button'
+        popSuggest.className = 'sa-suggest'
+        popSuggest.style.display = 'none'
         const popInput = document.createElement('div')
         popInput.className = 'sa-pop-input'
         popInput.setAttribute('contenteditable', 'true')
@@ -1466,6 +1471,34 @@ export function createPlugin(React, extras = {}) {
           appendNoteText(text)
           caretToEnd()
         }
+        /** 行内补全：输入采纳句的前缀时提示，Tab 或点提示换成 token。*/
+        let suggestedPrefix = ''
+        function updateSuggestion() {
+          const phrase = adoptTextOf()
+          const value = noteValue()
+          const line = value.slice(value.lastIndexOf('\n') + 1)
+          if (line !== '' && line !== phrase && phrase.startsWith(line)) {
+            suggestedPrefix = line
+            popSuggest.textContent = `${phrase}　Tab`
+            popSuggest.style.display = ''
+            return
+          }
+          suggestedPrefix = ''
+          popSuggest.style.display = 'none'
+        }
+
+        function acceptSuggestion() {
+          if (suggestedPrefix === '') return false
+          const phrase = adoptTextOf()
+          const value = noteValue()
+          const base = value.slice(0, value.length - suggestedPrefix.length)
+          setNoteContent(base + phrase)
+          safe(() => caretToEnd())
+          suggestedPrefix = ''
+          popSuggest.style.display = 'none'
+          syncPopInputHeight()
+          return true
+        }
         const popActions = document.createElement('div')
         popActions.className = 'sa-pop-actions'
         /** 当前正在编辑的这条批注挂的图片；只在内存里（二进制进不了 localStorage）。*/
@@ -1515,7 +1548,7 @@ export function createPlugin(React, extras = {}) {
         popSave.className = 'sa-btn sa-pop-primary'
         popSave.textContent = t('pop.save')
         popActions.append(popDelete, popSpacer, popCancel, popSave)
-        popover.append(popTitle, popQuoteLabel, popQuote, popSource, popNoteLabel, popInput, popImages, popActions)
+        popover.append(popTitle, popQuoteLabel, popQuote, popSource, popNoteLabel, popInput, popSuggest, popImages, popActions)
 
         function isExcluded(node) {
           const element = elementOf(node)
@@ -1766,6 +1799,7 @@ export function createPlugin(React, extras = {}) {
           popQuoteLabel.style.display = options.quote === '' ? 'none' : ''
           popSource.textContent = options.sourceText
           setNoteContent(options.note)
+          updateSuggestion()
           resetPopImages(options.images)
           popoverMode = options.mode
           popoverTargetId = options.targetId ?? null
@@ -1841,6 +1875,8 @@ export function createPlugin(React, extras = {}) {
           popoverAnchor = null
           popoverTargetId = null
           popoverMode = 'create'
+          suggestedPrefix = ''
+          popSuggest.style.display = 'none'
         }
 
         /**
@@ -2006,6 +2042,10 @@ export function createPlugin(React, extras = {}) {
           // 采纳 token 是 contenteditable=false，退格与选中由浏览器按整块处理；
           // 手打前几个字时，Tab 把当前内容换成完整的采纳 token。
           if (event.key === 'Tab' && !event.shiftKey) {
+            if (acceptSuggestion()) {
+              event.preventDefault()
+              return
+            }
             const value = noteValue()
             if (value !== '' && phrase.startsWith(value)) {
               event.preventDefault()
@@ -2026,8 +2066,28 @@ export function createPlugin(React, extras = {}) {
           if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) commitPopover()
         })
         popInput.addEventListener('input', () => {
+          const phrase = adoptTextOf()
+          const value = noteValue()
+          // 手打完整采纳句时直接转成 token，避免留下可拆开的纯文本。
+          if (value.endsWith(phrase)) {
+            const last = popInput.lastElementChild
+            const already = last !== null && last !== undefined && typeof last.className === 'string' && last.className.includes('sa-token')
+            if (!already) {
+              setNoteContent(value)
+              safe(() => caretToEnd())
+            }
+          }
+          updateSuggestion()
           refreshNoteState()
           syncPopInputHeight()
+        })
+        popSuggest.addEventListener('mousedown', (event) => {
+          // 保住编辑器焦点，点提示不会先触发失焦。
+          event.preventDefault()
+        })
+        popSuggest.addEventListener('click', (event) => {
+          event.preventDefault()
+          acceptSuggestion()
         })
         // 原生 resize 手柄拖过之后，实际高度会与自动值不同 —— 从此不再覆盖用户的选择。
         popInput.addEventListener('pointerup', () => {

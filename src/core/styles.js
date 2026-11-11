@@ -63,6 +63,11 @@ export const CSS = `
 .sa-token { display: inline-flex; align-items: center; margin: 0 1px; padding: 0 6px; border-radius: 6px;
   background: var(--dsw-alias-state-success-tertiary, #e6faed); color: var(--dsw-alias-state-success-primary, #22c55e);
   font-weight: 500; user-select: all; }
+.sa-suggest { align-self: flex-start; margin-top: 4px; padding: 4px 8px; font: inherit;
+  font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); color: var(--dsw-alias-brand-primary, #247bbf);
+  background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px dashed var(--dsw-alias-border-l2, ButtonBorder);
+  border-radius: 6px; cursor: pointer; }
+.sa-suggest:hover { background: var(--dsw-alias-interactive-bg-hover, ButtonFace); }
 .sa-pop-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .sa-pop-spacer { flex: 1; }
 .sa-pop-delete { color: var(--dsw-alias-state-error-primary, #e5484d); }

@@ -65,6 +65,11 @@
 .sa-token { display: inline-flex; align-items: center; margin: 0 1px; padding: 0 6px; border-radius: 6px;
   background: var(--dsw-alias-state-success-tertiary, #e6faed); color: var(--dsw-alias-state-success-primary, #22c55e);
   font-weight: 500; user-select: all; }
+.sa-suggest { align-self: flex-start; margin-top: 4px; padding: 4px 8px; font: inherit;
+  font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); color: var(--dsw-alias-brand-primary, #247bbf);
+  background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px dashed var(--dsw-alias-border-l2, ButtonBorder);
+  border-radius: 6px; cursor: pointer; }
+.sa-suggest:hover { background: var(--dsw-alias-interactive-bg-hover, ButtonFace); }
 .sa-pop-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .sa-pop-spacer { flex: 1; }
 .sa-pop-delete { color: var(--dsw-alias-state-error-primary, #e5484d); }
@@ -3041,6 +3046,10 @@
         const popNoteLabel = document.createElement("div");
         popNoteLabel.className = "sa-pop-label";
         popNoteLabel.textContent = t("pop.noteLabel");
+        const popSuggest = document.createElement("button");
+        popSuggest.type = "button";
+        popSuggest.className = "sa-suggest";
+        popSuggest.style.display = "none";
         const popInput = document.createElement("div");
         popInput.className = "sa-pop-input";
         popInput.setAttribute("contenteditable", "true");
@@ -3126,6 +3135,32 @@
           appendNoteText(text);
           caretToEnd();
         };
+        let suggestedPrefix = "";
+        function updateSuggestion() {
+          const phrase = adoptTextOf();
+          const value = noteValue();
+          const line = value.slice(value.lastIndexOf("\n") + 1);
+          if (line !== "" && line !== phrase && phrase.startsWith(line)) {
+            suggestedPrefix = line;
+            popSuggest.textContent = `${phrase}　Tab`;
+            popSuggest.style.display = "";
+            return;
+          }
+          suggestedPrefix = "";
+          popSuggest.style.display = "none";
+        }
+        function acceptSuggestion() {
+          if (suggestedPrefix === "") return false;
+          const phrase = adoptTextOf();
+          const value = noteValue();
+          const base = value.slice(0, value.length - suggestedPrefix.length);
+          setNoteContent(base + phrase);
+          safe(() => caretToEnd());
+          suggestedPrefix = "";
+          popSuggest.style.display = "none";
+          syncPopInputHeight();
+          return true;
+        }
         const popActions = document.createElement("div");
         popActions.className = "sa-pop-actions";
         let popInputImages = [];
@@ -3169,7 +3204,7 @@
         popSave.className = "sa-btn sa-pop-primary";
         popSave.textContent = t("pop.save");
         popActions.append(popDelete, popSpacer, popCancel, popSave);
-        popover.append(popTitle, popQuoteLabel, popQuote, popSource, popNoteLabel, popInput, popImages, popActions);
+        popover.append(popTitle, popQuoteLabel, popQuote, popSource, popNoteLabel, popInput, popSuggest, popImages, popActions);
         function isExcluded(node) {
           const element = elementOf2(node);
           if (element === null) return true;
@@ -3390,6 +3425,7 @@
           popQuoteLabel.style.display = options.quote === "" ? "none" : "";
           popSource.textContent = options.sourceText;
           setNoteContent(options.note);
+          updateSuggestion();
           resetPopImages(options.images);
           popoverMode = options.mode;
           popoverTargetId = options.targetId ?? null;
@@ -3453,6 +3489,8 @@
           popoverAnchor = null;
           popoverTargetId = null;
           popoverMode = "create";
+          suggestedPrefix = "";
+          popSuggest.style.display = "none";
         }
         function markRefineReason(id, reason) {
           let hit = false;
@@ -3584,6 +3622,10 @@
         popInput.addEventListener("keydown", (event) => {
           const phrase = adoptTextOf();
           if (event.key === "Tab" && !event.shiftKey) {
+            if (acceptSuggestion()) {
+              event.preventDefault();
+              return;
+            }
             const value = noteValue();
             if (value !== "" && phrase.startsWith(value)) {
               event.preventDefault();
@@ -3604,8 +3646,26 @@
           if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) commitPopover();
         });
         popInput.addEventListener("input", () => {
+          const phrase = adoptTextOf();
+          const value = noteValue();
+          if (value.endsWith(phrase)) {
+            const last = popInput.lastElementChild;
+            const already = last !== null && last !== void 0 && typeof last.className === "string" && last.className.includes("sa-token");
+            if (!already) {
+              setNoteContent(value);
+              safe(() => caretToEnd());
+            }
+          }
+          updateSuggestion();
           refreshNoteState();
           syncPopInputHeight();
+        });
+        popSuggest.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+        });
+        popSuggest.addEventListener("click", (event) => {
+          event.preventDefault();
+          acceptSuggestion();
         });
         popInput.addEventListener("pointerup", () => {
           if (!popInputAutoHeight) return;
