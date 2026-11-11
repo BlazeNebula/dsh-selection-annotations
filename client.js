@@ -8,17 +8,17 @@
 .sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
 /* 批注文字的墨色从主题前景色派生（同 dsh-todo-notes 的优先级着色）：普通批注走 warn 色相，采纳走 success 色相。*/
-.sa-item-note, .sa-sent-note, .sa-a-reason, .sa-pop-input, .sa-token {
+.sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-token {
   color: var(--dsw-alias-state-warn-primary, #d29922); }
 @supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
-  .sa-item-note, .sa-sent-note, .sa-a-reason, .sa-pop-input, .sa-token {
+  .sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.12 85); }
 }
-.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-a-reason[data-adopt="1"],
+.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-note[data-adopt="1"],
 .sa-pop-input[data-adopt="1"], .sa-token {
   color: var(--dsw-alias-state-success-primary, #22c55e); }
 @supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
-  .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-a-reason[data-adopt="1"],
+  .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-note[data-adopt="1"],
   .sa-pop-input[data-adopt="1"], .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.13 150); }
 }
@@ -330,7 +330,7 @@
   var DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100 };
   var INSTRUCTION_SETTINGS_KEY = "dsh-selection-annotations:instruction-settings";
   var ADOPT_SETTINGS_KEY = "dsh-selection-annotations:adopt-settings";
-  var DEFAULT_ADOPT_TEXT = "意见采纳";
+  var DEFAULT_ADOPT_TEXT = "【意见采纳】";
   var DEFAULT_INSTRUCTION = [
     "这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n",
     "\n",
@@ -781,7 +781,7 @@
       const parsed = safe(() => JSON.parse(storage.getItem(ADOPT_SETTINGS_KEY) ?? "null"));
       if (parsed === null || typeof parsed !== "object") return DEFAULT_ADOPT_TEXT;
       const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
-      if (text === "意见采纳。") return DEFAULT_ADOPT_TEXT;
+      if (text === "意见采纳。" || text === "意见采纳") return DEFAULT_ADOPT_TEXT;
       return text === "" ? DEFAULT_ADOPT_TEXT : text;
     }
     function adoptTextOf() {
@@ -1485,6 +1485,7 @@
             const note = document.createElement("div");
             note.className = "sa-q-note";
             note.setAttribute("data-sa-field", "note");
+            if (isAdopt(item.note)) note.dataset.adopt = "1";
             note.textContent = item.note;
             q.appendChild(note);
           }
@@ -1502,7 +1503,6 @@
         const reason = document.createElement("div");
         reason.className = "sa-a-reason";
         reason.setAttribute("data-sa-field", "reason");
-        if (isAdopt(reply.reason)) reason.dataset.adopt = "1";
         if (markdown !== void 0 && typeof markdown.mount === "function") {
           markdown.mount(reason, typeof reply.reason === "string" ? reply.reason : "");
         } else {
@@ -2444,7 +2444,6 @@
           if (!hit) return;
           emit();
           scheduleSync();
-          scheduleRepaint();
           saveDraft(annotationsSession);
         }
         function removeAnnotation(id) {

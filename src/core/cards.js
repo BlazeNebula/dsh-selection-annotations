@@ -207,6 +207,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           const note = document.createElement('div')
           note.className = 'sa-q-note'
           note.setAttribute('data-sa-field', 'note')
+          if (isAdopt(item.note)) note.dataset.adopt = '1'
           note.textContent = item.note
           q.appendChild(note)
         }
@@ -225,7 +226,6 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       const reason = document.createElement('div')
       reason.className = 'sa-a-reason'
       reason.setAttribute('data-sa-field', 'reason')
-      if (isAdopt(reply.reason)) reason.dataset.adopt = '1'
       if (markdown !== undefined && typeof markdown.mount === 'function') {
         markdown.mount(reason, typeof reply.reason === 'string' ? reply.reason : '')
       } else {

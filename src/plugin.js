@@ -558,7 +558,6 @@ export function createPlugin(React, extras = {}) {
           if (!hit) return
           emit()
           scheduleSync()
-          scheduleRepaint()
           saveDraft(annotationsSession)
         }
 
