@@ -676,17 +676,32 @@ export function createPlugin(React, extras = {}) {
             typeof pending.sessionId === 'string' && pending.sessionId !== '' ? pending.sessionId : currentSessionId()
           if (sessionId === undefined) return
           // 候选：不在「发送前快照」里、也还没落台账的行；「已完成」尾行不是消息，别拿它当锚点。
-          const fresh = rows.filter(
-            (entry) =>
-              !pending.known.has(entry.anchorKey) &&
-              !loadSent(sessionId).has(entry.anchorKey) &&
-              entry.row.getAttribute('data-chat-flow-kind') !== 'turn-process',
-          )
-          // 兜底：纯批注消息可能复用已有的组行（锚点键不变），那就取最后一个还没记账的行。
-          // 优先认「带 批注.json 附件」的行：插队（steering）消息的气泡里也能看到这个附件，
-          // 否则容易取到过程里的推理行，把记账锚点挂错地方。
+          const fresh = rows.filter((entry) => {
+            if (pending.known.has(entry.anchorKey)) return false
+            if (loadSent(sessionId).has(entry.anchorKey)) return false
+            const kind = entry.row.getAttribute('data-chat-flow-kind') ?? ''
+            if (kind === 'turn-process') return false
+            return true
+          })
+          // 只认两类：带 批注.json 附件的气泡（插队消息也能认出来），或 user/steering 气泡。
+          // 过程里的推理行、工具调用行不参与，否则会把记账锚点挂到 call:* 上（历史事故）。
           const attached = fresh.filter((entry) => /批注\.json/.test(entry.row.textContent ?? ''))
-          const target = attached.length > 0 ? attached[attached.length - 1] : fresh[fresh.length - 1]
+          const bubbles = fresh.filter((entry) => {
+            const kind = entry.row.getAttribute('data-chat-flow-kind') ?? ''
+            return kind === 'user' || kind === 'steering'
+          })
+          const pool = attached.length > 0 ? attached : bubbles
+          // 同一时间可能有多个会话的 DOM 留在页面里；取轮次最大的那一条，避免挂到旧会话的气泡上。
+          let target = pool[0]
+          let bestTurn = -1
+          for (const entry of pool) {
+            const turn = turnOfRow(entry.row)
+            const score = Number.isFinite(turn) ? turn : 0
+            if (score >= bestTurn) {
+              bestTurn = score
+              target = entry
+            }
+          }
           if (target === undefined) return
           pendingSent.shift()
           const turn = turnOfRow(target.row)

@@ -283,6 +283,10 @@
   white-space: pre-wrap; word-break: break-word; }
 /* Markdown 渲染后不要再保留 pre-wrap：源码里的换行会被当成额外空行。 */
 .sa-a-reason[data-sa-md="1"] { white-space: normal; }
+.sa-a-next-label { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 4px; vertical-align: 1px;
+  font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: .02em;
+  color: var(--sa-tone, var(--dsw-alias-label-secondary, #8b949e));
+  background: color-mix(in srgb, var(--sa-tone, var(--dsw-alias-border-l1, #888)) 16%, transparent); }
 .sa-a-next { margin-top: 2px; padding: 6px 10px; border-radius: 6px;
   border-left: 2px solid var(--sa-tone, var(--dsw-alias-border-l1, ButtonBorder));
   background: var(--dsw-alias-bg-layer-2, #ffffff08); font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;
@@ -454,6 +458,7 @@
       "label.next": "下一步",
       "reply.index": "批注 {n}",
       "reply.fallbackLabel": "批注 {n} · 答复",
+      "next.label": "下一步",
       "next.prefix": "下一步：{text}",
       expand: "点击展开全文",
       "source.unknown": "未知出处",
@@ -549,6 +554,7 @@
       "label.next": "Next step",
       "reply.index": "Annotation {n}",
       "reply.fallbackLabel": "Annotation {n} · reply",
+      "next.label": "Next",
       "next.prefix": "Next step: {text}",
       expand: "Click to expand",
       "source.unknown": "Unknown source",
@@ -1513,7 +1519,13 @@
           const next = document.createElement("div");
           next.className = "sa-a-next";
           next.setAttribute("data-sa-field", "next");
-          next.textContent = t("next.prefix", { text: reply.next });
+          const label = document.createElement("span");
+          label.className = "sa-a-next-label";
+          label.textContent = t("next.label");
+          const body2 = document.createElement("span");
+          body2.className = "sa-a-next-text";
+          body2.textContent = reply.next;
+          next.append(label, body2);
           a.appendChild(next);
         }
         content.appendChild(a);
@@ -2529,11 +2541,29 @@
           const pending = pendingSent[0];
           const sessionId = typeof pending.sessionId === "string" && pending.sessionId !== "" ? pending.sessionId : currentSessionId();
           if (sessionId === void 0) return;
-          const fresh = rows.filter(
-            (entry) => !pending.known.has(entry.anchorKey) && !loadSent(sessionId).has(entry.anchorKey) && entry.row.getAttribute("data-chat-flow-kind") !== "turn-process"
-          );
+          const fresh = rows.filter((entry) => {
+            if (pending.known.has(entry.anchorKey)) return false;
+            if (loadSent(sessionId).has(entry.anchorKey)) return false;
+            const kind = entry.row.getAttribute("data-chat-flow-kind") ?? "";
+            if (kind === "turn-process") return false;
+            return true;
+          });
           const attached = fresh.filter((entry) => /批注\.json/.test(entry.row.textContent ?? ""));
-          const target = attached.length > 0 ? attached[attached.length - 1] : fresh[fresh.length - 1];
+          const bubbles = fresh.filter((entry) => {
+            const kind = entry.row.getAttribute("data-chat-flow-kind") ?? "";
+            return kind === "user" || kind === "steering";
+          });
+          const pool = attached.length > 0 ? attached : bubbles;
+          let target = pool[0];
+          let bestTurn = -1;
+          for (const entry of pool) {
+            const turn2 = turnOfRow(entry.row);
+            const score = Number.isFinite(turn2) ? turn2 : 0;
+            if (score >= bestTurn) {
+              bestTurn = score;
+              target = entry;
+            }
+          }
           if (target === void 0) return;
           pendingSent.shift();
           const turn = turnOfRow(target.row);

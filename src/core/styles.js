@@ -281,6 +281,10 @@ export const CSS = `
   white-space: pre-wrap; word-break: break-word; }
 /* Markdown 渲染后不要再保留 pre-wrap：源码里的换行会被当成额外空行。 */
 .sa-a-reason[data-sa-md="1"] { white-space: normal; }
+.sa-a-next-label { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 4px; vertical-align: 1px;
+  font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: .02em;
+  color: var(--sa-tone, var(--dsw-alias-label-secondary, #8b949e));
+  background: color-mix(in srgb, var(--sa-tone, var(--dsw-alias-border-l1, #888)) 16%, transparent); }
 .sa-a-next { margin-top: 2px; padding: 6px 10px; border-radius: 6px;
   border-left: 2px solid var(--sa-tone, var(--dsw-alias-border-l1, ButtonBorder));
   background: var(--dsw-alias-bg-layer-2, #ffffff08); font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;

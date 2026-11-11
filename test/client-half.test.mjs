@@ -1406,7 +1406,8 @@ test('逐条答复卡片：同一批注以最后一批为准，判定与理由�
   assert.match(text, /部分采纳/)
   assert.match(text, /需要澄清/)
   assert.match(text, /改了一半/)
-  assert.match(text, /下一步：下一轮确认/)
+  assert.match(text, /下一步下一轮确认/)
+  assert.ok(card.querySelector('.sa-a-next-label') !== null, '「下一步」应是标签，不是裸文本')
 
   // 带批注引文时，每条先给批注块（引文＋批注文字），再给答复块。
   const withContext = buildReplySection([{ at: 2, replies: merged }], [
