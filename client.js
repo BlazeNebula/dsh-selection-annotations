@@ -2736,7 +2736,7 @@
             card.setAttribute("data-sa-key", storedKey);
             card.setAttribute("data-anchor", anchorKey);
             const bubbleKind = row === null ? "" : row.getAttribute("data-chat-flow-kind") ?? "";
-            const onBubble = row !== null && (bubbleKind === "user" || bubbleKind === "steering" || row.hasAttribute("data-pending-steering"));
+            const onBubble = !Number.isFinite(turn) && row !== null && (bubbleKind === "user" || bubbleKind === "steering" || row.hasAttribute("data-pending-steering"));
             if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {
               if (card.parentElement !== row.parentElement || card.previousSibling !== row) {
                 row.parentElement.insertBefore(card, row.nextSibling);

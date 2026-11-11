@@ -912,7 +912,10 @@ export function createPlugin(React, extras = {}) {
             // 批注优先挂在用户消息气泡下方：插队（steering）消息还没有轮次尾行时也能出现，
             // 位置也贴着「自己这一条」，不必等整轮结束。
             const bubbleKind = row === null ? '' : (row.getAttribute('data-chat-flow-kind') ?? '')
+            // 有轮次就按轮次定位，不再看锚点键指向哪条消息：即使锚点记错（曾抓到别的会话的消息），
+            // 卡片也只会落在正确的那一轮，不会漂到看不见的节点上。锚点仍保留给答复卡配对。
             const onBubble =
+              !Number.isFinite(turn) &&
               row !== null &&
               (bubbleKind === 'user' || bubbleKind === 'steering' || row.hasAttribute('data-pending-steering'))
             if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {
