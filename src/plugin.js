@@ -708,6 +708,8 @@ export function createPlugin(React, extras = {}) {
             if (loadSent(sessionId).has(entry.anchorKey)) return false
             const kind = entry.row.getAttribute('data-chat-flow-kind') ?? ''
             if (kind === 'turn-process') return false
+            // 别的会话留在页面里、已切走但未卸载时也会被扫到；只认真正看得见的行。
+            if (typeof entry.row.getClientRects === 'function' && entry.row.getClientRects().length === 0) return false
             return true
           })
           // 只认两类：带 批注.json 附件的气泡（插队消息也能认出来），或 user/steering 气泡。
@@ -1447,6 +1449,18 @@ export function createPlugin(React, extras = {}) {
         popClose.textContent = '×'
         popClose.setAttribute('aria-label', t('pop.cancel'))
         popHead.append(popTitle, popClose)
+        // 按住标题区可以挪动整个弹层，避免它挡住正在看的原文。
+        let popDrag = null
+        popHead.addEventListener('pointerdown', (event) => {
+          if (event.button !== 0) return
+          if (elementOf(event.target)?.closest('.sa-pop-close') !== null) return
+          const rect = popover.getBoundingClientRect()
+          popDrag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top, width: rect.width, height: rect.height }
+          popover.dataset.dragged = '1'
+          popover.classList.add('sa-pop-dragging')
+          event.preventDefault()
+          if (typeof popHead.setPointerCapture === 'function') safe(() => popHead.setPointerCapture(event.pointerId))
+        })
         const popQuoteLabel = document.createElement('div')
         popQuoteLabel.className = 'sa-pop-label'
         popQuoteLabel.textContent = t('label.quote')
@@ -2824,6 +2838,7 @@ export function createPlugin(React, extras = {}) {
           const onSelectPointerDown = (event) => {
             const target = elementOf(event.target)
             if (target !== null && target.closest('[data-sa-ui]') !== null) return
+            if (popover.dataset.open === '1' && target !== null && target.closest('[data-sa-ui="popover"]') !== null) return
             pointerSelecting = true
             hideToolbar()
           }
@@ -2832,6 +2847,8 @@ export function createPlugin(React, extras = {}) {
           const onPointerUp = (event) => {
             const target = elementOf(event.target)
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return
+            // 在弹层里松手（包括拖标题）不算划线结束，不重算工具条。
+            if (target !== null && target.closest('[data-sa-ui="popover"], [data-sa-ui="ghost"]') !== null) return
             pointerSelecting = false
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() }
             // 松手即渲染：选区已经定了，不需要再等 220ms 的去抖。
@@ -2846,7 +2863,18 @@ export function createPlugin(React, extras = {}) {
           document.addEventListener('pointerup', onPointerUp, true)
           const onPointerMove = (event) => {
             lastPointerMove = { x: event.clientX, y: event.clientY }
+            if (popDrag === null || popover.dataset.open !== '1') return
+            const left = Math.max(8, Math.min(event.clientX - popDrag.dx, window.innerWidth - popDrag.width - 8))
+            const top = Math.max(8, Math.min(event.clientY - popDrag.dy, window.innerHeight - popDrag.height - 8))
+            popover.style.left = `${left}px`
+            popover.style.top = `${top}px`
           }
+          const onPopDragUp = () => {
+            if (popDrag === null) return
+            popDrag = null
+            popover.classList.remove('sa-pop-dragging')
+          }
+          document.addEventListener('pointerup', onPopDragUp, true)
           document.addEventListener('pointermove', onPointerMove, true)
           document.addEventListener('contextmenu', onContextMenu, true)
           // 菜单外的按下与 Escape 都要关掉；菜单内的按下不能关，否则点不到菜单项。
@@ -2885,6 +2913,7 @@ export function createPlugin(React, extras = {}) {
             document.removeEventListener('selectionchange', onSelectionChange)
           document.removeEventListener('pointerdown', onSelectPointerDown, true)
             document.removeEventListener('pointerup', onPointerUp, true)
+          document.removeEventListener('pointerup', onPopDragUp, true)
             document.removeEventListener('pointermove', onPointerMove, true)
             document.removeEventListener('contextmenu', onContextMenu, true)
             document.removeEventListener('pointerdown', onMenuPointerDown, true)

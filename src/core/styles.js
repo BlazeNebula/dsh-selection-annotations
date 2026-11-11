@@ -74,7 +74,9 @@ export const CSS = `
 .sa-pop-label { margin: 8px 0 4px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
   letter-spacing: .02em; color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  margin: 0 0 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
+  margin: 0 0 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder);
+  cursor: move; user-select: none; touch-action: none; }
+.sa-pop-dragging, .sa-pop-dragging * { cursor: grabbing !important; user-select: none; }
 .sa-pop-head .sa-pop-title { margin: 0; }
 .sa-pop-close { flex: none; width: 24px; height: 24px; padding: 0; border: none; border-radius: 6px;
   background: transparent; color: var(--dsw-alias-label-secondary, GrayText); font-size: 16px; line-height: 1; cursor: pointer; }

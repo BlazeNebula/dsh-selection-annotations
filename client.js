@@ -76,7 +76,9 @@
 .sa-pop-label { margin: 8px 0 4px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
   letter-spacing: .02em; color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  margin: 0 0 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
+  margin: 0 0 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder);
+  cursor: move; user-select: none; touch-action: none; }
+.sa-pop-dragging, .sa-pop-dragging * { cursor: grabbing !important; user-select: none; }
 .sa-pop-head .sa-pop-title { margin: 0; }
 .sa-pop-close { flex: none; width: 24px; height: 24px; padding: 0; border: none; border-radius: 6px;
   background: transparent; color: var(--dsw-alias-label-secondary, GrayText); font-size: 16px; line-height: 1; cursor: pointer; }
@@ -2567,6 +2569,7 @@
             if (loadSent(sessionId).has(entry.anchorKey)) return false;
             const kind = entry.row.getAttribute("data-chat-flow-kind") ?? "";
             if (kind === "turn-process") return false;
+            if (typeof entry.row.getClientRects === "function" && entry.row.getClientRects().length === 0) return false;
             return true;
           });
           const attached = fresh.filter((entry) => /批注\.json/.test(entry.row.textContent ?? ""));
@@ -3173,6 +3176,17 @@
         popClose.textContent = "×";
         popClose.setAttribute("aria-label", t("pop.cancel"));
         popHead.append(popTitle, popClose);
+        let popDrag = null;
+        popHead.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0) return;
+          if (elementOf2(event.target)?.closest(".sa-pop-close") !== null) return;
+          const rect = popover.getBoundingClientRect();
+          popDrag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top, width: rect.width, height: rect.height };
+          popover.dataset.dragged = "1";
+          popover.classList.add("sa-pop-dragging");
+          event.preventDefault();
+          if (typeof popHead.setPointerCapture === "function") safe(() => popHead.setPointerCapture(event.pointerId));
+        });
         const popQuoteLabel = document.createElement("div");
         popQuoteLabel.className = "sa-pop-label";
         popQuoteLabel.textContent = t("label.quote");
@@ -4363,6 +4377,7 @@
           const onSelectPointerDown = (event) => {
             const target = elementOf2(event.target);
             if (target !== null && target.closest("[data-sa-ui]") !== null) return;
+            if (popover.dataset.open === "1" && target !== null && target.closest('[data-sa-ui="popover"]') !== null) return;
             pointerSelecting = true;
             hideToolbar();
           };
@@ -4370,6 +4385,7 @@
           const onPointerUp = (event) => {
             const target = elementOf2(event.target);
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return;
+            if (target !== null && target.closest('[data-sa-ui="popover"], [data-sa-ui="ghost"]') !== null) return;
             pointerSelecting = false;
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() };
             window.clearTimeout(settleTimer);
@@ -4383,7 +4399,18 @@
           document.addEventListener("pointerup", onPointerUp, true);
           const onPointerMove = (event) => {
             lastPointerMove = { x: event.clientX, y: event.clientY };
+            if (popDrag === null || popover.dataset.open !== "1") return;
+            const left = Math.max(8, Math.min(event.clientX - popDrag.dx, window.innerWidth - popDrag.width - 8));
+            const top = Math.max(8, Math.min(event.clientY - popDrag.dy, window.innerHeight - popDrag.height - 8));
+            popover.style.left = `${left}px`;
+            popover.style.top = `${top}px`;
           };
+          const onPopDragUp = () => {
+            if (popDrag === null) return;
+            popDrag = null;
+            popover.classList.remove("sa-pop-dragging");
+          };
+          document.addEventListener("pointerup", onPopDragUp, true);
           document.addEventListener("pointermove", onPointerMove, true);
           document.addEventListener("contextmenu", onContextMenu, true);
           const onMenuPointerDown = (event) => {
@@ -4418,6 +4445,7 @@
             document.removeEventListener("selectionchange", onSelectionChange);
             document.removeEventListener("pointerdown", onSelectPointerDown, true);
             document.removeEventListener("pointerup", onPointerUp, true);
+            document.removeEventListener("pointerup", onPopDragUp, true);
             document.removeEventListener("pointermove", onPointerMove, true);
             document.removeEventListener("contextmenu", onContextMenu, true);
             document.removeEventListener("pointerdown", onMenuPointerDown, true);
