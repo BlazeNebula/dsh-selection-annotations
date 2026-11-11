@@ -54,6 +54,8 @@ export const CSS = `
   will-change: opacity, transform;
   transition: opacity 180ms ease, transform 180ms ease, visibility 180ms; }
 .sa-popover[data-open="1"] { opacity: 1; visibility: visible; transform: none; }
+/* 进入编辑、移动光标或键入时抬到最前层；比 DSH 的普通浮层高，但仍低于图片查看器。*/
+.sa-popover.sa-front { z-index: 2147483000; }
 .sa-viewer { position: fixed; inset: 0; z-index: 80; display: none; align-items: center; justify-content: center;
   background: rgb(0 0 0 / 0.72); cursor: zoom-out; }
 .sa-viewer[data-open="1"] { display: flex; }

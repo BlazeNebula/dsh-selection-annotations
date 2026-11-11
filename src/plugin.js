@@ -1523,6 +1523,11 @@ export function createPlugin(React, extras = {}) {
         popClose.textContent = '×'
         popClose.setAttribute('aria-label', t('pop.cancel'))
         popHead.append(popTitle, popClose)
+        // 在弹层里移动光标、键入或删除时，把它抬到最前层，避免被页面里的浮层压住。
+        const raisePopover = () => popover.classList.add('sa-front')
+        popover.addEventListener('pointerdown', raisePopover, true)
+        popover.addEventListener('focusin', raisePopover, true)
+        popover.addEventListener('keydown', raisePopover, true)
         // 按住标题区可以挪动整个弹层，避免它挡住正在看的原文。
         let popDrag = null
         popHead.addEventListener('pointerdown', (event) => {
@@ -2135,6 +2140,7 @@ export function createPlugin(React, extras = {}) {
 
         function closePopover() {
           popover.dataset.open = '0'
+          popover.classList.remove('sa-front')
           // 页面刷新、关闭或插件卸载前再存一次：只靠状态变更时保存会丢掉最后几秒的编辑。
           safe(() => popInput.blur())
           popoverAnchor = null
