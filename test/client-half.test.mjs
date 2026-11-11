@@ -1597,8 +1597,8 @@ test('工具条放在选区下方，与上方的原生「引用文本」按钮�
   assert.ok(toolbar !== null, '工具条要挂在 body 上')
   assert.deepEqual(
     toolbar.childNodes.map((child) => child.textContent),
-    ['批注反馈', '批注采纳'],
-    '选区上的两个按钮：左边反馈，右边采纳',
+    ['批注采纳', '批注反馈'],
+    '选区上的两个按钮：左边采纳，右边反馈',
   )
   toolbar.offsetWidth = 80
   toolbar.offsetHeight = 30

@@ -23,6 +23,7 @@
   padding: 6px 10px; border: none; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }
 .sa-menu-item:hover { background: var(--dsw-alias-interactive-bg-hover, ButtonFace); }
 .sa-btn { font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1; padding: 6px 10px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
   color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-overlay, Canvas);
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 7px;
   box-shadow: 0 4px 14px rgba(0,0,0,.18); }
@@ -49,7 +50,8 @@
 .sa-pop-quote { max-height: 120px; overflow: auto; margin: 0 0 8px; padding: 6px 8px; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
   white-space: pre-wrap; word-break: break-word; color: var(--dsw-alias-label-secondary, GrayText);
   background: var(--dsw-alias-bg-layer-2, ButtonFace); border-left: 2px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 4px; }
-.sa-pop-src { margin: 0 0 8px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-pop-src { margin: 0 0 6px; font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.45;
+  color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-pop-input { width: 100%; box-sizing: border-box; min-height: 62px; resize: vertical; padding: 6px 8px;
   font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-layer-1, Canvas);
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
@@ -59,13 +61,20 @@
 .sa-pop-input[data-empty="1"]::before { content: attr(data-placeholder); color: var(--dsw-alias-label-tertiary, GrayText); pointer-events: none; }
 .sa-pop-label { margin: 8px 0 4px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
   letter-spacing: .02em; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 0 0 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
+.sa-pop-head .sa-pop-title { margin: 0; }
+.sa-pop-close { flex: none; width: 24px; height: 24px; padding: 0; border: none; border-radius: 6px;
+  background: transparent; color: var(--dsw-alias-label-secondary, GrayText); font-size: 16px; line-height: 1; cursor: pointer; }
+.sa-pop-close:hover { background: var(--dsw-alias-interactive-bg-hover, ButtonFace); color: var(--dsw-alias-label-primary, CanvasText); }
+.sa-pop-divider { margin: 10px 0 2px; border-top: 1px dashed var(--dsw-alias-border-l2, ButtonBorder); }
 .sa-pop-primary { background: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-label-primary-inverted, #fff);
   border-color: transparent; }
 .sa-pop-primary:hover { background: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-label-primary-inverted, #fff); filter: brightness(1.08); }
 .sa-token { display: inline-flex; align-items: center; margin: 0 1px; padding: 0 6px; border-radius: 6px;
   background: var(--dsw-alias-state-success-tertiary, #e6faed); color: var(--dsw-alias-state-success-primary, #22c55e);
   font-weight: 500; user-select: all; }
-.sa-suggest { align-self: flex-start; margin-top: 4px; padding: 4px 8px; font: inherit;
+.sa-suggest { position: fixed; z-index: 75; margin: 0; padding: 4px 8px; font: inherit;
   font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); color: var(--dsw-alias-brand-primary, #247bbf);
   background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px dashed var(--dsw-alias-border-l2, ButtonBorder);
   border-radius: 6px; cursor: pointer; }
@@ -171,8 +180,22 @@
   padding: 6px 8px; font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-layer-2, ButtonFace); border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
 .sa-settings-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-.sa-settings-page { display: flex; flex-direction: column; gap: 8px; padding: 4px 2px 8px; }
+.sa-settings-page { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 8px; max-width: 720px; }
 .sa-settings-page-head { display: flex; align-items: center; gap: 8px; }
+.sa-settings-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2, ButtonFace); border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
+.sa-settings-card-head { display: flex; flex-direction: column; gap: 4px; }
+.sa-settings-card-title { margin: 0; font-size: calc(13.5px + var(--dsh-content-font-delta, 0px) * 0.8); font-weight: 600;
+  color: var(--dsw-alias-label-primary, CanvasText); }
+.sa-settings-card .sa-hint { font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.6; margin: 0;
+  color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-settings-card .sa-setting-textarea { margin-top: 0; min-height: 148px; font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); line-height: 1.6; }
+.sa-settings-card .sa-setting-input { width: 100%; box-sizing: border-box; padding: 8px 10px; font: inherit;
+  font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); color: var(--dsw-alias-label-primary, CanvasText);
+  background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 8px; }
+.sa-settings-card .sa-setting-input:focus-visible, .sa-settings-card .sa-setting-textarea:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary, #247bbf)); outline-offset: 1px; }
+.sa-settings-card .sa-settings-actions { justify-content: flex-end; margin-top: 0; }
 .sa-settings-page .sa-hint { font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.6; margin: 0; }
 .sa-replies-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l1, #3333); border-radius: 10px; background: var(--dsw-alias-bg-layer-1, #0001); }
 .sa-replies { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; padding: 0;
@@ -381,6 +404,7 @@
       "settings.instructionClosed": "批注指令",
       "settings.pageTitle": "批注指令",
       "settings.adoptLabel": "「批注采纳」预填文本",
+      "settings.adoptHint": "采纳模式下自动写入批注正文的句子；输入前缀会出现补全提示。",
       "settings.default": "默认文案",
       "settings.customized": "已自定义",
       "settings.restore": "恢复默认",
@@ -475,6 +499,7 @@
       "settings.instructionClosed": "Annotation instruction",
       "settings.pageTitle": "Annotation instruction",
       "settings.adoptLabel": "Prefilled “Adopt” text",
+      "settings.adoptHint": "Written into the note in Adopt mode; typing a prefix shows an inline completion.",
       "settings.default": "Default text",
       "settings.customized": "Customized",
       "settings.restore": "Restore default",
@@ -2704,8 +2729,8 @@
         }
         function applyLocale() {
           safe(() => {
-            annotateButton.textContent = t("annotate");
-            adoptButton.textContent = t("annotate.adopt");
+            annotateLabel.textContent = t("annotate");
+            adoptLabel.textContent = t("annotate.adopt");
           });
           safe(() => {
             menuAnnotate.textContent = t("menu.annotate");
@@ -3004,15 +3029,42 @@
         const toolbar = document.createElement("div");
         toolbar.className = "sa-toolbar";
         toolbar.setAttribute("data-sa-ui", "toolbar");
+        function dshIconSvg(kind) {
+          const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          svg.setAttribute("viewBox", "0 0 16 16");
+          svg.setAttribute("width", "14");
+          svg.setAttribute("height", "14");
+          svg.setAttribute("fill", "none");
+          svg.setAttribute("aria-hidden", "true");
+          svg.setAttribute("stroke-width", "1");
+          const path = (d, extra) => {
+            const node = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            node.setAttribute("d", d);
+            node.setAttribute("stroke", "currentColor");
+            if (extra !== void 0) for (const key of Object.keys(extra)) node.setAttribute(key, extra[key]);
+            svg.appendChild(node);
+          };
+          if (kind === "check") {
+            path("M2.25 8.5L5.49732 11.7473C5.90519 12.1552 6.57263 12.1344 6.95426 11.7018L13.75 4");
+          } else {
+            path("M8.85596 2.69971H4.19971C3.37141 2.69971 2.69992 3.37146 2.69971 4.19971V11.8003C2.69992 12.6285 3.37141 13.3003 4.19971 13.3003H11.8003C12.6283 13.2999 13.3001 12.6283 13.3003 11.8003V7.89893H14.3003V11.8003C14.3001 13.1806 13.1806 14.2999 11.8003 14.3003H4.19971C2.81913 14.3003 1.69992 13.1808 1.69971 11.8003V4.19971C1.69992 2.81918 2.81913 1.69971 4.19971 1.69971H8.85596V2.69971Z", { fill: "currentColor", stroke: "none" });
+            path("M7.7849 8.23878L13.888 2.13574");
+          }
+          return svg;
+        }
         const annotateButton = document.createElement("button");
         annotateButton.type = "button";
         annotateButton.className = "sa-btn";
-        annotateButton.textContent = t("annotate");
+        const annotateLabel = document.createElement("span");
+        annotateLabel.textContent = t("annotate");
+        annotateButton.append(dshIconSvg("edit"), annotateLabel);
         const adoptButton = document.createElement("button");
         adoptButton.type = "button";
         adoptButton.className = "sa-btn sa-btn-adopt";
-        adoptButton.textContent = t("annotate.adopt");
-        toolbar.append(annotateButton, adoptButton);
+        const adoptLabel = document.createElement("span");
+        adoptLabel.textContent = t("annotate.adopt");
+        adoptButton.append(dshIconSvg("check"), adoptLabel);
+        toolbar.append(adoptButton, annotateButton);
         const contextMenu = document.createElement("div");
         contextMenu.className = "sa-menu";
         contextMenu.setAttribute("data-sa-ui", "menu");
@@ -3034,13 +3086,23 @@
         const popover = document.createElement("div");
         popover.className = "sa-popover";
         popover.setAttribute("data-sa-ui", "popover");
+        const popHead = document.createElement("div");
+        popHead.className = "sa-pop-head";
         const popTitle = document.createElement("div");
         popTitle.className = "sa-pop-title";
+        const popClose = document.createElement("button");
+        popClose.type = "button";
+        popClose.className = "sa-pop-close";
+        popClose.textContent = "×";
+        popClose.setAttribute("aria-label", t("pop.cancel"));
+        popHead.append(popTitle, popClose);
         const popQuoteLabel = document.createElement("div");
         popQuoteLabel.className = "sa-pop-label";
         popQuoteLabel.textContent = t("label.quote");
         const popQuote = document.createElement("div");
         popQuote.className = "sa-pop-quote";
+        const popDivider = document.createElement("div");
+        popDivider.className = "sa-pop-divider";
         const popSource = document.createElement("div");
         popSource.className = "sa-pop-src";
         const popNoteLabel = document.createElement("div");
@@ -3135,30 +3197,68 @@
           appendNoteText(text);
           caretToEnd();
         };
-        let suggestedPrefix = "";
-        function updateSuggestion() {
-          const phrase = adoptTextOf();
-          const value = noteValue();
-          const line = value.slice(value.lastIndexOf("\n") + 1);
-          if (line !== "" && line !== phrase && phrase.startsWith(line)) {
-            suggestedPrefix = line;
-            popSuggest.textContent = `${phrase}　Tab`;
-            popSuggest.style.display = "";
-            return;
-          }
-          suggestedPrefix = "";
+        let suggested = null;
+        function hideSuggestion() {
+          suggested = null;
           popSuggest.style.display = "none";
         }
-        function acceptSuggestion() {
-          if (suggestedPrefix === "") return false;
+        function caretLine() {
+          const selection = window.getSelection();
+          if (selection === null || selection.rangeCount === 0) return null;
+          const range = selection.getRangeAt(0);
+          if (!range.collapsed) return null;
+          const node = range.startContainer;
+          if (node === null || node.nodeType !== 3 || typeof node.data !== "string") return null;
+          const before = node.data.slice(0, range.startOffset);
+          const line = before.slice(before.lastIndexOf("\n") + 1);
+          const rect = range.getBoundingClientRect();
+          return { node, offset: range.startOffset, line, rect };
+        }
+        function updateSuggestion() {
           const phrase = adoptTextOf();
-          const value = noteValue();
-          const base = value.slice(0, value.length - suggestedPrefix.length);
-          setNoteContent(base + phrase);
-          safe(() => caretToEnd());
-          suggestedPrefix = "";
-          popSuggest.style.display = "none";
+          const ctx2 = caretLine();
+          if (ctx2 === null) {
+            hideSuggestion();
+            return;
+          }
+          if (ctx2.line === "" || ctx2.line === phrase || !phrase.startsWith(ctx2.line)) {
+            hideSuggestion();
+            return;
+          }
+          suggested = { prefix: ctx2.line, node: ctx2.node, offset: ctx2.offset };
+          popSuggest.textContent = `${phrase}　Tab`;
+          const width = popSuggest.offsetWidth || 180;
+          const left = Math.max(8, Math.min(ctx2.rect.left, window.innerWidth - width - 8));
+          const top = Math.min(ctx2.rect.bottom + 6, window.innerHeight - 40);
+          popSuggest.style.left = `${left}px`;
+          popSuggest.style.top = `${top}px`;
+          popSuggest.style.display = "";
+        }
+        function acceptSuggestion() {
+          if (suggested === null) return false;
+          const phrase = adoptTextOf();
+          const { prefix, node, offset } = suggested;
+          if (typeof node.data !== "string" || node.data.slice(offset - prefix.length, offset) !== prefix) {
+            hideSuggestion();
+            return false;
+          }
+          const selection = window.getSelection();
+          if (selection === null || typeof document.createRange !== "function") return false;
+          const range = document.createRange();
+          range.setStart(node, offset - prefix.length);
+          range.setEnd(node, offset);
+          range.deleteContents();
+          const token = adoptTokenNode(phrase);
+          range.insertNode(token);
+          const after = document.createRange();
+          after.setStartAfter(token);
+          after.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(after);
+          hideSuggestion();
+          refreshNoteState();
           syncPopInputHeight();
+          ensureCaretVisible();
           return true;
         }
         const popActions = document.createElement("div");
@@ -3204,7 +3304,7 @@
         popSave.className = "sa-btn sa-pop-primary";
         popSave.textContent = t("pop.save");
         popActions.append(popDelete, popSpacer, popCancel, popSave);
-        popover.append(popTitle, popQuoteLabel, popQuote, popSource, popNoteLabel, popInput, popSuggest, popImages, popActions);
+        popover.append(popHead, popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popSuggest, popImages, popActions);
         function isExcluded(node) {
           const element = elementOf2(node);
           if (element === null) return true;
@@ -3285,10 +3385,10 @@
           const height = popover.offsetHeight || 240;
           const anchorX = selectionPointer !== null ? selectionPointer.x : rect.left + rect.width;
           const left = Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8));
-          const below = rect.bottom + 10;
-          const top = below + height <= window.innerHeight - 8 ? below : Math.max(8, rect.top - height - 10);
+          const above = rect.top - height - 10;
+          const top = above >= 8 ? above : Math.min(rect.bottom + 10, window.innerHeight - height - 8);
           popover.style.left = `${left}px`;
-          popover.style.top = `${top}px`;
+          popover.style.top = `${Math.max(8, top)}px`;
         }
         function placeToolbar(element, rect, point) {
           const width = element.offsetWidth || 80;
@@ -3408,12 +3508,26 @@
           if (!popInputAutoHeight) return;
           const min = 62;
           const max = Math.max(min, Math.round(window.innerHeight * 0.6));
+          const keepTop = popInput.scrollTop;
           popInput.style.height = "auto";
           const measured = Number(popInput.scrollHeight);
           if (!Number.isFinite(measured) || measured <= 0) return;
           const next = Math.max(min, Math.min(measured, max));
           popInput.style.height = `${next}px`;
           popInputAutoValue = next;
+          popInput.scrollTop = keepTop;
+        }
+        function ensureCaretVisible() {
+          const selection = window.getSelection();
+          if (selection === null || selection.rangeCount === 0) return;
+          const range = selection.getRangeAt(0).cloneRange();
+          const rect = range.getBoundingClientRect();
+          const box = popInput.getBoundingClientRect();
+          if (rect.bottom > box.bottom - 4) {
+            popInput.scrollTop += rect.bottom - box.bottom + 12;
+          } else if (rect.top < box.top + 4) {
+            popInput.scrollTop -= box.top - rect.top + 12;
+          }
         }
         function syncAdoptTone() {
           popInput.dataset.adopt = hasAdoptNote(noteValue()) ? "1" : "0";
@@ -3440,8 +3554,13 @@
           popover.dataset.open = "1";
           if (options.rect !== void 0 && options.rect !== null) placePopover(options.rect);
           syncPopInputHeight();
-          safe(() => popInput.focus());
-          safe(() => caretToEnd());
+          const focusEditor = () => {
+            if (popover.dataset.open !== "1") return;
+            safe(() => popInput.focus({ preventScroll: true }));
+            safe(() => caretToEnd());
+          };
+          focusEditor();
+          safe(() => window.requestAnimationFrame(focusEditor));
         }
         function openCreatePopover(options = {}) {
           const selection = pendingSelection;
@@ -3489,8 +3608,7 @@
           popoverAnchor = null;
           popoverTargetId = null;
           popoverMode = "create";
-          suggestedPrefix = "";
-          popSuggest.style.display = "none";
+          hideSuggestion();
         }
         function markRefineReason(id, reason) {
           let hit = false;
@@ -3619,6 +3737,7 @@
           commitPopover();
         });
         popDelete.addEventListener("click", () => deleteFromPopover());
+        popClose.addEventListener("click", () => closePopover());
         popInput.addEventListener("keydown", (event) => {
           const phrase = adoptTextOf();
           if (event.key === "Tab" && !event.shiftKey) {
@@ -3659,6 +3778,7 @@
           updateSuggestion();
           refreshNoteState();
           syncPopInputHeight();
+          ensureCaretVisible();
         });
         popSuggest.addEventListener("mousedown", (event) => {
           event.preventDefault();
@@ -4252,32 +4372,35 @@
           const [text, setText] = React.useState(() => instructionOf());
           const [adoptText, setAdoptText] = React.useState(() => adoptTextOf());
           const customized = !isDefaultInstruction(text);
+          const card = (key, title, hint, control, actions) => h(
+            "section",
+            { className: "sa-settings-card", key },
+            h(
+              "div",
+              { className: "sa-settings-card-head" },
+              h("h3", { className: "sa-settings-card-title" }, title),
+              hint ? h("p", { className: "sa-hint" }, hint) : null
+            ),
+            control,
+            actions ? h("div", { className: "sa-settings-actions" }, actions) : null
+          );
           return h(
             "div",
             { className: "sa-settings-page" },
-            h(
-              "div",
-              { className: "sa-settings-page-head" },
-              h("strong", null, t("settings.pageTitle")),
-              h("span", { className: "sa-hint" }, customized ? t("settings.customized") : t("settings.default"))
-            ),
-            h(
-              "p",
-              { className: "sa-hint" },
-              t("settings.pageHint")
-            ),
-            h("textarea", {
-              className: "sa-setting-textarea",
-              rows: 8,
-              value: text,
-              onChange: (event) => {
-                setText(event.target.value);
-                persistInstructionSettings(event.target.value);
-              }
-            }),
-            h(
-              "div",
-              { className: "sa-settings-actions" },
+            card(
+              "instruction",
+              t("settings.pageTitle"),
+              `${customized ? t("settings.customized") : t("settings.default")} · ${t("settings.pageHint")}`,
+              h("textarea", {
+                className: "sa-setting-textarea",
+                "aria-label": t("settings.pageTitle"),
+                rows: 10,
+                value: text,
+                onChange: (event) => {
+                  setText(event.target.value);
+                  persistInstructionSettings(event.target.value);
+                }
+              }),
               h(
                 "button",
                 {
@@ -4291,22 +4414,19 @@
                 t("settings.restore")
               )
             ),
-            h(
-              "div",
-              { className: "sa-settings-page-head" },
-              h("strong", null, t("settings.adoptLabel"))
-            ),
-            h("input", {
-              className: "sa-setting-input",
-              value: adoptText,
-              onChange: (event) => {
-                setAdoptText(event.target.value);
-                persistAdoptText(event.target.value);
-              }
-            }),
-            h(
-              "div",
-              { className: "sa-settings-actions" },
+            card(
+              "adopt",
+              t("settings.adoptLabel"),
+              t("settings.adoptHint"),
+              h("input", {
+                className: "sa-setting-input",
+                "aria-label": t("settings.adoptLabel"),
+                value: adoptText,
+                onChange: (event) => {
+                  setAdoptText(event.target.value);
+                  persistAdoptText(event.target.value);
+                }
+              }),
               h(
                 "button",
                 {

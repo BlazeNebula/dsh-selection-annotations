@@ -949,8 +949,8 @@ export function createPlugin(React, extras = {}) {
          */
         function applyLocale() {
           safe(() => {
-            annotateButton.textContent = t('annotate')
-            adoptButton.textContent = t('annotate.adopt')
+            annotateLabel.textContent = t('annotate')
+            adoptLabel.textContent = t('annotate.adopt')
           })
           safe(() => {
             menuAnnotate.textContent = t('menu.annotate')
@@ -1316,16 +1316,46 @@ export function createPlugin(React, extras = {}) {
         const toolbar = document.createElement('div')
         toolbar.className = 'sa-toolbar'
         toolbar.setAttribute('data-sa-ui', 'toolbar')
+        /** 与 DSH 图标同源：路径数据取自 @deepseek-ai/dsh-client-ui-primitives 的 IconCheckOutline / IconEdit。*/
+        function dshIconSvg(kind) {
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+          svg.setAttribute('viewBox', '0 0 16 16')
+          svg.setAttribute('width', '14')
+          svg.setAttribute('height', '14')
+          svg.setAttribute('fill', 'none')
+          svg.setAttribute('aria-hidden', 'true')
+          svg.setAttribute('stroke-width', '1')
+          const path = (d, extra) => {
+            const node = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+            node.setAttribute('d', d)
+            node.setAttribute('stroke', 'currentColor')
+            if (extra !== undefined) for (const key of Object.keys(extra)) node.setAttribute(key, extra[key])
+            svg.appendChild(node)
+          }
+          if (kind === 'check') {
+            path('M2.25 8.5L5.49732 11.7473C5.90519 12.1552 6.57263 12.1344 6.95426 11.7018L13.75 4')
+          } else {
+            path('M8.85596 2.69971H4.19971C3.37141 2.69971 2.69992 3.37146 2.69971 4.19971V11.8003C2.69992 12.6285 3.37141 13.3003 4.19971 13.3003H11.8003C12.6283 13.2999 13.3001 12.6283 13.3003 11.8003V7.89893H14.3003V11.8003C14.3001 13.1806 13.1806 14.2999 11.8003 14.3003H4.19971C2.81913 14.3003 1.69992 13.1808 1.69971 11.8003V4.19971C1.69992 2.81918 2.81913 1.69971 4.19971 1.69971H8.85596V2.69971Z', { fill: 'currentColor', stroke: 'none' })
+            path('M7.7849 8.23878L13.888 2.13574')
+          }
+          return svg
+        }
+
         const annotateButton = document.createElement('button')
         annotateButton.type = 'button'
         annotateButton.className = 'sa-btn'
-        annotateButton.textContent = t('annotate')
+        const annotateLabel = document.createElement('span')
+        annotateLabel.textContent = t('annotate')
+        annotateButton.append(dshIconSvg('edit'), annotateLabel)
         // 「批注采纳」复用同一个创建流程，只在批注正文里预填「采纳」。
         const adoptButton = document.createElement('button')
         adoptButton.type = 'button'
         adoptButton.className = 'sa-btn sa-btn-adopt'
-        adoptButton.textContent = t('annotate.adopt')
-        toolbar.append(annotateButton, adoptButton)
+        const adoptLabel = document.createElement('span')
+        adoptLabel.textContent = t('annotate.adopt')
+        adoptButton.append(dshIconSvg('check'), adoptLabel)
+        // 左边采纳、右边反馈。
+        toolbar.append(adoptButton, annotateButton)
 
         /* ------------------------------------------------------------------ 右键菜单*/
 
@@ -1354,13 +1384,23 @@ export function createPlugin(React, extras = {}) {
         const popover = document.createElement('div')
         popover.className = 'sa-popover'
         popover.setAttribute('data-sa-ui', 'popover')
+        const popHead = document.createElement('div')
+        popHead.className = 'sa-pop-head'
         const popTitle = document.createElement('div')
         popTitle.className = 'sa-pop-title'
+        const popClose = document.createElement('button')
+        popClose.type = 'button'
+        popClose.className = 'sa-pop-close'
+        popClose.textContent = '×'
+        popClose.setAttribute('aria-label', t('pop.cancel'))
+        popHead.append(popTitle, popClose)
         const popQuoteLabel = document.createElement('div')
         popQuoteLabel.className = 'sa-pop-label'
         popQuoteLabel.textContent = t('label.quote')
         const popQuote = document.createElement('div')
         popQuote.className = 'sa-pop-quote'
+        const popDivider = document.createElement('div')
+        popDivider.className = 'sa-pop-divider'
         const popSource = document.createElement('div')
         popSource.className = 'sa-pop-src'
         const popNoteLabel = document.createElement('div')
@@ -1471,32 +1511,72 @@ export function createPlugin(React, extras = {}) {
           appendNoteText(text)
           caretToEnd()
         }
-        /** 行内补全：输入采纳句的前缀时提示，Tab 或点提示换成 token。*/
-        let suggestedPrefix = ''
-        function updateSuggestion() {
-          const phrase = adoptTextOf()
-          const value = noteValue()
-          const line = value.slice(value.lastIndexOf('\n') + 1)
-          if (line !== '' && line !== phrase && phrase.startsWith(line)) {
-            suggestedPrefix = line
-            popSuggest.textContent = `${phrase}　Tab`
-            popSuggest.style.display = ''
-            return
-          }
-          suggestedPrefix = ''
+        /** 行内补全：光标所在行若正好是采纳句的前缀，就在光标下方列出补全项。*/
+        let suggested = null
+        function hideSuggestion() {
+          suggested = null
           popSuggest.style.display = 'none'
         }
 
-        function acceptSuggestion() {
-          if (suggestedPrefix === '') return false
+        function caretLine() {
+          const selection = window.getSelection()
+          if (selection === null || selection.rangeCount === 0) return null
+          const range = selection.getRangeAt(0)
+          if (!range.collapsed) return null
+          const node = range.startContainer
+          if (node === null || node.nodeType !== 3 || typeof node.data !== 'string') return null
+          const before = node.data.slice(0, range.startOffset)
+          const line = before.slice(before.lastIndexOf('\n') + 1)
+          const rect = range.getBoundingClientRect()
+          return { node, offset: range.startOffset, line, rect }
+        }
+
+        function updateSuggestion() {
           const phrase = adoptTextOf()
-          const value = noteValue()
-          const base = value.slice(0, value.length - suggestedPrefix.length)
-          setNoteContent(base + phrase)
-          safe(() => caretToEnd())
-          suggestedPrefix = ''
-          popSuggest.style.display = 'none'
+          const ctx = caretLine()
+          if (ctx === null) {
+            hideSuggestion()
+            return
+          }
+          if (ctx.line === '' || ctx.line === phrase || !phrase.startsWith(ctx.line)) {
+            hideSuggestion()
+            return
+          }
+          suggested = { prefix: ctx.line, node: ctx.node, offset: ctx.offset }
+          popSuggest.textContent = `${phrase}　Tab`
+          const width = popSuggest.offsetWidth || 180
+          const left = Math.max(8, Math.min(ctx.rect.left, window.innerWidth - width - 8))
+          const top = Math.min(ctx.rect.bottom + 6, window.innerHeight - 40)
+          popSuggest.style.left = `${left}px`
+          popSuggest.style.top = `${top}px`
+          popSuggest.style.display = ''
+        }
+
+        function acceptSuggestion() {
+          if (suggested === null) return false
+          const phrase = adoptTextOf()
+          const { prefix, node, offset } = suggested
+          if (typeof node.data !== 'string' || node.data.slice(offset - prefix.length, offset) !== prefix) {
+            hideSuggestion()
+            return false
+          }
+          const selection = window.getSelection()
+          if (selection === null || typeof document.createRange !== 'function') return false
+          const range = document.createRange()
+          range.setStart(node, offset - prefix.length)
+          range.setEnd(node, offset)
+          range.deleteContents()
+          const token = adoptTokenNode(phrase)
+          range.insertNode(token)
+          const after = document.createRange()
+          after.setStartAfter(token)
+          after.collapse(true)
+          selection.removeAllRanges()
+          selection.addRange(after)
+          hideSuggestion()
+          refreshNoteState()
           syncPopInputHeight()
+          ensureCaretVisible()
           return true
         }
         const popActions = document.createElement('div')
@@ -1548,7 +1628,7 @@ export function createPlugin(React, extras = {}) {
         popSave.className = 'sa-btn sa-pop-primary'
         popSave.textContent = t('pop.save')
         popActions.append(popDelete, popSpacer, popCancel, popSave)
-        popover.append(popTitle, popQuoteLabel, popQuote, popSource, popNoteLabel, popInput, popSuggest, popImages, popActions)
+        popover.append(popHead, popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popSuggest, popImages, popActions)
 
         function isExcluded(node) {
           const element = elementOf(node)
@@ -1634,16 +1714,16 @@ export function createPlugin(React, extras = {}) {
           element.style.top = `${Math.max(8, top)}px`
         }
 
-        /** 批注弹层：横向跟随选区落点，纵向优先放到选区下方，放不下才翻到上方。*/
+        /** 批注弹层：横向跟随选区落点；编辑区在弹层下半部，所以优先放到选区上方。*/
         function placePopover(rect) {
           const width = popover.offsetWidth || 340
           const height = popover.offsetHeight || 240
           const anchorX = selectionPointer !== null ? selectionPointer.x : rect.left + rect.width
           const left = Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8))
-          const below = rect.bottom + 10
-          const top = below + height <= window.innerHeight - 8 ? below : Math.max(8, rect.top - height - 10)
+          const above = rect.top - height - 10
+          const top = above >= 8 ? above : Math.min(rect.bottom + 10, window.innerHeight - height - 8)
           popover.style.left = `${left}px`
-          popover.style.top = `${top}px`
+          popover.style.top = `${Math.max(8, top)}px`
         }
 
         /** 工具条：横向跟随划线结束的位置，纵向仍贴着选区下沿，避免盖住刚划的那行字。*/
@@ -1780,12 +1860,28 @@ export function createPlugin(React, extras = {}) {
           if (!popInputAutoHeight) return
           const min = 62
           const max = Math.max(min, Math.round(window.innerHeight * 0.6))
+          const keepTop = popInput.scrollTop
           popInput.style.height = 'auto'
           const measured = Number(popInput.scrollHeight)
           if (!Number.isFinite(measured) || measured <= 0) return
           const next = Math.max(min, Math.min(measured, max))
           popInput.style.height = `${next}px`
           popInputAutoValue = next
+          popInput.scrollTop = keepTop
+        }
+
+        /** 键入后让插入点留在可视区，而不是被撑高后跳回第一行。*/
+        function ensureCaretVisible() {
+          const selection = window.getSelection()
+          if (selection === null || selection.rangeCount === 0) return
+          const range = selection.getRangeAt(0).cloneRange()
+          const rect = range.getBoundingClientRect()
+          const box = popInput.getBoundingClientRect()
+          if (rect.bottom > box.bottom - 4) {
+            popInput.scrollTop += rect.bottom - box.bottom + 12
+          } else if (rect.top < box.top + 4) {
+            popInput.scrollTop -= box.top - rect.top + 12
+          }
         }
 
         function syncAdoptTone() {
@@ -1814,8 +1910,13 @@ export function createPlugin(React, extras = {}) {
           popover.dataset.open = '1'
           if (options.rect !== undefined && options.rect !== null) placePopover(options.rect)
           syncPopInputHeight()
-          safe(() => popInput.focus())
-          safe(() => caretToEnd())
+          const focusEditor = () => {
+            if (popover.dataset.open !== '1') return
+            safe(() => popInput.focus({ preventScroll: true }))
+            safe(() => caretToEnd())
+          }
+          focusEditor()
+          safe(() => window.requestAnimationFrame(focusEditor))
         }
 
         function openCreatePopover(options = {}) {
@@ -1875,8 +1976,7 @@ export function createPlugin(React, extras = {}) {
           popoverAnchor = null
           popoverTargetId = null
           popoverMode = 'create'
-          suggestedPrefix = ''
-          popSuggest.style.display = 'none'
+          hideSuggestion()
         }
 
         /**
@@ -2037,6 +2137,7 @@ export function createPlugin(React, extras = {}) {
           commitPopover()
         })
         popDelete.addEventListener('click', () => deleteFromPopover())
+        popClose.addEventListener('click', () => closePopover())
         popInput.addEventListener('keydown', (event) => {
           const phrase = adoptTextOf()
           // 采纳 token 是 contenteditable=false，退格与选中由浏览器按整块处理；
@@ -2080,6 +2181,7 @@ export function createPlugin(React, extras = {}) {
           updateSuggestion()
           refreshNoteState()
           syncPopInputHeight()
+          ensureCaretVisible()
         })
         popSuggest.addEventListener('mousedown', (event) => {
           // 保住编辑器焦点，点提示不会先触发失焦。
@@ -2759,36 +2861,40 @@ export function createPlugin(React, extras = {}) {
           const [text, setText] = React.useState(() => instructionOf())
           const [adoptText, setAdoptText] = React.useState(() => adoptTextOf())
           const customized = !isDefaultInstruction(text)
+          const card = (key, title, hint, control, actions) =>
+            h(
+              'section',
+              { className: 'sa-settings-card', key },
+              h(
+                'div',
+                { className: 'sa-settings-card-head' },
+                h('h3', { className: 'sa-settings-card-title' }, title),
+                hint ? h('p', { className: 'sa-hint' }, hint) : null,
+              ),
+              control,
+              actions ? h('div', { className: 'sa-settings-actions' }, actions) : null,
+            )
           return h(
             'div',
             { className: 'sa-settings-page' },
-            h(
-              'div',
-              { className: 'sa-settings-page-head' },
-              h('strong', null, t('settings.pageTitle')),
-              h('span', { className: 'sa-hint' }, customized ? t('settings.customized') : t('settings.default')),
-            ),
-            h(
-              'p',
-              { className: 'sa-hint' },
-              t('settings.pageHint'),
-            ),
-            h('textarea', {
-              className: 'sa-setting-textarea',
-              rows: 8,
-              value: text,
-              onChange: (event) => {
-                setText(event.target.value)
-                persistInstructionSettings(event.target.value)
-              },
-            }),
-            h(
-              'div',
-              { className: 'sa-settings-actions' },
+            card(
+              'instruction',
+              t('settings.pageTitle'),
+              `${customized ? t('settings.customized') : t('settings.default')} · ${t('settings.pageHint')}`,
+              h('textarea', {
+                className: 'sa-setting-textarea',
+                'aria-label': t('settings.pageTitle'),
+                rows: 10,
+                value: text,
+                onChange: (event) => {
+                  setText(event.target.value)
+                  persistInstructionSettings(event.target.value)
+                },
+              }),
               h(
-            'button',
+                'button',
                 {
-              type: 'button',
+                  type: 'button',
                   className: 'sa-link',
                   onClick: () => {
                     setText(defaultInstruction())
@@ -2798,22 +2904,19 @@ export function createPlugin(React, extras = {}) {
                 t('settings.restore'),
               ),
             ),
-            h(
-              'div',
-              { className: 'sa-settings-page-head' },
-              h('strong', null, t('settings.adoptLabel')),
-            ),
-            h('input', {
-              className: 'sa-setting-input',
-              value: adoptText,
-              onChange: (event) => {
-                setAdoptText(event.target.value)
-                persistAdoptText(event.target.value)
-              },
-            }),
-            h(
-              'div',
-              { className: 'sa-settings-actions' },
+            card(
+              'adopt',
+              t('settings.adoptLabel'),
+              t('settings.adoptHint'),
+              h('input', {
+                className: 'sa-setting-input',
+                'aria-label': t('settings.adoptLabel'),
+                value: adoptText,
+                onChange: (event) => {
+                  setAdoptText(event.target.value)
+                  persistAdoptText(event.target.value)
+                },
+              }),
               h(
                 'button',
                 {
