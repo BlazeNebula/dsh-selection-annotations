@@ -60,7 +60,7 @@ export const DEFAULT_INSTRUCTION_EN = [
     /** 界面文案命名空间；DSH 按语言注册后由 bind 解析。*/
 export const LOCALE_NS = 'selection-annotations'
     /** 构建标记：显示在批注总览底部，用来确认当前页面加载的是哪一版代码。*/
-export const PLUGIN_BUILD = '1.3.0+11'
+export const PLUGIN_BUILD = '1.3.0+12'
 
     /** 未提交草稿的本地存储前缀：按会话分键。*/
 export const DRAFT_STORAGE_PREFIX = 'dsh-selection-annotations:draft:'

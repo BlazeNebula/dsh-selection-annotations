@@ -1507,18 +1507,12 @@ export function createPlugin(React, extras = {}) {
           element.style.top = `${Math.max(8, top)}px`
         }
 
-        /** 工具条放在划线结束的位置：优先用 pointerup 的落点，键盘选区才退回 range 矩形。*/
+        /** 工具条：横向跟随划线结束的位置，纵向仍贴着选区下沿，避免盖住刚划的那行字。*/
         function placeToolbar(element, rect, point) {
           const width = element.offsetWidth || 80
           const height = element.offsetHeight || 32
-          if (point !== null && point !== undefined) {
-            const left = Math.max(8, Math.min(point.x - width / 2, window.innerWidth - width - 8))
-            const top = Math.min(point.y + 10, window.innerHeight - height - 8)
-            element.style.left = `${left}px`
-            element.style.top = `${Math.max(8, top)}px`
-            return
-          }
-          const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8))
+          const anchorX = point !== null && point !== undefined ? point.x : rect.left + rect.width / 2
+          const left = Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8))
           const top = Math.min(rect.bottom + 8, window.innerHeight - height - 8)
           element.style.left = `${left}px`
           element.style.top = `${Math.max(8, top)}px`
