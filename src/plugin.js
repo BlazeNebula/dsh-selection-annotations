@@ -1,6 +1,7 @@
 import { CSS } from './core/styles.js'
 import {
   ANNOTATION_FILE,
+  DEFAULT_ADOPT_TEXT,
   DEFAULT_IMAGE_SETTINGS,
   DEFAULT_INSTRUCTION,
   DEFAULT_INSTRUCTION_EN,
@@ -98,6 +99,8 @@ export function createPlugin(React, extras = {}) {
         let repaintTimer = null
         let settleTimer = null
         let pendingSelection = null
+        /** 划线结束（pointerup）的位置：工具条贴着它出现，而不是跟着 range 的末尾矩形。*/
+        let lastPointerUp = null
         /** 由槽位标准 props 注入的 composer 动作与当前会话 id —— 比自行解析 scope 更稳。 */
         let latestInputActions = undefined
         let latestSessionId = undefined
@@ -331,6 +334,10 @@ export function createPlugin(React, extras = {}) {
         const loadInstructionSettings = () => settings.loadInstructionSettings()
         const instructionOf = () => settings.instructionOf()
         const persistInstructionSettings = (text) => settings.persistInstructionSettings(text)
+        const adoptTextOf = () => settings.adoptTextOf()
+        const persistAdoptText = (text) => settings.persistAdoptText(text)
+        /** 批注正文里出现「采纳」预填文本时，整条批注改用绿色标识。 */
+        const hasAdoptNote = (note) => typeof note === 'string' && note.includes(adoptTextOf())
 
         /** 已载入会话的草稿（sessionId → 可序列化条目），切换会话时先在内存里换入换出。 */
         const remoteReplyCache = new Map()
@@ -693,7 +700,7 @@ export function createPlugin(React, extras = {}) {
             footnotes: t('markdown.footnotes'),
           }),
         })
-        const cards = createCards({ t, openImageViewer, markdown })
+        const cards = createCards({ t, openImageViewer, markdown, isAdopt: hasAdoptNote })
         const sectionChevron = () => cards.sectionChevron()
         const buildSectionHead = (label, meta) => cards.buildSectionHead(label, meta)
         const collapsible = (body, open) => cards.collapsible(body, open)
@@ -945,6 +952,7 @@ export function createPlugin(React, extras = {}) {
           })
           safe(() => {
             menuAnnotate.textContent = t('menu.annotate')
+            menuAdopt.textContent = t('menu.adopt')
             menuCopy.textContent = t('menu.copy')
           })
           safe(() => {
@@ -1262,6 +1270,7 @@ export function createPlugin(React, extras = {}) {
               if (rect.width <= 0 || rect.height <= 0) continue
               const box = document.createElement('div')
               box.className = 'sa-hl'
+              if (hasAdoptNote(item.note)) box.dataset.adopt = '1'
               box.style.left = `${rect.left}px`
               box.style.top = `${rect.top}px`
               box.style.width = `${rect.width}px`
@@ -1323,11 +1332,15 @@ export function createPlugin(React, extras = {}) {
         menuAnnotate.type = 'button'
         menuAnnotate.className = 'sa-menu-item'
         menuAnnotate.textContent = t('menu.annotate')
+        const menuAdopt = document.createElement('button')
+        menuAdopt.type = 'button'
+        menuAdopt.className = 'sa-menu-item'
+        menuAdopt.textContent = t('menu.adopt')
         const menuCopy = document.createElement('button')
         menuCopy.type = 'button'
         menuCopy.className = 'sa-menu-item'
         menuCopy.textContent = t('menu.copy')
-        contextMenu.append(menuAnnotate, menuCopy)
+        contextMenu.append(menuAnnotate, menuAdopt, menuCopy)
         /** 打开菜单时的那份选区：菜单点下去时 document 的选区可能已经变了。*/
         let contextMenuSelection = null
 
@@ -1494,10 +1507,17 @@ export function createPlugin(React, extras = {}) {
           element.style.top = `${Math.max(8, top)}px`
         }
 
-        /** 工具条放在选区下方，与选区上方固定的「引用文本」按钮上下错开。*/
-        function placeToolbar(element, rect) {
+        /** 工具条放在划线结束的位置：优先用 pointerup 的落点，键盘选区才退回 range 矩形。*/
+        function placeToolbar(element, rect, point) {
           const width = element.offsetWidth || 80
           const height = element.offsetHeight || 32
+          if (point !== null && point !== undefined) {
+            const left = Math.max(8, Math.min(point.x - width / 2, window.innerWidth - width - 8))
+            const top = Math.min(point.y + 10, window.innerHeight - height - 8)
+            element.style.left = `${left}px`
+            element.style.top = `${Math.max(8, top)}px`
+            return
+          }
           const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8))
           const top = Math.min(rect.bottom + 8, window.innerHeight - height - 8)
           element.style.left = `${left}px`
@@ -1520,7 +1540,8 @@ export function createPlugin(React, extras = {}) {
             }
             pendingSelection = selection
             toolbar.dataset.open = '1'
-            placeToolbar(toolbar, rect)
+            const fresh = lastPointerUp !== null && Date.now() - lastPointerUp.at < 1500
+            placeToolbar(toolbar, rect, fresh ? lastPointerUp : null)
           }, SETTLE_MS)
         }
 
@@ -1663,7 +1684,7 @@ export function createPlugin(React, extras = {}) {
             title: t('pop.createTitle'),
             quote: selection.quote,
             sourceText: describeSource(popoverAnchor.source),
-            note: typeof options.note === 'string' ? options.note : '',
+            note: options.adopt === true ? adoptTextOf() : typeof options.note === 'string' ? options.note : '',
             images: [],
             rect: safe(() => selection.range.getBoundingClientRect()),
             mode: 'create',
@@ -1831,7 +1852,7 @@ export function createPlugin(React, extras = {}) {
         })
         adoptButton.addEventListener('click', (event) => {
           event.preventDefault()
-          openCreatePopover({ note: '采纳' })
+          openCreatePopover({ adopt: true })
         })
         menuAnnotate.addEventListener('mousedown', (event) => {
           // 和上方按钮一样保住选区。
@@ -1845,6 +1866,18 @@ export function createPlugin(React, extras = {}) {
           if (selection === null) return
           pendingSelection = selection
           openCreatePopover()
+        })
+        menuAdopt.addEventListener('mousedown', (event) => {
+          event.preventDefault()
+        })
+        menuAdopt.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          const selection = contextMenuSelection ?? pendingSelection
+          closeContextMenu()
+          if (selection === null) return
+          pendingSelection = selection
+          openCreatePopover({ adopt: true })
         })
         menuCopy.addEventListener('mousedown', (event) => {
           event.preventDefault()
@@ -1861,6 +1894,27 @@ export function createPlugin(React, extras = {}) {
         })
         popDelete.addEventListener('click', () => deleteFromPopover())
         popInput.addEventListener('keydown', (event) => {
+          const phrase = adoptTextOf()
+          // 采纳预填是一整句：整句还在时按一次退格就清空，不用逐字删。
+          if (
+            event.key === 'Backspace' &&
+            popInput.value === phrase &&
+            popInput.selectionStart === phrase.length &&
+            popInput.selectionEnd === phrase.length
+          ) {
+            event.preventDefault()
+            popInput.value = ''
+            syncPopInputHeight()
+            return
+          }
+          // 手打前几个字时，Tab 补全成完整的采纳句。
+          if (event.key === 'Tab' && !event.shiftKey && popInput.value !== '' && phrase.startsWith(popInput.value)) {
+            event.preventDefault()
+            popInput.value = phrase
+            safe(() => popInput.setSelectionRange(phrase.length, phrase.length))
+            syncPopInputHeight()
+            return
+          }
           if (event.key === 'Escape') closePopover()
           if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) commitPopover()
         })
@@ -2115,6 +2169,7 @@ export function createPlugin(React, extras = {}) {
           openImageViewer: (url, name) => openImageViewer(url, name),
           imageSettingsRow: () => imageSettingsRow(),
           instructionSettingsRow: () => instructionSettingsRow(),
+          isAdopt: hasAdoptNote,
         })
         const renderPanel = () => panelRenderer.render(panelEl)
 
@@ -2401,6 +2456,17 @@ export function createPlugin(React, extras = {}) {
 
         ctx.effect(() => {
           document.addEventListener('selectionchange', onSelectionChange)
+          // 记住划线结束的位置；工具条要贴在这里，而不是 range 的末尾矩形。
+          const onPointerUp = (event) => {
+            const target = elementOf(event.target)
+            if (target !== null && target.closest('[data-sa-ui]') !== null) return
+            lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() }
+            if (toolbar.dataset.open === '1' && pendingSelection !== null) {
+              const rect = safe(() => pendingSelection.range.getBoundingClientRect())
+              if (rect !== undefined) placeToolbar(toolbar, rect, lastPointerUp)
+            }
+          }
+          document.addEventListener('pointerup', onPointerUp, true)
           document.addEventListener('contextmenu', onContextMenu, true)
           // 菜单外的按下与 Escape 都要关掉；菜单内的按下不能关，否则点不到菜单项。
           const onMenuPointerDown = (event) => {
@@ -2434,6 +2500,7 @@ export function createPlugin(React, extras = {}) {
           return () => {
             markdown.dispose()
             document.removeEventListener('selectionchange', onSelectionChange)
+            document.removeEventListener('pointerup', onPointerUp, true)
             document.removeEventListener('contextmenu', onContextMenu, true)
             document.removeEventListener('pointerdown', onMenuPointerDown, true)
             document.removeEventListener('keydown', onMenuKeydown, true)
@@ -2513,6 +2580,7 @@ export function createPlugin(React, extras = {}) {
         /** 插件详情页里的标准设置区：和批注面板共用同一份批注指令配置。*/
         function AnnotationInstructionSettings() {
           const [text, setText] = React.useState(() => instructionOf())
+          const [adoptText, setAdoptText] = React.useState(() => adoptTextOf())
           const customized = !isDefaultInstruction(text)
           return h(
             'div',
@@ -2548,6 +2616,36 @@ export function createPlugin(React, extras = {}) {
                   onClick: () => {
                     setText(defaultInstruction())
                     persistInstructionSettings(defaultInstruction())
+                  },
+                },
+                t('settings.restore'),
+              ),
+            ),
+            h(
+              'div',
+              { className: 'sa-settings-page-head' },
+              h('strong', null, t('settings.adoptLabel')),
+            ),
+            h('input', {
+              className: 'sa-setting-input',
+              value: adoptText,
+              onChange: (event) => {
+                setAdoptText(event.target.value)
+                persistAdoptText(event.target.value)
+              },
+            }),
+            h(
+              'div',
+              { className: 'sa-settings-actions' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'sa-link',
+                  onClick: () => {
+                    const next = DEFAULT_ADOPT_TEXT
+                    setAdoptText(next)
+                    persistAdoptText(next)
                   },
                 },
                 t('settings.restore'),

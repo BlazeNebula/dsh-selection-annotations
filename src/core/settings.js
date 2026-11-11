@@ -1,4 +1,6 @@
 import {
+  ADOPT_SETTINGS_KEY,
+  DEFAULT_ADOPT_TEXT,
   DEFAULT_IMAGE_SETTINGS,
   DEFAULT_INSTRUCTION,
   IMAGE_SETTINGS_KEY,
@@ -13,6 +15,7 @@ import { safe } from './util.js'
 export function createSettings(getStorage, locale) {
   let imageSettings
   let instructionSettings
+  let adoptText
 
   /** 图片设置：读坏了回落到默认值。 */
   function loadImageSettings() {
@@ -63,6 +66,28 @@ export function createSettings(getStorage, locale) {
     safe(() => storage.setItem(INSTRUCTION_SETTINGS_KEY, JSON.stringify({ text })))
   }
 
+  /** 「批注采纳」的预填文本：空串回落到默认文案。 */
+  function loadAdoptText() {
+    const storage = getStorage()
+    if (storage === undefined) return DEFAULT_ADOPT_TEXT
+    const parsed = safe(() => JSON.parse(storage.getItem(ADOPT_SETTINGS_KEY) ?? 'null'))
+    if (parsed === null || typeof parsed !== 'object') return DEFAULT_ADOPT_TEXT
+    const text = typeof parsed.text === 'string' ? parsed.text.trim() : ''
+    return text === '' ? DEFAULT_ADOPT_TEXT : text
+  }
+
+  function adoptTextOf() {
+    if (adoptText === undefined) adoptText = loadAdoptText()
+    return adoptText
+  }
+
+  function persistAdoptText(text) {
+    adoptText = typeof text === 'string' && text.trim() !== '' ? text : DEFAULT_ADOPT_TEXT
+    const storage = getStorage()
+    if (storage === undefined) return
+    safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText })))
+  }
+
   return {
     loadImageSettings,
     imageSettingsOf,
@@ -70,5 +95,8 @@ export function createSettings(getStorage, locale) {
     loadInstructionSettings,
     instructionOf,
     persistInstructionSettings,
+    loadAdoptText,
+    adoptTextOf,
+    persistAdoptText,
   }
 }

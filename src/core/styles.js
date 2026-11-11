@@ -2,11 +2,16 @@ export const CSS = `
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
 .sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
   background: rgb(255 208 66 / 0.45); box-shadow: inset 0 -1px 0 rgb(255 176 0 / 0.75); }
+.sa-hl[data-adopt="1"] { background: rgb(63 185 80 / 0.40); box-shadow: inset 0 -1px 0 rgb(46 160 67 / 0.8); }
+.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"] {
+  color: var(--dsw-alias-state-success, #3fb950); }
 .sa-badge { position: fixed; pointer-events: auto; cursor: pointer; font: inherit; border: none; padding: 0 3px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
   background: var(--dsw-alias-brand-primary, #247bbf); color: #fff; font-size: 10px; line-height: 1;
   font-weight: 600; font-variant-numeric: tabular-nums; }
-.sa-toolbar { position: fixed; display: none; z-index: 61; gap: 6px; }
+.sa-toolbar { position: fixed; display: none; z-index: 61; gap: 0; padding: 2px; box-sizing: border-box;
+  border-radius: 8px; background: var(--dsw-alias-bg-overlay, Canvas);
+  border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .sa-toolbar[data-open="1"] { display: inline-flex; }
 .sa-menu { position: fixed; z-index: 65; display: none; min-width: 132px; padding: 4px; box-sizing: border-box;
   border-radius: 8px; color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-overlay, Canvas);
@@ -20,6 +25,9 @@ export const CSS = `
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 7px;
   box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .sa-btn:hover { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
+  .sa-toolbar .sa-btn { border: 0; box-shadow: none; background: transparent; border-radius: 6px; }
+  .sa-toolbar .sa-btn + .sa-btn { box-shadow: inset 1px 0 0 var(--dsw-alias-border-l2, ButtonBorder); border-radius: 0 6px 6px 0; }
+  .sa-toolbar .sa-btn-adopt, .sa-toolbar .sa-btn-adopt:hover { color: var(--dsw-alias-brand-primary, #247bbf); }
   .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-popover { position: fixed; display: block; z-index: 70; width: 340px; max-width: calc(100vw - 24px);
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);

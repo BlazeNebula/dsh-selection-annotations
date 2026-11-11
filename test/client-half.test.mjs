@@ -1581,7 +1581,7 @@ test('正文选区上右键：接管系统菜单，弹出「批注 / 复制」',
   assert.equal(menu.dataset.open, '1', '菜单要打开')
   assert.deepEqual(
     menu.childNodes.map((child) => child.textContent),
-    ['批注选中文字', '复制'],
+    ['为划选部分批注反馈', '为划选部分批注采纳', '复制'],
   )
   assert.equal(menu.style.left, '120px', '菜单贴着右键位置出现')
 })

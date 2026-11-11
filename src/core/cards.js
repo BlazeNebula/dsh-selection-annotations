@@ -11,7 +11,7 @@ const VERDICT_LABELS = {
 /**
  * 两个区域共用的收展头、矢量箭头与可折展容器，以及已提交批注的卡片。
  */
-export function createCards({ t, openImageViewer, markdown }) {
+export function createCards({ t, openImageViewer, markdown, isAdopt = () => false }) {
   function sectionChevron() {
     const ns = 'http://www.w3.org/2000/svg'
     const svg = document.createElementNS(ns, 'svg')
@@ -95,6 +95,7 @@ export function createCards({ t, openImageViewer, markdown }) {
       if (typeof item.note === 'string' && item.note.trim() !== '') {
         const note = document.createElement('div')
         note.className = 'sa-sent-note'
+        if (isAdopt(item.note)) note.dataset.adopt = '1'
         note.setAttribute('data-sa-field', 'note')
         note.textContent = item.note
         text.appendChild(note)
@@ -188,6 +189,7 @@ export function createCards({ t, openImageViewer, markdown }) {
           q.appendChild(qLabel)
           const quote = document.createElement('div')
           quote.className = 'sa-q-quote'
+          if (isAdopt(item.note)) quote.dataset.adopt = '1'
           quote.setAttribute('data-sa-field', 'quote')
           quote.textContent = quoteText
           quote.title = t('expand')

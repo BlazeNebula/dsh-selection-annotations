@@ -4,11 +4,16 @@
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
 .sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
   background: rgb(255 208 66 / 0.45); box-shadow: inset 0 -1px 0 rgb(255 176 0 / 0.75); }
+.sa-hl[data-adopt="1"] { background: rgb(63 185 80 / 0.40); box-shadow: inset 0 -1px 0 rgb(46 160 67 / 0.8); }
+.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"] {
+  color: var(--dsw-alias-state-success, #3fb950); }
 .sa-badge { position: fixed; pointer-events: auto; cursor: pointer; font: inherit; border: none; padding: 0 3px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
   background: var(--dsw-alias-brand-primary, #247bbf); color: #fff; font-size: 10px; line-height: 1;
   font-weight: 600; font-variant-numeric: tabular-nums; }
-.sa-toolbar { position: fixed; display: none; z-index: 61; gap: 6px; }
+.sa-toolbar { position: fixed; display: none; z-index: 61; gap: 0; padding: 2px; box-sizing: border-box;
+  border-radius: 8px; background: var(--dsw-alias-bg-overlay, Canvas);
+  border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .sa-toolbar[data-open="1"] { display: inline-flex; }
 .sa-menu { position: fixed; z-index: 65; display: none; min-width: 132px; padding: 4px; box-sizing: border-box;
   border-radius: 8px; color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-overlay, Canvas);
@@ -22,6 +27,9 @@
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 7px;
   box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .sa-btn:hover { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
+  .sa-toolbar .sa-btn { border: 0; box-shadow: none; background: transparent; border-radius: 6px; }
+  .sa-toolbar .sa-btn + .sa-btn { box-shadow: inset 1px 0 0 var(--dsw-alias-border-l2, ButtonBorder); border-radius: 0 6px 6px 0; }
+  .sa-toolbar .sa-btn-adopt, .sa-toolbar .sa-btn-adopt:hover { color: var(--dsw-alias-brand-primary, #247bbf); }
   .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-popover { position: fixed; display: block; z-index: 70; width: 340px; max-width: calc(100vw - 24px);
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
@@ -263,6 +271,8 @@
   var IMAGE_SETTINGS_KEY = "dsh-selection-annotations:image-settings";
   var DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100 };
   var INSTRUCTION_SETTINGS_KEY = "dsh-selection-annotations:instruction-settings";
+  var ADOPT_SETTINGS_KEY = "dsh-selection-annotations:adopt-settings";
+  var DEFAULT_ADOPT_TEXT = "意见采纳。";
   var DEFAULT_INSTRUCTION = [
     "这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n",
     "\n",
@@ -300,7 +310,7 @@
     "- Use the body only for an overall summary or clarifying questions."
   ].join("");
   var LOCALE_NS = "selection-annotations";
-  var PLUGIN_BUILD = "1.3.0+10";
+  var PLUGIN_BUILD = "1.3.0+11";
   var DRAFT_STORAGE_PREFIX = "dsh-selection-annotations:draft:";
   var DRAFT_MAX_SESSIONS = 24;
   var DRAFT_MAX_ITEMS = 200;
@@ -315,7 +325,8 @@
     zh: {
       annotate: "批注反馈",
       "annotate.adopt": "批注采纳",
-      "menu.annotate": "批注选中文字",
+      "menu.annotate": "为划选部分批注反馈",
+      "menu.adopt": "为划选部分批注采纳",
       "menu.copy": "复制",
       "viewer.alt": "批注图片",
       "image.alt": "图片",
@@ -350,6 +361,7 @@
       "settings.instructionOpen": "收起批注指令",
       "settings.instructionClosed": "批注指令",
       "settings.pageTitle": "批注指令",
+      "settings.adoptLabel": "「批注采纳」预填文本",
       "settings.default": "默认文案",
       "settings.customized": "已自定义",
       "settings.restore": "恢复默认",
@@ -406,7 +418,8 @@
     en: {
       annotate: "Feedback",
       "annotate.adopt": "Adopt",
-      "menu.annotate": "Annotate selection",
+      "menu.annotate": "Feedback on selection",
+      "menu.adopt": "Adopt selection",
       "menu.copy": "Copy",
       "viewer.alt": "Annotated image",
       "image.alt": "Image",
@@ -441,6 +454,7 @@
       "settings.instructionOpen": "Hide annotation instruction",
       "settings.instructionClosed": "Annotation instruction",
       "settings.pageTitle": "Annotation instruction",
+      "settings.adoptLabel": "Prefilled “Adopt” text",
       "settings.default": "Default text",
       "settings.customized": "Customized",
       "settings.restore": "Restore default",
@@ -658,6 +672,7 @@
   function createSettings(getStorage, locale) {
     let imageSettings;
     let instructionSettings;
+    let adoptText;
     function loadImageSettings() {
       const settings = { ...DEFAULT_IMAGE_SETTINGS };
       const storage = getStorage();
@@ -698,13 +713,34 @@
       if (storage === void 0) return;
       safe(() => storage.setItem(INSTRUCTION_SETTINGS_KEY, JSON.stringify({ text })));
     }
+    function loadAdoptText() {
+      const storage = getStorage();
+      if (storage === void 0) return DEFAULT_ADOPT_TEXT;
+      const parsed = safe(() => JSON.parse(storage.getItem(ADOPT_SETTINGS_KEY) ?? "null"));
+      if (parsed === null || typeof parsed !== "object") return DEFAULT_ADOPT_TEXT;
+      const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
+      return text === "" ? DEFAULT_ADOPT_TEXT : text;
+    }
+    function adoptTextOf() {
+      if (adoptText === void 0) adoptText = loadAdoptText();
+      return adoptText;
+    }
+    function persistAdoptText(text) {
+      adoptText = typeof text === "string" && text.trim() !== "" ? text : DEFAULT_ADOPT_TEXT;
+      const storage = getStorage();
+      if (storage === void 0) return;
+      safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText })));
+    }
     return {
       loadImageSettings,
       imageSettingsOf,
       persistImageSettings,
       loadInstructionSettings,
       instructionOf,
-      persistInstructionSettings
+      persistInstructionSettings,
+      loadAdoptText,
+      adoptTextOf,
+      persistAdoptText
     };
   }
 
@@ -1205,7 +1241,7 @@
     rejected: ["verdict.rejected", "rejected"],
     needs_info: ["verdict.needs_info", "needs_info"]
   };
-  function createCards({ t, openImageViewer, markdown }) {
+  function createCards({ t, openImageViewer, markdown, isAdopt = () => false }) {
     function sectionChevron() {
       const ns = "http://www.w3.org/2000/svg";
       const svg = document.createElementNS(ns, "svg");
@@ -1281,6 +1317,7 @@
         if (typeof item.note === "string" && item.note.trim() !== "") {
           const note = document.createElement("div");
           note.className = "sa-sent-note";
+          if (isAdopt(item.note)) note.dataset.adopt = "1";
           note.setAttribute("data-sa-field", "note");
           note.textContent = item.note;
           text.appendChild(note);
@@ -1368,6 +1405,7 @@
             q.appendChild(qLabel);
             const quote = document.createElement("div");
             quote.className = "sa-q-quote";
+            if (isAdopt(item.note)) quote.dataset.adopt = "1";
             quote.setAttribute("data-sa-field", "quote");
             quote.textContent = quoteText;
             quote.title = t("expand");
@@ -1502,7 +1540,8 @@
     sourceSummary,
     openImageViewer,
     imageSettingsRow,
-    instructionSettingsRow
+    instructionSettingsRow,
+    isAdopt = () => false
   }) {
     function render(panelEl) {
       const annotations = getAnnotations();
@@ -1579,7 +1618,9 @@
         if (item.note !== "") {
           const a = el("div", "sa-item-a");
           a.appendChild(el("div", "sa-item-label", t("panel.note")));
-          a.appendChild(el("div", "sa-item-note", item.note));
+          const noteEl = el("div", "sa-item-note", item.note);
+          if (isAdopt(item.note)) noteEl.dataset.adopt = "1";
+          a.appendChild(noteEl);
           row.appendChild(a);
         }
         if (Array.isArray(item.images) && item.images.length > 0) {
@@ -1994,6 +2035,7 @@
         let repaintTimer = null;
         let settleTimer = null;
         let pendingSelection = null;
+        let lastPointerUp = null;
         let latestInputActions = void 0;
         let latestSessionId = void 0;
         let annotationsSession = void 0;
@@ -2159,6 +2201,9 @@
         const loadInstructionSettings = () => settings.loadInstructionSettings();
         const instructionOf = () => settings.instructionOf();
         const persistInstructionSettings = (text) => settings.persistInstructionSettings(text);
+        const adoptTextOf = () => settings.adoptTextOf();
+        const persistAdoptText = (text) => settings.persistAdoptText(text);
+        const hasAdoptNote = (note) => typeof note === "string" && note.includes(adoptTextOf());
         const remoteReplyCache = /* @__PURE__ */ new Map();
         function absorbRemoteReplies(sessionId, remote) {
           if (!Array.isArray(remote?.replies)) return false;
@@ -2439,7 +2484,7 @@
             footnotes: t("markdown.footnotes")
           })
         });
-        const cards = createCards({ t, openImageViewer, markdown });
+        const cards = createCards({ t, openImageViewer, markdown, isAdopt: hasAdoptNote });
         const sectionChevron = () => cards.sectionChevron();
         const buildSectionHead = (label, meta) => cards.buildSectionHead(label, meta);
         const collapsible = (body, open) => cards.collapsible(body, open);
@@ -2643,6 +2688,7 @@
           });
           safe(() => {
             menuAnnotate.textContent = t("menu.annotate");
+            menuAdopt.textContent = t("menu.adopt");
             menuCopy.textContent = t("menu.copy");
           });
           safe(() => {
@@ -2896,6 +2942,7 @@
               if (rect.width <= 0 || rect.height <= 0) continue;
               const box = document.createElement("div");
               box.className = "sa-hl";
+              if (hasAdoptNote(item.note)) box.dataset.adopt = "1";
               box.style.left = `${rect.left}px`;
               box.style.top = `${rect.top}px`;
               box.style.width = `${rect.width}px`;
@@ -2948,11 +2995,15 @@
         menuAnnotate.type = "button";
         menuAnnotate.className = "sa-menu-item";
         menuAnnotate.textContent = t("menu.annotate");
+        const menuAdopt = document.createElement("button");
+        menuAdopt.type = "button";
+        menuAdopt.className = "sa-menu-item";
+        menuAdopt.textContent = t("menu.adopt");
         const menuCopy = document.createElement("button");
         menuCopy.type = "button";
         menuCopy.className = "sa-menu-item";
         menuCopy.textContent = t("menu.copy");
-        contextMenu.append(menuAnnotate, menuCopy);
+        contextMenu.append(menuAnnotate, menuAdopt, menuCopy);
         let contextMenuSelection = null;
         const popover = document.createElement("div");
         popover.className = "sa-popover";
@@ -3094,9 +3145,16 @@
           element.style.left = `${left}px`;
           element.style.top = `${Math.max(8, top)}px`;
         }
-        function placeToolbar(element, rect) {
+        function placeToolbar(element, rect, point) {
           const width = element.offsetWidth || 80;
           const height = element.offsetHeight || 32;
+          if (point !== null && point !== void 0) {
+            const left2 = Math.max(8, Math.min(point.x - width / 2, window.innerWidth - width - 8));
+            const top2 = Math.min(point.y + 10, window.innerHeight - height - 8);
+            element.style.left = `${left2}px`;
+            element.style.top = `${Math.max(8, top2)}px`;
+            return;
+          }
           const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8));
           const top = Math.min(rect.bottom + 8, window.innerHeight - height - 8);
           element.style.left = `${left}px`;
@@ -3118,7 +3176,8 @@
             }
             pendingSelection = selection;
             toolbar.dataset.open = "1";
-            placeToolbar(toolbar, rect);
+            const fresh = lastPointerUp !== null && Date.now() - lastPointerUp.at < 1500;
+            placeToolbar(toolbar, rect, fresh ? lastPointerUp : null);
           }, SETTLE_MS);
         }
         let popoverMode = "create";
@@ -3245,7 +3304,7 @@
             title: t("pop.createTitle"),
             quote: selection.quote,
             sourceText: describeSource(popoverAnchor.source),
-            note: typeof options.note === "string" ? options.note : "",
+            note: options.adopt === true ? adoptTextOf() : typeof options.note === "string" ? options.note : "",
             images: [],
             rect: safe(() => selection.range.getBoundingClientRect()),
             mode: "create",
@@ -3371,7 +3430,7 @@
         });
         adoptButton.addEventListener("click", (event) => {
           event.preventDefault();
-          openCreatePopover({ note: "采纳" });
+          openCreatePopover({ adopt: true });
         });
         menuAnnotate.addEventListener("mousedown", (event) => {
           event.preventDefault();
@@ -3384,6 +3443,18 @@
           if (selection === null) return;
           pendingSelection = selection;
           openCreatePopover();
+        });
+        menuAdopt.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+        });
+        menuAdopt.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const selection = contextMenuSelection ?? pendingSelection;
+          closeContextMenu();
+          if (selection === null) return;
+          pendingSelection = selection;
+          openCreatePopover({ adopt: true });
         });
         menuCopy.addEventListener("mousedown", (event) => {
           event.preventDefault();
@@ -3400,6 +3471,20 @@
         });
         popDelete.addEventListener("click", () => deleteFromPopover());
         popInput.addEventListener("keydown", (event) => {
+          const phrase = adoptTextOf();
+          if (event.key === "Backspace" && popInput.value === phrase && popInput.selectionStart === phrase.length && popInput.selectionEnd === phrase.length) {
+            event.preventDefault();
+            popInput.value = "";
+            syncPopInputHeight();
+            return;
+          }
+          if (event.key === "Tab" && !event.shiftKey && popInput.value !== "" && phrase.startsWith(popInput.value)) {
+            event.preventDefault();
+            popInput.value = phrase;
+            safe(() => popInput.setSelectionRange(phrase.length, phrase.length));
+            syncPopInputHeight();
+            return;
+          }
           if (event.key === "Escape") closePopover();
           if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) commitPopover();
         });
@@ -3618,7 +3703,8 @@
           sourceSummary: (item) => sourceSummary(item),
           openImageViewer: (url, name) => openImageViewer(url, name),
           imageSettingsRow: () => imageSettingsRow(),
-          instructionSettingsRow: () => instructionSettingsRow()
+          instructionSettingsRow: () => instructionSettingsRow(),
+          isAdopt: hasAdoptNote
         });
         const renderPanel = () => panelRenderer.render(panelEl);
         function imageSettingsRow() {
@@ -3867,6 +3953,16 @@
         });
         ctx.effect(() => {
           document.addEventListener("selectionchange", onSelectionChange);
+          const onPointerUp = (event) => {
+            const target = elementOf2(event.target);
+            if (target !== null && target.closest("[data-sa-ui]") !== null) return;
+            lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() };
+            if (toolbar.dataset.open === "1" && pendingSelection !== null) {
+              const rect = safe(() => pendingSelection.range.getBoundingClientRect());
+              if (rect !== void 0) placeToolbar(toolbar, rect, lastPointerUp);
+            }
+          };
+          document.addEventListener("pointerup", onPointerUp, true);
           document.addEventListener("contextmenu", onContextMenu, true);
           const onMenuPointerDown = (event) => {
             const target = elementOf2(event.target);
@@ -3897,6 +3993,7 @@
           return () => {
             markdown.dispose();
             document.removeEventListener("selectionchange", onSelectionChange);
+            document.removeEventListener("pointerup", onPointerUp, true);
             document.removeEventListener("contextmenu", onContextMenu, true);
             document.removeEventListener("pointerdown", onMenuPointerDown, true);
             document.removeEventListener("keydown", onMenuKeydown, true);
@@ -3969,6 +4066,7 @@
         }
         function AnnotationInstructionSettings() {
           const [text, setText] = React.useState(() => instructionOf());
+          const [adoptText, setAdoptText] = React.useState(() => adoptTextOf());
           const customized = !isDefaultInstruction(text);
           return h(
             "div",
@@ -4004,6 +4102,36 @@
                   onClick: () => {
                     setText(defaultInstruction());
                     persistInstructionSettings(defaultInstruction());
+                  }
+                },
+                t("settings.restore")
+              )
+            ),
+            h(
+              "div",
+              { className: "sa-settings-page-head" },
+              h("strong", null, t("settings.adoptLabel"))
+            ),
+            h("input", {
+              className: "sa-setting-input",
+              value: adoptText,
+              onChange: (event) => {
+                setAdoptText(event.target.value);
+                persistAdoptText(event.target.value);
+              }
+            }),
+            h(
+              "div",
+              { className: "sa-settings-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "sa-link",
+                  onClick: () => {
+                    const next = DEFAULT_ADOPT_TEXT;
+                    setAdoptText(next);
+                    persistAdoptText(next);
                   }
                 },
                 t("settings.restore")

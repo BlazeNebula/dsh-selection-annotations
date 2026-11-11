@@ -16,6 +16,7 @@ export function createPanelRenderer({
   openImageViewer,
   imageSettingsRow,
   instructionSettingsRow,
+  isAdopt = () => false,
 }) {
   function render(panelEl) {
     const annotations = getAnnotations()
@@ -95,7 +96,9 @@ export function createPanelRenderer({
       if (item.note !== '') {
         const a = el('div', 'sa-item-a')
         a.appendChild(el('div', 'sa-item-label', t('panel.note')))
-        a.appendChild(el('div', 'sa-item-note', item.note))
+        const noteEl = el('div', 'sa-item-note', item.note)
+        if (isAdopt(item.note)) noteEl.dataset.adopt = '1'
+        a.appendChild(noteEl)
         row.appendChild(a)
       }
       if (Array.isArray(item.images) && item.images.length > 0) {
