@@ -2081,6 +2081,7 @@
         let settleTimer = null;
         let pendingSelection = null;
         let lastPointerUp = null;
+        let lastPointerMove = null;
         let selectionPointer = null;
         let latestInputActions = void 0;
         let latestSessionId = void 0;
@@ -3117,6 +3118,7 @@
         popInput.setAttribute("contenteditable", "true");
         popInput.setAttribute("role", "textbox");
         popInput.setAttribute("aria-multiline", "true");
+        popInput.setAttribute("tabindex", "0");
         popInput.setAttribute("aria-label", t("pop.placeholder"));
         popInput.dataset.placeholder = t("pop.placeholder");
         popInput.dataset.empty = "1";
@@ -3221,7 +3223,7 @@
             hideSuggestion();
             return;
           }
-          if (ctx2.line === "" || ctx2.line === phrase || !phrase.startsWith(ctx2.line)) {
+          if (ctx2.line === "" || ctx2.line === phrase || !phrase.includes(ctx2.line)) {
             hideSuggestion();
             return;
           }
@@ -3383,7 +3385,8 @@
         function placePopover(rect) {
           const width = popover.offsetWidth || 340;
           const height = popover.offsetHeight || 240;
-          const anchorX = selectionPointer !== null ? selectionPointer.x : rect.left + rect.width;
+          const point = popoverSource === "hover" ? lastPointerMove : selectionPointer ?? lastPointerMove;
+          const anchorX = point !== null ? point.x : rect.left + rect.width;
           const left = Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8));
           const above = rect.top - height - 10;
           const top = above >= 8 ? above : Math.min(rect.bottom + 10, window.innerHeight - height - 8);
@@ -3561,6 +3564,8 @@
           };
           focusEditor();
           safe(() => window.requestAnimationFrame(focusEditor));
+          safe(() => window.setTimeout(focusEditor, 60));
+          safe(() => window.setTimeout(focusEditor, 180));
         }
         function openCreatePopover(options = {}) {
           const selection = pendingSelection;
@@ -4267,6 +4272,10 @@
             }
           };
           document.addEventListener("pointerup", onPointerUp, true);
+          const onPointerMove = (event) => {
+            lastPointerMove = { x: event.clientX, y: event.clientY };
+          };
+          document.addEventListener("pointermove", onPointerMove, true);
           document.addEventListener("contextmenu", onContextMenu, true);
           const onMenuPointerDown = (event) => {
             const target = elementOf2(event.target);
@@ -4298,6 +4307,7 @@
             markdown.dispose();
             document.removeEventListener("selectionchange", onSelectionChange);
             document.removeEventListener("pointerup", onPointerUp, true);
+            document.removeEventListener("pointermove", onPointerMove, true);
             document.removeEventListener("contextmenu", onContextMenu, true);
             document.removeEventListener("pointerdown", onMenuPointerDown, true);
             document.removeEventListener("keydown", onMenuKeydown, true);
