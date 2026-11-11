@@ -8,8 +8,8 @@
   display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
   background: var(--dsw-alias-brand-primary, #247bbf); color: #fff; font-size: 10px; line-height: 1;
   font-weight: 600; font-variant-numeric: tabular-nums; }
-.sa-toolbar { position: fixed; display: none; z-index: 61; }
-.sa-toolbar[data-open="1"] { display: block; }
+.sa-toolbar { position: fixed; display: none; z-index: 61; gap: 6px; }
+.sa-toolbar[data-open="1"] { display: inline-flex; }
 .sa-menu { position: fixed; z-index: 65; display: none; min-width: 132px; padding: 4px; box-sizing: border-box;
   border-radius: 8px; color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-overlay, Canvas);
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); box-shadow: 0 8px 24px rgba(0,0,0,.22); }
@@ -22,6 +22,7 @@
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 7px;
   box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .sa-btn:hover { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
+  .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-popover { position: fixed; display: block; z-index: 70; width: 340px; max-width: calc(100vw - 24px);
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-overlay, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
@@ -312,7 +313,8 @@
   // src/core/messages.js
   var MESSAGES = {
     zh: {
-      annotate: "批注",
+      annotate: "批注反馈",
+      "annotate.adopt": "批注采纳",
       "menu.annotate": "批注选中文字",
       "menu.copy": "复制",
       "viewer.alt": "批注图片",
@@ -326,7 +328,7 @@
       "pop.save": "保存",
       "pop.createTitle": "新建批注",
       "pop.editTitle": "修改批注 #{n}",
-      "panel.empty": "选中回复、消息或文件预览里的文字，点浮动「批注」即可。",
+      "panel.empty": "选中回复、消息或文件预览里的文字，点浮动的「批注反馈」即可。",
       "panel.title": "批注总览",
       "panel.count": "{n} 条",
       "panel.drag": "拖动排序",
@@ -402,7 +404,8 @@
       "source.rendered": "（渲染坐标）"
     },
     en: {
-      annotate: "Annotate",
+      annotate: "Feedback",
+      "annotate.adopt": "Adopt",
       "menu.annotate": "Annotate selection",
       "menu.copy": "Copy",
       "viewer.alt": "Annotated image",
@@ -416,7 +419,7 @@
       "pop.save": "Save",
       "pop.createTitle": "New annotation",
       "pop.editTitle": "Edit annotation #{n}",
-      "panel.empty": "Select text in a reply, message, or file preview, then click the floating “Annotate”.",
+      "panel.empty": "Select text in a reply, message, or file preview, then click the floating “Feedback”.",
       "panel.title": "Annotations",
       "panel.count": "{n} items",
       "panel.drag": "Drag to reorder",
@@ -443,7 +446,7 @@
       "settings.restore": "Restore default",
       "settings.instrHint": "Removing the sentence that requires annotation_replies disables per-annotation replies",
       "settings.pageHint": "This text is sent to the model with every annotation. Removing the sentence that requires annotation_replies disables per-annotation replies.",
-      "chip.emptyTitle": "No annotations yet: select text in the body or a file, then click the floating “Annotate”",
+      "chip.emptyTitle": "No annotations yet: select text in the body or a file, then click the floating “Feedback”",
       "chip.title": "View / manage annotations",
       "chip.label": "Annotate",
       "chip.count": "Annotate ×{n}",
@@ -2636,6 +2639,7 @@
         function applyLocale() {
           safe(() => {
             annotateButton.textContent = t("annotate");
+            adoptButton.textContent = t("annotate.adopt");
           });
           safe(() => {
             menuAnnotate.textContent = t("menu.annotate");
@@ -2931,7 +2935,11 @@
         annotateButton.type = "button";
         annotateButton.className = "sa-btn";
         annotateButton.textContent = t("annotate");
-        toolbar.appendChild(annotateButton);
+        const adoptButton = document.createElement("button");
+        adoptButton.type = "button";
+        adoptButton.className = "sa-btn sa-btn-adopt";
+        adoptButton.textContent = t("annotate.adopt");
+        toolbar.append(annotateButton, adoptButton);
         const contextMenu = document.createElement("div");
         contextMenu.className = "sa-menu";
         contextMenu.setAttribute("data-sa-ui", "menu");
@@ -3229,7 +3237,7 @@
           safe(() => popInput.focus());
           safe(() => popInput.setSelectionRange(popInput.value.length, popInput.value.length));
         }
-        function openCreatePopover() {
+        function openCreatePopover(options = {}) {
           const selection = pendingSelection;
           if (selection === null) return;
           popoverAnchor = { range: selection.range, quote: selection.quote, source: captureSource(selection.range) };
@@ -3237,7 +3245,7 @@
             title: t("pop.createTitle"),
             quote: selection.quote,
             sourceText: describeSource(popoverAnchor.source),
-            note: "",
+            note: typeof options.note === "string" ? options.note : "",
             images: [],
             rect: safe(() => selection.range.getBoundingClientRect()),
             mode: "create",
@@ -3357,6 +3365,13 @@
         annotateButton.addEventListener("click", (event) => {
           event.preventDefault();
           openCreatePopover();
+        });
+        adoptButton.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+        });
+        adoptButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          openCreatePopover({ note: "采纳" });
         });
         menuAnnotate.addEventListener("mousedown", (event) => {
           event.preventDefault();

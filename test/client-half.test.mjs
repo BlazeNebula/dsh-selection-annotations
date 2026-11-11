@@ -1595,6 +1595,11 @@ test('工具条放在选区下方，与上方的原生「引用文本」按钮�
   }
   const toolbar = harness.env.document.body.querySelector('.sa-toolbar')
   assert.ok(toolbar !== null, '工具条要挂在 body 上')
+  assert.deepEqual(
+    toolbar.childNodes.map((child) => child.textContent),
+    ['批注反馈', '批注采纳'],
+    '选区上的两个按钮：左边反馈，右边采纳',
+  )
   toolbar.offsetWidth = 80
   toolbar.offsetHeight = 30
 
@@ -1631,9 +1636,11 @@ test('locale：中英词典注册给 DSH 语言服务，默认仍按中文出文
   assert.equal(harness.localeDictionaries.length, 1, '只注册一个命名空间')
   const { namespace, dictionaries } = harness.localeDictionaries[0]
   assert.equal(namespace, 'selection-annotations')
-  assert.equal(dictionaries.zh.annotate, '批注')
+  assert.equal(dictionaries.zh.annotate, '批注反馈')
+  assert.equal(dictionaries.zh['annotate.adopt'], '批注采纳')
   assert.equal(dictionaries.zh['replies.title'], '批注答复 ×{n}')
-  assert.equal(dictionaries.en.annotate, 'Annotate')
+  assert.equal(dictionaries.en.annotate, 'Feedback')
+  assert.equal(dictionaries.en['annotate.adopt'], 'Adopt')
   assert.equal(dictionaries.en['replies.title'], 'Annotation replies ×{n}')
   const payload = JSON.parse(harness.debug.payload())
   assert.ok(payload.instruction.startsWith('这是用户发来的批注数据块'), '默认语言下指令仍是中文')

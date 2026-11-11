@@ -941,6 +941,7 @@ export function createPlugin(React, extras = {}) {
         function applyLocale() {
           safe(() => {
             annotateButton.textContent = t('annotate')
+            adoptButton.textContent = t('annotate.adopt')
           })
           safe(() => {
             menuAnnotate.textContent = t('menu.annotate')
@@ -1303,7 +1304,12 @@ export function createPlugin(React, extras = {}) {
         annotateButton.type = 'button'
         annotateButton.className = 'sa-btn'
         annotateButton.textContent = t('annotate')
-        toolbar.appendChild(annotateButton)
+        // 「批注采纳」复用同一个创建流程，只在批注正文里预填「采纳」。
+        const adoptButton = document.createElement('button')
+        adoptButton.type = 'button'
+        adoptButton.className = 'sa-btn sa-btn-adopt'
+        adoptButton.textContent = t('annotate.adopt')
+        toolbar.append(annotateButton, adoptButton)
 
         /* ------------------------------------------------------------------ 右键菜单*/
 
@@ -1649,7 +1655,7 @@ export function createPlugin(React, extras = {}) {
           safe(() => popInput.setSelectionRange(popInput.value.length, popInput.value.length))
         }
 
-        function openCreatePopover() {
+        function openCreatePopover(options = {}) {
           const selection = pendingSelection
           if (selection === null) return
           popoverAnchor = { range: selection.range, quote: selection.quote, source: captureSource(selection.range) }
@@ -1657,7 +1663,7 @@ export function createPlugin(React, extras = {}) {
             title: t('pop.createTitle'),
             quote: selection.quote,
             sourceText: describeSource(popoverAnchor.source),
-            note: '',
+            note: typeof options.note === 'string' ? options.note : '',
             images: [],
             rect: safe(() => selection.range.getBoundingClientRect()),
             mode: 'create',
@@ -1819,6 +1825,13 @@ export function createPlugin(React, extras = {}) {
         annotateButton.addEventListener('click', (event) => {
           event.preventDefault()
           openCreatePopover()
+        })
+        adoptButton.addEventListener('mousedown', (event) => {
+          event.preventDefault()
+        })
+        adoptButton.addEventListener('click', (event) => {
+          event.preventDefault()
+          openCreatePopover({ note: '采纳' })
         })
         menuAnnotate.addEventListener('mousedown', (event) => {
           // 和上方按钮一样保住选区。

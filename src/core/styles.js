@@ -6,8 +6,8 @@ export const CSS = `
   display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
   background: var(--dsw-alias-brand-primary, #247bbf); color: #fff; font-size: 10px; line-height: 1;
   font-weight: 600; font-variant-numeric: tabular-nums; }
-.sa-toolbar { position: fixed; display: none; z-index: 61; }
-.sa-toolbar[data-open="1"] { display: block; }
+.sa-toolbar { position: fixed; display: none; z-index: 61; gap: 6px; }
+.sa-toolbar[data-open="1"] { display: inline-flex; }
 .sa-menu { position: fixed; z-index: 65; display: none; min-width: 132px; padding: 4px; box-sizing: border-box;
   border-radius: 8px; color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-overlay, Canvas);
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); box-shadow: 0 8px 24px rgba(0,0,0,.22); }
@@ -20,6 +20,7 @@ export const CSS = `
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 7px;
   box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .sa-btn:hover { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
+  .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-popover { position: fixed; display: block; z-index: 70; width: 340px; max-width: calc(100vw - 24px);
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-overlay, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
