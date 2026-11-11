@@ -2112,6 +2112,7 @@
         let settleTimer = null;
         let pendingSelection = null;
         let lastPointerUp = null;
+        let pointerSelecting = false;
         let lastPointerMove = null;
         let selectionPointer = null;
         let latestInputActions = void 0;
@@ -3488,6 +3489,10 @@
           window.clearTimeout(settleTimer);
           settleTimer = window.setTimeout(() => {
             settleTimer = null;
+            if (pointerSelecting) {
+              hideToolbar();
+              return;
+            }
             const selection = readSelection();
             if (selection === null) {
               hideToolbar();
@@ -4352,14 +4357,23 @@
         });
         ctx.effect(() => {
           document.addEventListener("selectionchange", onSelectionChange);
+          const onSelectPointerDown = (event) => {
+            const target = elementOf2(event.target);
+            if (target !== null && target.closest("[data-sa-ui]") !== null) return;
+            pointerSelecting = true;
+            hideToolbar();
+          };
+          document.addEventListener("pointerdown", onSelectPointerDown, true);
           const onPointerUp = (event) => {
             const target = elementOf2(event.target);
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return;
+            pointerSelecting = false;
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() };
             if (toolbar.dataset.open === "1" && pendingSelection !== null) {
               const rect = safe(() => pendingSelection.range.getBoundingClientRect());
               if (rect !== void 0) placeToolbar(toolbar, rect, lastPointerUp);
             }
+            onSelectionChange();
           };
           document.addEventListener("pointerup", onPointerUp, true);
           const onPointerMove = (event) => {
@@ -4388,6 +4402,7 @@
             for (const record of records) {
               const target = elementOf2(record.target);
               if (target !== null && target.closest("[data-sa-ui]") !== null) continue;
+              if (pendingSent.length > 0) safe(() => scanSentMessages());
               scheduleRepaint();
               return;
             }
@@ -4396,6 +4411,7 @@
           return () => {
             markdown.dispose();
             document.removeEventListener("selectionchange", onSelectionChange);
+            document.removeEventListener("pointerdown", onSelectPointerDown, true);
             document.removeEventListener("pointerup", onPointerUp, true);
             document.removeEventListener("pointermove", onPointerMove, true);
             document.removeEventListener("contextmenu", onContextMenu, true);

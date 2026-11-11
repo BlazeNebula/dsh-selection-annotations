@@ -101,6 +101,8 @@ export function createPlugin(React, extras = {}) {
         let pendingSelection = null
         /** 划线结束（pointerup）的位置：工具条贴着它出现，而不是跟着 range 的末尾矩形。*/
         let lastPointerUp = null
+        /** 指针按住拖选期间不显示工具条，避免选区每变一次就重排一次。*/
+        let pointerSelecting = false
         /** 最近一次指针位置：悬停打开的弹层用它做横向锚点。*/
         let lastPointerMove = null
         /** 选区落定时的鼠标位置：批注弹层的横向锚点。*/
@@ -1804,6 +1806,10 @@ export function createPlugin(React, extras = {}) {
           window.clearTimeout(settleTimer)
           settleTimer = window.setTimeout(() => {
             settleTimer = null
+            if (pointerSelecting) {
+              hideToolbar()
+              return
+            }
             const selection = readSelection()
             if (selection === null) {
               hideToolbar()
@@ -2809,15 +2815,25 @@ export function createPlugin(React, extras = {}) {
 
         ctx.effect(() => {
           document.addEventListener('selectionchange', onSelectionChange)
+          // 拖动选区的过程中只记录指针，不渲染工具条；松手后再出现，避免频闪。
+          const onSelectPointerDown = (event) => {
+            const target = elementOf(event.target)
+            if (target !== null && target.closest('[data-sa-ui]') !== null) return
+            pointerSelecting = true
+            hideToolbar()
+          }
+          document.addEventListener('pointerdown', onSelectPointerDown, true)
           // 记住划线结束的位置；工具条要贴在这里，而不是 range 的末尾矩形。
           const onPointerUp = (event) => {
             const target = elementOf(event.target)
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return
+            pointerSelecting = false
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() }
             if (toolbar.dataset.open === '1' && pendingSelection !== null) {
               const rect = safe(() => pendingSelection.range.getBoundingClientRect())
               if (rect !== undefined) placeToolbar(toolbar, rect, lastPointerUp)
             }
+            onSelectionChange()
           }
           document.addEventListener('pointerup', onPointerUp, true)
           const onPointerMove = (event) => {
@@ -2849,6 +2865,8 @@ export function createPlugin(React, extras = {}) {
             for (const record of records) {
               const target = elementOf(record.target)
               if (target !== null && target.closest('[data-sa-ui]') !== null) continue
+              // 有批次等着记账时，任何 DOM 变化都立刻再试一次：消息气泡一挂出来就能落台账。
+              if (pendingSent.length > 0) safe(() => scanSentMessages())
               scheduleRepaint()
               return
             }
@@ -2857,6 +2875,7 @@ export function createPlugin(React, extras = {}) {
           return () => {
             markdown.dispose()
             document.removeEventListener('selectionchange', onSelectionChange)
+          document.removeEventListener('pointerdown', onSelectPointerDown, true)
             document.removeEventListener('pointerup', onPointerUp, true)
             document.removeEventListener('pointermove', onPointerMove, true)
             document.removeEventListener('contextmenu', onContextMenu, true)
