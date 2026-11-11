@@ -256,6 +256,9 @@ export function createPlugin(React, extras = {}) {
               // 发送这一刻的会话就是消息真正去的那一个：记账沿用它，
               // 避免稍后重算时切到别的会话，把记录写进别人的台账。
               sessionId: attachedSessionId ?? currentSessionId(),
+              // 把「这一屏会话」的范围也记下来：别的会话还挂在页面里时，只在这块范围内找新消息。
+              scope: chatScopeOfInput(),
+              turnHint: turnHintForScope(chatScopeOfInput()),
             })
             lastAnnotatedKeys = new Set()
           }
@@ -675,6 +678,35 @@ export function createPlugin(React, extras = {}) {
         }
 
         /** 把新出现的候选行与刚发出的批注负载按出现顺序配对。*/
+        /** 当前输入框所在那一屏会话：从可见输入框往上找同时含消息行的祖先。*/
+        function chatScopeOfInput() {
+          const inputs = [...document.querySelectorAll('textarea, [contenteditable="true"]')].filter((input) => {
+            const rect = safe(() => input.getBoundingClientRect())
+            return rect !== undefined && rect.width > 0 && rect.height > 0
+          })
+          for (const input of inputs.reverse()) {
+            let node = input.parentElement
+            for (let i = 0; i < 12 && node !== null && node !== undefined; i += 1) {
+              if (typeof node.querySelector === 'function' && node.querySelector('[data-chat-turn]') !== null) return node
+              node = node.parentElement
+            }
+          }
+          return null
+        }
+
+        /** 发送时就在输入框那一屏里数出轮次：最大轮次，若该轮还没有「已完成」就仍算进行中。*/
+        function turnHintForScope(scope) {
+          const root = scope ?? document
+          let max = 0
+          for (const item of root.querySelectorAll('[data-chat-turn]')) {
+            const turn = Number(item.getAttribute('data-chat-turn'))
+            if (Number.isFinite(turn) && turn > max) max = turn
+          }
+          if (max === 0) return null
+          const settled = root.querySelector(`[data-turn-process="${max}"]`) !== null
+          return settled ? max + 1 : max
+        }
+
         /** 记账一直没成功：把快照放回界面，至少让用户看到自己写了什么（台账里没有，卡片也不会出现）。*/
         function restoreConsumedSnapshot() {
           if (consumedSnapshot === null) return
@@ -708,6 +740,8 @@ export function createPlugin(React, extras = {}) {
             if (loadSent(sessionId).has(entry.anchorKey)) return false
             const kind = entry.row.getAttribute('data-chat-flow-kind') ?? ''
             if (kind === 'turn-process') return false
+            // 发送时记下的那一屏会话范围：别的会话的行即使可见，也不参与这一批的记账。
+            if (pending.scope !== null && pending.scope !== undefined && pending.scope.isConnected && !pending.scope.contains(entry.row)) return false
             // 别的会话留在页面里、已切走但未卸载时也会被扫到；只认真正看得见的行。
             if (typeof entry.row.getClientRects === 'function' && entry.row.getClientRects().length === 0) return false
             return true
@@ -741,7 +775,16 @@ export function createPlugin(React, extras = {}) {
               target = entry
             }
           }
-          if (target === undefined) return
+          if (target === undefined) {
+            // 消息行还没出现也不用干等：发送时数出的轮次已经能定位，先用它落台账。
+            const hint = pending.turnHint
+            if (Number.isFinite(hint)) {
+              pendingSent.shift()
+              recordSent(sessionId, `12:turn-process${hint}`, pending.items, hint)
+              scheduleRepaint()
+            }
+            return
+          }
           pendingSent.shift()
           const turn = turnOfRow(target.row)
           recordSent(sessionId, target.anchorKey, pending.items, turn)

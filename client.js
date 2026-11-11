@@ -2220,7 +2220,10 @@
               at: Date.now(),
               // 发送这一刻的会话就是消息真正去的那一个：记账沿用它，
               // 避免稍后重算时切到别的会话，把记录写进别人的台账。
-              sessionId: attachedSessionId ?? currentSessionId()
+              sessionId: attachedSessionId ?? currentSessionId(),
+              // 把「这一屏会话」的范围也记下来：别的会话还挂在页面里时，只在这块范围内找新消息。
+              scope: chatScopeOfInput(),
+              turnHint: turnHintForScope(chatScopeOfInput())
             });
             lastAnnotatedKeys = /* @__PURE__ */ new Set();
           }
@@ -2540,6 +2543,31 @@
         function captureAnchorKeys() {
           return new Set(collectAnchorRows().map((entry) => entry.anchorKey));
         }
+        function chatScopeOfInput() {
+          const inputs = [...document.querySelectorAll('textarea, [contenteditable="true"]')].filter((input) => {
+            const rect = safe(() => input.getBoundingClientRect());
+            return rect !== void 0 && rect.width > 0 && rect.height > 0;
+          });
+          for (const input of inputs.reverse()) {
+            let node = input.parentElement;
+            for (let i = 0; i < 12 && node !== null && node !== void 0; i += 1) {
+              if (typeof node.querySelector === "function" && node.querySelector("[data-chat-turn]") !== null) return node;
+              node = node.parentElement;
+            }
+          }
+          return null;
+        }
+        function turnHintForScope(scope) {
+          const root = scope ?? document;
+          let max = 0;
+          for (const item of root.querySelectorAll("[data-chat-turn]")) {
+            const turn = Number(item.getAttribute("data-chat-turn"));
+            if (Number.isFinite(turn) && turn > max) max = turn;
+          }
+          if (max === 0) return null;
+          const settled = root.querySelector(`[data-turn-process="${max}"]`) !== null;
+          return settled ? max + 1 : max;
+        }
         function restoreConsumedSnapshot() {
           if (consumedSnapshot === null) return;
           const known = new Set(annotations.map((item) => item.id));
@@ -2569,6 +2597,7 @@
             if (loadSent(sessionId).has(entry.anchorKey)) return false;
             const kind = entry.row.getAttribute("data-chat-flow-kind") ?? "";
             if (kind === "turn-process") return false;
+            if (pending.scope !== null && pending.scope !== void 0 && pending.scope.isConnected && !pending.scope.contains(entry.row)) return false;
             if (typeof entry.row.getClientRects === "function" && entry.row.getClientRects().length === 0) return false;
             return true;
           });
@@ -2595,7 +2624,15 @@
               target = entry;
             }
           }
-          if (target === void 0) return;
+          if (target === void 0) {
+            const hint = pending.turnHint;
+            if (Number.isFinite(hint)) {
+              pendingSent.shift();
+              recordSent(sessionId, `12:turn-process${hint}`, pending.items, hint);
+              scheduleRepaint();
+            }
+            return;
+          }
           pendingSent.shift();
           const turn = turnOfRow(target.row);
           recordSent(sessionId, target.anchorKey, pending.items, turn);
