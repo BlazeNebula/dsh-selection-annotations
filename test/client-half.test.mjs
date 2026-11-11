@@ -630,7 +630,7 @@ test('apply 之后：悬挂 UI 建成、批注按钮注册进发送按钮旁的�
   assert.equal(byName['tool.call.toolview'].opts.key, 'annotation_replies', '逐条答复走工具调用卡片位')
   assert.equal(byName['plugins.bundle.config'].opts.key, '@u2a5f/dsh-selection-annotations', '插件详情页设置区按包名接管')
   assert.ok(harness.mod.inject.includes('remote'), '声明 remote 才能拿到 ctx.remote 读工作区原文')
-  assert.equal(harness.env.document.body.childNodes.length, 7, '覆盖层 / 工具条 / 右键菜单 / 批注弹层 / 补全提示 / 悬浮面板 / 图片查看层都要挂上')
+  assert.equal(harness.env.document.body.childNodes.length, 8, '覆盖层 / 工具条 / 右键菜单 / 批注弹层 / 补全提示 / 虚影补全 / 悬浮面板 / 图片查看层都要挂上')
 
   const ui = harness.env.document.head.childNodes[0]
   assert.equal(ui.tagName, 'STYLE')

@@ -8,17 +8,17 @@
 .sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
 /* 批注文字的墨色从主题前景色派生（同 dsh-todo-notes 的优先级着色）：普通批注走 warn 色相，采纳走 success 色相。*/
-.sa-item-note, .sa-sent-note, .sa-q-quote, .sa-pop-input, .sa-token {
+.sa-item-note, .sa-sent-note, .sa-a-reason, .sa-pop-input, .sa-token {
   color: var(--dsw-alias-state-warn-primary, #d29922); }
 @supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
-  .sa-item-note, .sa-sent-note, .sa-q-quote, .sa-pop-input, .sa-token {
+  .sa-item-note, .sa-sent-note, .sa-a-reason, .sa-pop-input, .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.12 85); }
 }
-.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"],
+.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-a-reason[data-adopt="1"],
 .sa-pop-input[data-adopt="1"], .sa-token {
   color: var(--dsw-alias-state-success-primary, #22c55e); }
 @supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
-  .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"],
+  .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-a-reason[data-adopt="1"],
   .sa-pop-input[data-adopt="1"], .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.13 150); }
 }
@@ -88,6 +88,9 @@
 .sa-token { display: inline-flex; align-items: center; margin: 0 1px; padding: 0 6px; border-radius: 6px;
   background: var(--dsw-alias-state-success-tertiary, #e6faed); color: var(--dsw-alias-state-success-primary, #22c55e);
   font-weight: 500; user-select: all; }
+.sa-ghost { position: fixed; z-index: 68; pointer-events: none; font-style: italic; white-space: pre;
+  font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); line-height: 1.6;
+  color: var(--dsw-alias-label-tertiary, GrayText); opacity: .8; }
 .sa-suggest { position: fixed; z-index: 75; margin: 0; padding: 4px 8px; font: inherit;
   font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); color: var(--dsw-alias-brand-primary, #247bbf);
   background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px dashed var(--dsw-alias-border-l2, ButtonBorder);
@@ -327,7 +330,7 @@
   var DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100 };
   var INSTRUCTION_SETTINGS_KEY = "dsh-selection-annotations:instruction-settings";
   var ADOPT_SETTINGS_KEY = "dsh-selection-annotations:adopt-settings";
-  var DEFAULT_ADOPT_TEXT = "意见采纳。";
+  var DEFAULT_ADOPT_TEXT = "意见采纳";
   var DEFAULT_INSTRUCTION = [
     "这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n",
     "\n",
@@ -778,6 +781,7 @@
       const parsed = safe(() => JSON.parse(storage.getItem(ADOPT_SETTINGS_KEY) ?? "null"));
       if (parsed === null || typeof parsed !== "object") return DEFAULT_ADOPT_TEXT;
       const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
+      if (text === "意见采纳。") return DEFAULT_ADOPT_TEXT;
       return text === "" ? DEFAULT_ADOPT_TEXT : text;
     }
     function adoptTextOf() {
@@ -1498,6 +1502,7 @@
         const reason = document.createElement("div");
         reason.className = "sa-a-reason";
         reason.setAttribute("data-sa-field", "reason");
+        if (isAdopt(reply.reason)) reason.dataset.adopt = "1";
         if (markdown !== void 0 && typeof markdown.mount === "function") {
           markdown.mount(reason, typeof reply.reason === "string" ? reply.reason : "");
         } else {
@@ -3128,6 +3133,11 @@
         popSuggest.className = "sa-suggest";
         popSuggest.setAttribute("data-sa-ui", "suggest");
         popSuggest.style.display = "none";
+        const ghostTip = document.createElement("span");
+        ghostTip.className = "sa-ghost";
+        ghostTip.setAttribute("data-sa-ui", "ghost");
+        ghostTip.setAttribute("aria-hidden", "true");
+        ghostTip.style.display = "none";
         const popInput = document.createElement("div");
         popInput.className = "sa-pop-input";
         popInput.setAttribute("contenteditable", "true");
@@ -3217,6 +3227,7 @@
         let suggested = null;
         function hideSuggestion() {
           suggested = null;
+          ghostTip.style.display = "none";
           popSuggest.style.display = "none";
         }
         function caretLine() {
@@ -3243,13 +3254,11 @@
             return;
           }
           suggested = { prefix: ctx2.line, node: ctx2.node, offset: ctx2.offset };
-          popSuggest.textContent = `${phrase}　Tab`;
-          const width = popSuggest.offsetWidth || 180;
-          const left = Math.max(8, Math.min(ctx2.rect.left, window.innerWidth - width - 8));
-          const top = Math.min(ctx2.rect.bottom + 6, window.innerHeight - 40);
-          popSuggest.style.left = `${left}px`;
-          popSuggest.style.top = `${top}px`;
-          popSuggest.style.display = "";
+          ghostTip.textContent = phrase;
+          const left = Math.min(ctx2.rect.right + 1, window.innerWidth - 40);
+          ghostTip.style.left = `${Math.max(8, left)}px`;
+          ghostTip.style.top = `${ctx2.rect.top}px`;
+          ghostTip.style.display = "";
         }
         function acceptSuggestion() {
           if (suggested === null) return false;
@@ -3675,7 +3684,11 @@
             const target = popoverTargetId;
             const images2 = popInputImages;
             const note2 = noteValue();
+            const before = target === null ? void 0 : annotations.find((item) => item.id === target);
             closePopover();
+            if (before !== void 0 && before.note === note2 && JSON.stringify(before.images) === JSON.stringify(images2)) {
+              return;
+            }
             if (target !== null) updateAnnotation(target, note2, images2);
             return;
           }
@@ -3922,6 +3935,8 @@
         popInput.addEventListener("input", () => {
           popoverTouched = true;
         });
+        popInput.addEventListener("click", () => safe(() => updateSuggestion()));
+        popInput.addEventListener("keyup", () => safe(() => updateSuggestion()));
         let hoverMoveAt = 0;
         document.addEventListener(
           "mousemove",
@@ -4206,7 +4221,7 @@
           style.setAttribute("data-selection-annotations", "");
           style.textContent = CSS;
           document.head.appendChild(style);
-          document.body.append(overlay, toolbar, contextMenu, popover, popSuggest, panelRoot, imageViewer);
+          document.body.append(overlay, toolbar, contextMenu, popover, popSuggest, ghostTip, panelRoot, imageViewer);
           orphanTimer = window.setInterval(() => {
             const shell = inputShell();
             if (shell !== void 0) sweepOrphans(shell);
@@ -4234,6 +4249,7 @@
             contextMenu.remove();
             popover.remove();
             popSuggest.remove();
+            ghostTip.remove();
             if (panelObserver !== null) {
               panelObserver.disconnect();
               panelObserver = null;

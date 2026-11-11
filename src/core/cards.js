@@ -225,6 +225,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       const reason = document.createElement('div')
       reason.className = 'sa-a-reason'
       reason.setAttribute('data-sa-field', 'reason')
+      if (isAdopt(reply.reason)) reason.dataset.adopt = '1'
       if (markdown !== undefined && typeof markdown.mount === 'function') {
         markdown.mount(reason, typeof reply.reason === 'string' ? reply.reason : '')
       } else {

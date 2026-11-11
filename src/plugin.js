@@ -1414,6 +1414,12 @@ export function createPlugin(React, extras = {}) {
         popSuggest.className = 'sa-suggest'
         popSuggest.setAttribute('data-sa-ui', 'suggest')
         popSuggest.style.display = 'none'
+        // 现代编辑器式 ghost 补全：在光标后显示斜体虚影，Tab 接受。
+        const ghostTip = document.createElement('span')
+        ghostTip.className = 'sa-ghost'
+        ghostTip.setAttribute('data-sa-ui', 'ghost')
+        ghostTip.setAttribute('aria-hidden', 'true')
+        ghostTip.style.display = 'none'
         const popInput = document.createElement('div')
         popInput.className = 'sa-pop-input'
         popInput.setAttribute('contenteditable', 'true')
@@ -1519,6 +1525,7 @@ export function createPlugin(React, extras = {}) {
         let suggested = null
         function hideSuggestion() {
           suggested = null
+          ghostTip.style.display = 'none'
           popSuggest.style.display = 'none'
         }
 
@@ -1547,13 +1554,11 @@ export function createPlugin(React, extras = {}) {
             return
           }
           suggested = { prefix: ctx.line, node: ctx.node, offset: ctx.offset }
-          popSuggest.textContent = `${phrase}　Tab`
-          const width = popSuggest.offsetWidth || 180
-          const left = Math.max(8, Math.min(ctx.rect.left, window.innerWidth - width - 8))
-          const top = Math.min(ctx.rect.bottom + 6, window.innerHeight - 40)
-          popSuggest.style.left = `${left}px`
-          popSuggest.style.top = `${top}px`
-          popSuggest.style.display = ''
+          ghostTip.textContent = phrase
+          const left = Math.min(ctx.rect.right + 1, window.innerWidth - 40)
+          ghostTip.style.left = `${Math.max(8, left)}px`
+          ghostTip.style.top = `${ctx.rect.top}px`
+          ghostTip.style.display = ''
         }
 
         function acceptSuggestion() {
@@ -2058,7 +2063,12 @@ export function createPlugin(React, extras = {}) {
             const target = popoverTargetId
             const images = popInputImages
             const note = noteValue()
+            const before = target === null ? undefined : annotations.find((item) => item.id === target)
             closePopover()
+            // 悬停预览只因离开而收起时，内容常常没变；不要白做一次重绘（会让会话视图抖一下）。
+            if (before !== undefined && before.note === note && JSON.stringify(before.images) === JSON.stringify(images)) {
+              return
+            }
             if (target !== null) updateAnnotation(target, note, images)
             return
           }
@@ -2328,6 +2338,8 @@ export function createPlugin(React, extras = {}) {
         popInput.addEventListener('input', () => {
           popoverTouched = true
         })
+        popInput.addEventListener('click', () => safe(() => updateSuggestion()))
+        popInput.addEventListener('keyup', () => safe(() => updateSuggestion()))
         let hoverMoveAt = 0
         document.addEventListener(
           'mousemove',
@@ -2665,7 +2677,7 @@ export function createPlugin(React, extras = {}) {
           style.setAttribute('data-selection-annotations', '')
           style.textContent = CSS
           document.head.appendChild(style)
-          document.body.append(overlay, toolbar, contextMenu, popover, popSuggest, panelRoot, imageViewer)
+          document.body.append(overlay, toolbar, contextMenu, popover, popSuggest, ghostTip, panelRoot, imageViewer)
           // 独立于批注集合：即使现在一条批注都没有，也要能摘掉重载前遗留的孤儿附件。
           orphanTimer = window.setInterval(() => {
             const shell = inputShell()
@@ -2696,6 +2708,7 @@ export function createPlugin(React, extras = {}) {
             contextMenu.remove()
             popover.remove()
             popSuggest.remove()
+            ghostTip.remove()
             if (panelObserver !== null) {
               panelObserver.disconnect()
               panelObserver = null

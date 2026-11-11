@@ -73,6 +73,8 @@ export function createSettings(getStorage, locale) {
     const parsed = safe(() => JSON.parse(storage.getItem(ADOPT_SETTINGS_KEY) ?? 'null'))
     if (parsed === null || typeof parsed !== 'object') return DEFAULT_ADOPT_TEXT
     const text = typeof parsed.text === 'string' ? parsed.text.trim() : ''
+    // 旧默认值（带句号）静默迁移到新默认，不要求用户手动恢复。
+    if (text === '意见采纳。') return DEFAULT_ADOPT_TEXT
     return text === '' ? DEFAULT_ADOPT_TEXT : text
   }
 

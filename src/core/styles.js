@@ -6,17 +6,17 @@ export const CSS = `
 .sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
 /* 批注文字的墨色从主题前景色派生（同 dsh-todo-notes 的优先级着色）：普通批注走 warn 色相，采纳走 success 色相。*/
-.sa-item-note, .sa-sent-note, .sa-q-quote, .sa-pop-input, .sa-token {
+.sa-item-note, .sa-sent-note, .sa-a-reason, .sa-pop-input, .sa-token {
   color: var(--dsw-alias-state-warn-primary, #d29922); }
 @supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
-  .sa-item-note, .sa-sent-note, .sa-q-quote, .sa-pop-input, .sa-token {
+  .sa-item-note, .sa-sent-note, .sa-a-reason, .sa-pop-input, .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.12 85); }
 }
-.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"],
+.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-a-reason[data-adopt="1"],
 .sa-pop-input[data-adopt="1"], .sa-token {
   color: var(--dsw-alias-state-success-primary, #22c55e); }
 @supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
-  .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"],
+  .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-a-reason[data-adopt="1"],
   .sa-pop-input[data-adopt="1"], .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.13 150); }
 }
@@ -86,6 +86,9 @@ export const CSS = `
 .sa-token { display: inline-flex; align-items: center; margin: 0 1px; padding: 0 6px; border-radius: 6px;
   background: var(--dsw-alias-state-success-tertiary, #e6faed); color: var(--dsw-alias-state-success-primary, #22c55e);
   font-weight: 500; user-select: all; }
+.sa-ghost { position: fixed; z-index: 68; pointer-events: none; font-style: italic; white-space: pre;
+  font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); line-height: 1.6;
+  color: var(--dsw-alias-label-tertiary, GrayText); opacity: .8; }
 .sa-suggest { position: fixed; z-index: 75; margin: 0; padding: 4px 8px; font: inherit;
   font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); color: var(--dsw-alias-brand-primary, #247bbf);
   background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px dashed var(--dsw-alias-border-l2, ButtonBorder);

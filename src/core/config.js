@@ -16,7 +16,7 @@ export const DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 1
 export const INSTRUCTION_SETTINGS_KEY = 'dsh-selection-annotations:instruction-settings'
     /** 「批注采纳」预填文本：可在插件设置里改，恢复默认回到下面这句。*/
 export const ADOPT_SETTINGS_KEY = 'dsh-selection-annotations:adopt-settings'
-export const DEFAULT_ADOPT_TEXT = '意见采纳。'
+export const DEFAULT_ADOPT_TEXT = '意见采纳'
     /** 默认批注指令；删掉「必须调用annotation_replies」这句，逐条答复会退化成正文自由文本。*/
 export const DEFAULT_INSTRUCTION = [
       '这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n',
