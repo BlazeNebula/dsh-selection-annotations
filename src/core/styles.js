@@ -1,10 +1,25 @@
 export const CSS = `
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
 .sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
-  background: rgb(255 208 66 / 0.45); box-shadow: inset 0 -1px 0 rgb(255 176 0 / 0.75); }
-.sa-hl[data-adopt="1"] { background: rgb(63 185 80 / 0.40); box-shadow: inset 0 -1px 0 rgb(46 160 67 / 0.8); }
-.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"] {
-  color: var(--dsw-alias-state-success, #3fb950); }
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
+.sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
+/* 批注文字的墨色从主题前景色派生（同 dsh-todo-notes 的优先级着色）：普通批注走 warn 色相，采纳走 success 色相。*/
+.sa-item-note, .sa-sent-note, .sa-q-quote, .sa-pop-input, .sa-token {
+  color: var(--dsw-alias-state-warn-primary, #d29922); }
+@supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
+  .sa-item-note, .sa-sent-note, .sa-q-quote, .sa-pop-input, .sa-token {
+    color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.12 85); }
+}
+.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"],
+.sa-pop-input[data-adopt="1"], .sa-token {
+  color: var(--dsw-alias-state-success-primary, #22c55e); }
+@supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
+  .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"],
+  .sa-pop-input[data-adopt="1"], .sa-token {
+    color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.13 150); }
+}
 .sa-badge { position: fixed; pointer-events: auto; cursor: pointer; font: inherit; border: none; padding: 0 3px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
   background: var(--dsw-alias-brand-primary, #247bbf); color: #fff; font-size: calc(10px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1;
@@ -53,7 +68,6 @@ export const CSS = `
 .sa-pop-input { width: 100%; box-sizing: border-box; min-height: 62px; resize: vertical; padding: 6px 8px;
   font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-layer-1, Canvas);
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
-.sa-pop-input[data-adopt="1"] { color: var(--dsw-alias-state-success, #3fb950); }
 .sa-pop-input { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; max-height: 60vh; }
 .sa-pop-input:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary, #247bbf)); outline-offset: 1px; }
 .sa-pop-input[data-empty="1"]::before { content: attr(data-placeholder); color: var(--dsw-alias-label-tertiary, GrayText); pointer-events: none; }

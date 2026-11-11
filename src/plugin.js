@@ -1412,6 +1412,7 @@ export function createPlugin(React, extras = {}) {
         const popSuggest = document.createElement('button')
         popSuggest.type = 'button'
         popSuggest.className = 'sa-suggest'
+        popSuggest.setAttribute('data-sa-ui', 'suggest')
         popSuggest.style.display = 'none'
         const popInput = document.createElement('div')
         popInput.className = 'sa-pop-input'
@@ -1631,7 +1632,7 @@ export function createPlugin(React, extras = {}) {
         popSave.className = 'sa-btn sa-pop-primary'
         popSave.textContent = t('pop.save')
         popActions.append(popDelete, popSpacer, popCancel, popSave)
-        popover.append(popHead, popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popSuggest, popImages, popActions)
+        popover.append(popHead, popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions)
 
         function isExcluded(node) {
           const element = elementOf(node)
@@ -1717,13 +1718,18 @@ export function createPlugin(React, extras = {}) {
           element.style.top = `${Math.max(8, top)}px`
         }
 
+        /** 浮层横向锚点：有指针就用指针，没有就用选区中心；两边浮层共用这一条。*/
+        function anchoredLeft(point, rect, width) {
+          const anchorX = point !== null && point !== undefined ? point.x : rect.left + rect.width / 2
+          return Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8))
+        }
+
         /** 批注弹层：横向跟随鼠标/选区落点；编辑区在弹层下半部，所以优先放到选区上方。*/
         function placePopover(rect) {
           const width = popover.offsetWidth || 340
           const height = popover.offsetHeight || 240
           const point = popoverSource === 'hover' ? lastPointerMove : (selectionPointer ?? lastPointerMove)
-          const anchorX = point !== null ? point.x : rect.left + rect.width
-          const left = Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8))
+          const left = anchoredLeft(point, rect, width)
           const above = rect.top - height - 10
           const top = above >= 8 ? above : Math.min(rect.bottom + 10, window.innerHeight - height - 8)
           popover.style.left = `${left}px`
@@ -1734,8 +1740,7 @@ export function createPlugin(React, extras = {}) {
         function placeToolbar(element, rect, point) {
           const width = element.offsetWidth || 80
           const height = element.offsetHeight || 32
-          const anchorX = point !== null && point !== undefined ? point.x : rect.left + rect.width / 2
-          const left = Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8))
+          const left = anchoredLeft(point, rect, width)
           const top = Math.min(rect.bottom + 8, window.innerHeight - height - 8)
           element.style.left = `${left}px`
           element.style.top = `${Math.max(8, top)}px`
@@ -2660,7 +2665,7 @@ export function createPlugin(React, extras = {}) {
           style.setAttribute('data-selection-annotations', '')
           style.textContent = CSS
           document.head.appendChild(style)
-          document.body.append(overlay, toolbar, contextMenu, popover, panelRoot, imageViewer)
+          document.body.append(overlay, toolbar, contextMenu, popover, popSuggest, panelRoot, imageViewer)
           // 独立于批注集合：即使现在一条批注都没有，也要能摘掉重载前遗留的孤儿附件。
           orphanTimer = window.setInterval(() => {
             const shell = inputShell()
@@ -2690,6 +2695,7 @@ export function createPlugin(React, extras = {}) {
             toolbar.remove()
             contextMenu.remove()
             popover.remove()
+            popSuggest.remove()
             if (panelObserver !== null) {
               panelObserver.disconnect()
               panelObserver = null
@@ -2744,7 +2750,7 @@ export function createPlugin(React, extras = {}) {
           // 记住划线结束的位置；工具条要贴在这里，而不是 range 的末尾矩形。
           const onPointerUp = (event) => {
             const target = elementOf(event.target)
-            if (target !== null && target.closest('[data-sa-ui]') !== null) return
+            if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() }
             if (toolbar.dataset.open === '1' && pendingSelection !== null) {
               const rect = safe(() => pendingSelection.range.getBoundingClientRect())

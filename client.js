@@ -3,10 +3,25 @@
   var CSS = `
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
 .sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
-  background: rgb(255 208 66 / 0.45); box-shadow: inset 0 -1px 0 rgb(255 176 0 / 0.75); }
-.sa-hl[data-adopt="1"] { background: rgb(63 185 80 / 0.40); box-shadow: inset 0 -1px 0 rgb(46 160 67 / 0.8); }
-.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"] {
-  color: var(--dsw-alias-state-success, #3fb950); }
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
+.sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
+/* 批注文字的墨色从主题前景色派生（同 dsh-todo-notes 的优先级着色）：普通批注走 warn 色相，采纳走 success 色相。*/
+.sa-item-note, .sa-sent-note, .sa-q-quote, .sa-pop-input, .sa-token {
+  color: var(--dsw-alias-state-warn-primary, #d29922); }
+@supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
+  .sa-item-note, .sa-sent-note, .sa-q-quote, .sa-pop-input, .sa-token {
+    color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.12 85); }
+}
+.sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"],
+.sa-pop-input[data-adopt="1"], .sa-token {
+  color: var(--dsw-alias-state-success-primary, #22c55e); }
+@supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
+  .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-quote[data-adopt="1"],
+  .sa-pop-input[data-adopt="1"], .sa-token {
+    color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.13 150); }
+}
 .sa-badge { position: fixed; pointer-events: auto; cursor: pointer; font: inherit; border: none; padding: 0 3px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
   background: var(--dsw-alias-brand-primary, #247bbf); color: #fff; font-size: calc(10px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1;
@@ -55,7 +70,6 @@
 .sa-pop-input { width: 100%; box-sizing: border-box; min-height: 62px; resize: vertical; padding: 6px 8px;
   font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-layer-1, Canvas);
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
-.sa-pop-input[data-adopt="1"] { color: var(--dsw-alias-state-success, #3fb950); }
 .sa-pop-input { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; max-height: 60vh; }
 .sa-pop-input:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary, #247bbf)); outline-offset: 1px; }
 .sa-pop-input[data-empty="1"]::before { content: attr(data-placeholder); color: var(--dsw-alias-label-tertiary, GrayText); pointer-events: none; }
@@ -3112,6 +3126,7 @@
         const popSuggest = document.createElement("button");
         popSuggest.type = "button";
         popSuggest.className = "sa-suggest";
+        popSuggest.setAttribute("data-sa-ui", "suggest");
         popSuggest.style.display = "none";
         const popInput = document.createElement("div");
         popInput.className = "sa-pop-input";
@@ -3306,7 +3321,7 @@
         popSave.className = "sa-btn sa-pop-primary";
         popSave.textContent = t("pop.save");
         popActions.append(popDelete, popSpacer, popCancel, popSave);
-        popover.append(popHead, popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popSuggest, popImages, popActions);
+        popover.append(popHead, popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions);
         function isExcluded(node) {
           const element = elementOf2(node);
           if (element === null) return true;
@@ -3382,12 +3397,15 @@
           element.style.left = `${left}px`;
           element.style.top = `${Math.max(8, top)}px`;
         }
+        function anchoredLeft(point, rect, width) {
+          const anchorX = point !== null && point !== void 0 ? point.x : rect.left + rect.width / 2;
+          return Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8));
+        }
         function placePopover(rect) {
           const width = popover.offsetWidth || 340;
           const height = popover.offsetHeight || 240;
           const point = popoverSource === "hover" ? lastPointerMove : selectionPointer ?? lastPointerMove;
-          const anchorX = point !== null ? point.x : rect.left + rect.width;
-          const left = Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8));
+          const left = anchoredLeft(point, rect, width);
           const above = rect.top - height - 10;
           const top = above >= 8 ? above : Math.min(rect.bottom + 10, window.innerHeight - height - 8);
           popover.style.left = `${left}px`;
@@ -3396,8 +3414,7 @@
         function placeToolbar(element, rect, point) {
           const width = element.offsetWidth || 80;
           const height = element.offsetHeight || 32;
-          const anchorX = point !== null && point !== void 0 ? point.x : rect.left + rect.width / 2;
-          const left = Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8));
+          const left = anchoredLeft(point, rect, width);
           const top = Math.min(rect.bottom + 8, window.innerHeight - height - 8);
           element.style.left = `${left}px`;
           element.style.top = `${Math.max(8, top)}px`;
@@ -4189,7 +4206,7 @@
           style.setAttribute("data-selection-annotations", "");
           style.textContent = CSS;
           document.head.appendChild(style);
-          document.body.append(overlay, toolbar, contextMenu, popover, panelRoot, imageViewer);
+          document.body.append(overlay, toolbar, contextMenu, popover, popSuggest, panelRoot, imageViewer);
           orphanTimer = window.setInterval(() => {
             const shell = inputShell();
             if (shell !== void 0) sweepOrphans(shell);
@@ -4216,6 +4233,7 @@
             toolbar.remove();
             contextMenu.remove();
             popover.remove();
+            popSuggest.remove();
             if (panelObserver !== null) {
               panelObserver.disconnect();
               panelObserver = null;
@@ -4264,7 +4282,7 @@
           document.addEventListener("selectionchange", onSelectionChange);
           const onPointerUp = (event) => {
             const target = elementOf2(event.target);
-            if (target !== null && target.closest("[data-sa-ui]") !== null) return;
+            if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return;
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() };
             if (toolbar.dataset.open === "1" && pendingSelection !== null) {
               const rect = safe(() => pendingSelection.range.getBoundingClientRect());
