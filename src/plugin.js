@@ -101,6 +101,8 @@ export function createPlugin(React, extras = {}) {
         let pendingSelection = null
         /** 划线结束（pointerup）的位置：工具条贴着它出现，而不是跟着 range 的末尾矩形。*/
         let lastPointerUp = null
+        /** 选区落定时的鼠标位置：批注弹层的横向锚点。*/
+        let selectionPointer = null
         /** 由槽位标准 props 注入的 composer 动作与当前会话 id —— 比自行解析 scope 更稳。 */
         let latestInputActions = undefined
         let latestSessionId = undefined
@@ -956,7 +958,12 @@ export function createPlugin(React, extras = {}) {
             menuCopy.textContent = t('menu.copy')
           })
           safe(() => {
-            popInput.placeholder = t('pop.placeholder')
+            popInput.setAttribute('aria-label', t('pop.placeholder'))
+            popInput.dataset.placeholder = t('pop.placeholder')
+          })
+          safe(() => {
+            popQuoteLabel.textContent = t('label.quote')
+            popNoteLabel.textContent = t('pop.noteLabel')
           })
           safe(() => {
             popImagesHint.textContent = t('pop.imagesHint')
@@ -1349,13 +1356,24 @@ export function createPlugin(React, extras = {}) {
         popover.setAttribute('data-sa-ui', 'popover')
         const popTitle = document.createElement('div')
         popTitle.className = 'sa-pop-title'
+        const popQuoteLabel = document.createElement('div')
+        popQuoteLabel.className = 'sa-pop-label'
+        popQuoteLabel.textContent = t('label.quote')
         const popQuote = document.createElement('div')
         popQuote.className = 'sa-pop-quote'
         const popSource = document.createElement('div')
         popSource.className = 'sa-pop-src'
-        const popInput = document.createElement('textarea')
+        const popNoteLabel = document.createElement('div')
+        popNoteLabel.className = 'sa-pop-label'
+        popNoteLabel.textContent = t('pop.noteLabel')
+        const popInput = document.createElement('div')
         popInput.className = 'sa-pop-input'
-        popInput.placeholder = t('pop.placeholder')
+        popInput.setAttribute('contenteditable', 'true')
+        popInput.setAttribute('role', 'textbox')
+        popInput.setAttribute('aria-multiline', 'true')
+        popInput.setAttribute('aria-label', t('pop.placeholder'))
+        popInput.dataset.placeholder = t('pop.placeholder')
+        popInput.dataset.empty = '1'
         /** 输入框默认跟随内容长高；用户一旦手动拖过高度，就不再覆盖他的选择。*/
         let popInputAutoHeight = true
         let popInputAutoValue = 0
@@ -1372,6 +1390,82 @@ export function createPlugin(React, extras = {}) {
         let popoverTouched = false
         /** 弹层是谁打开的：主动点开，还是悬停预览。只有悬停的会被自动关。*/
         let popoverSource = 'manual'
+        /** 备注编辑器：采纳句是可整体删除的 token，其余仍是普通文本。*/
+        function caretToEnd() {
+          const selection = window.getSelection()
+          if (selection === null || typeof document.createRange !== 'function') return
+          const range = document.createRange()
+          range.selectNodeContents(popInput)
+          range.collapse(false)
+          selection.removeAllRanges()
+          selection.addRange(range)
+        }
+
+        function noteValue() {
+          return typeof popInput.textContent === 'string' ? popInput.textContent : ''
+        }
+
+        function refreshNoteState() {
+          popInput.dataset.empty = noteValue() === '' ? '1' : '0'
+          syncAdoptTone()
+        }
+
+        function appendNoteText(text) {
+          if (text === '') return
+          if (typeof document.createTextNode === 'function') {
+            popInput.appendChild(document.createTextNode(text))
+          } else {
+            const span = document.createElement('span')
+            span.textContent = text
+            popInput.appendChild(span)
+          }
+        }
+
+        function adoptTokenNode(phrase) {
+          const token = document.createElement('span')
+          token.className = 'sa-token'
+          token.setAttribute('contenteditable', 'false')
+          token.textContent = phrase
+          return token
+        }
+
+        /** 用编辑器内容重建备注：第一次出现的采纳句换成不可编辑 token。*/
+        function setNoteContent(value) {
+          popInput.textContent = ''
+          if (value === '') {
+            refreshNoteState()
+            return
+          }
+          const phrase = adoptTextOf()
+          const at = value.indexOf(phrase)
+          if (at === -1) {
+            appendNoteText(value)
+          } else {
+            appendNoteText(value.slice(0, at))
+            popInput.appendChild(adoptTokenNode(phrase))
+            appendNoteText(value.slice(at + phrase.length))
+          }
+          refreshNoteState()
+        }
+
+        const insertNoteText = (text) => {
+          const selection = window.getSelection()
+          const range = selection !== null && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
+          if (range !== null && popInput.contains(range.startContainer)) {
+            range.deleteContents()
+            const node = typeof document.createTextNode === 'function' ? document.createTextNode(text) : null
+            if (node !== null) {
+              range.insertNode(node)
+              range.setStartAfter(node)
+              range.collapse(true)
+              selection.removeAllRanges()
+              selection.addRange(range)
+              return
+            }
+          }
+          appendNoteText(text)
+          caretToEnd()
+        }
         const popActions = document.createElement('div')
         popActions.className = 'sa-pop-actions'
         /** 当前正在编辑的这条批注挂的图片；只在内存里（二进制进不了 localStorage）。*/
@@ -1418,10 +1512,10 @@ export function createPlugin(React, extras = {}) {
         popCancel.textContent = t('pop.cancel')
         const popSave = document.createElement('button')
         popSave.type = 'button'
-        popSave.className = 'sa-btn'
+        popSave.className = 'sa-btn sa-pop-primary'
         popSave.textContent = t('pop.save')
         popActions.append(popDelete, popSpacer, popCancel, popSave)
-        popover.append(popTitle, popQuote, popSource, popInput, popImages, popActions)
+        popover.append(popTitle, popQuoteLabel, popQuote, popSource, popNoteLabel, popInput, popImages, popActions)
 
         function isExcluded(node) {
           const element = elementOf(node)
@@ -1507,6 +1601,18 @@ export function createPlugin(React, extras = {}) {
           element.style.top = `${Math.max(8, top)}px`
         }
 
+        /** 批注弹层：横向跟随选区落点，纵向优先放到选区下方，放不下才翻到上方。*/
+        function placePopover(rect) {
+          const width = popover.offsetWidth || 340
+          const height = popover.offsetHeight || 240
+          const anchorX = selectionPointer !== null ? selectionPointer.x : rect.left + rect.width
+          const left = Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8))
+          const below = rect.bottom + 10
+          const top = below + height <= window.innerHeight - 8 ? below : Math.max(8, rect.top - height - 10)
+          popover.style.left = `${left}px`
+          popover.style.top = `${top}px`
+        }
+
         /** 工具条：横向跟随划线结束的位置，纵向仍贴着选区下沿，避免盖住刚划的那行字。*/
         function placeToolbar(element, rect, point) {
           const width = element.offsetWidth || 80
@@ -1535,6 +1641,7 @@ export function createPlugin(React, extras = {}) {
             pendingSelection = selection
             toolbar.dataset.open = '1'
             const fresh = lastPointerUp !== null && Date.now() - lastPointerUp.at < 1500
+            selectionPointer = fresh ? lastPointerUp : null
             placeToolbar(toolbar, rect, fresh ? lastPointerUp : null)
           }, SETTLE_MS)
         }
@@ -1641,22 +1748,24 @@ export function createPlugin(React, extras = {}) {
           const min = 62
           const max = Math.max(min, Math.round(window.innerHeight * 0.6))
           popInput.style.height = 'auto'
-          const next = Math.max(min, Math.min(popInput.scrollHeight, max))
+          const measured = Number(popInput.scrollHeight)
+          if (!Number.isFinite(measured) || measured <= 0) return
+          const next = Math.max(min, Math.min(measured, max))
           popInput.style.height = `${next}px`
           popInputAutoValue = next
         }
 
         function syncAdoptTone() {
-          popInput.dataset.adopt = hasAdoptNote(popInput.value) ? '1' : '0'
+          popInput.dataset.adopt = hasAdoptNote(noteValue()) ? '1' : '0'
         }
 
         function showPopover(options) {
           popTitle.textContent = options.title
           popQuote.textContent = options.quote.length > 400 ? `${options.quote.slice(0, 400)}…` : options.quote
           popQuote.style.display = options.quote === '' ? 'none' : ''
+          popQuoteLabel.style.display = options.quote === '' ? 'none' : ''
           popSource.textContent = options.sourceText
-          popInput.value = options.note
-          syncAdoptTone()
+          setNoteContent(options.note)
           resetPopImages(options.images)
           popoverMode = options.mode
           popoverTargetId = options.targetId ?? null
@@ -1669,10 +1778,10 @@ export function createPlugin(React, extras = {}) {
           cancelHoverOpen()
           cancelHoverClose()
           popover.dataset.open = '1'
-          if (options.rect !== undefined && options.rect !== null) placeAt(popover, options.rect, 10)
+          if (options.rect !== undefined && options.rect !== null) placePopover(options.rect)
           syncPopInputHeight()
           safe(() => popInput.focus())
-          safe(() => popInput.setSelectionRange(popInput.value.length, popInput.value.length))
+          safe(() => caretToEnd())
         }
 
         function openCreatePopover(options = {}) {
@@ -1801,14 +1910,14 @@ export function createPlugin(React, extras = {}) {
           if (popoverMode === 'edit') {
             const target = popoverTargetId
             const images = popInputImages
-            const note = popInput.value
+            const note = noteValue()
             closePopover()
             if (target !== null) updateAnnotation(target, note, images)
             return
           }
           const anchor = popoverAnchor
           if (anchor === null) return
-          const note = popInput.value
+          const note = noteValue()
           const images = popInputImages
           if (discardEmpty && shouldDiscardEmpty(popoverMode, note, images)) {
             closePopover()
@@ -1894,35 +2003,31 @@ export function createPlugin(React, extras = {}) {
         popDelete.addEventListener('click', () => deleteFromPopover())
         popInput.addEventListener('keydown', (event) => {
           const phrase = adoptTextOf()
-          // 采纳预填是一整句：光标落在这句里面任意位置按退格，都整句删掉。
-          if (event.key === 'Backspace' && popInput.selectionStart === popInput.selectionEnd) {
-            const caret = popInput.selectionStart
-            const value = popInput.value
-            const at = value.indexOf(phrase)
-            if (at !== -1 && caret > at && caret <= at + phrase.length) {
+          // 采纳 token 是 contenteditable=false，退格与选中由浏览器按整块处理；
+          // 手打前几个字时，Tab 把当前内容换成完整的采纳 token。
+          if (event.key === 'Tab' && !event.shiftKey) {
+            const value = noteValue()
+            if (value !== '' && phrase.startsWith(value)) {
               event.preventDefault()
-              popInput.value = value.slice(0, at) + value.slice(at + phrase.length)
-              safe(() => popInput.setSelectionRange(at, at))
+              setNoteContent(phrase)
+              safe(() => caretToEnd())
               syncPopInputHeight()
-              syncAdoptTone()
               return
             }
           }
-          // 手打前几个字时，Tab 补全成完整的采纳句。
-          if (event.key === 'Tab' && !event.shiftKey && popInput.value !== '' && phrase.startsWith(popInput.value)) {
+          if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
             event.preventDefault()
-            popInput.value = phrase
-            safe(() => popInput.setSelectionRange(phrase.length, phrase.length))
+            insertNoteText('\n')
+            refreshNoteState()
             syncPopInputHeight()
-            syncAdoptTone()
             return
           }
           if (event.key === 'Escape') closePopover()
           if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) commitPopover()
         })
         popInput.addEventListener('input', () => {
+          refreshNoteState()
           syncPopInputHeight()
-          syncAdoptTone()
         })
         // 原生 resize 手柄拖过之后，实际高度会与自动值不同 —— 从此不再覆盖用户的选择。
         popInput.addEventListener('pointerup', () => {
@@ -1942,7 +2047,16 @@ export function createPlugin(React, extras = {}) {
             }
           }
           const images = files.filter((file) => typeof file?.type === 'string' && file.type.startsWith('image/'))
-          if (images.length === 0) return
+          if (images.length === 0) {
+            // 普通文本粘贴走纯文本，避免把外部富文本结构带进备注。
+            const plain = safe(() => data.getData('text/plain'))
+            if (typeof plain !== 'string' || plain === '') return
+            event.preventDefault()
+            insertNoteText(plain)
+            refreshNoteState()
+            syncPopInputHeight()
+            return
+          }
           event.preventDefault()
           void addPopImages(images)
         })
