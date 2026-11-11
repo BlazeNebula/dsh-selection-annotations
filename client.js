@@ -28,6 +28,7 @@
   box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .sa-btn:hover { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
   .sa-toolbar .sa-btn { border: 0; box-shadow: none; background: transparent; border-radius: 6px; }
+  .sa-toolbar .sa-btn:hover { background: var(--dsw-alias-interactive-bg-hover, ButtonFace); color: var(--dsw-alias-label-primary, CanvasText); }
   .sa-toolbar .sa-btn + .sa-btn { box-shadow: inset 1px 0 0 var(--dsw-alias-border-l2, ButtonBorder); border-radius: 0 6px 6px 0; }
   .sa-toolbar .sa-btn-adopt, .sa-toolbar .sa-btn-adopt:hover { color: var(--dsw-alias-brand-primary, #247bbf); }
   .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
@@ -52,6 +53,7 @@
 .sa-pop-input { width: 100%; box-sizing: border-box; min-height: 62px; resize: vertical; padding: 6px 8px;
   font: inherit; font-size: 12px; color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-layer-1, Canvas);
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
+.sa-pop-input[data-adopt="1"] { color: var(--dsw-alias-state-success, #3fb950); }
 .sa-pop-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .sa-pop-spacer { flex: 1; }
 .sa-pop-delete { color: var(--dsw-alias-state-error-primary, #e5484d); }
@@ -3273,12 +3275,16 @@
           popInput.style.height = `${next}px`;
           popInputAutoValue = next;
         }
+        function syncAdoptTone() {
+          popInput.dataset.adopt = hasAdoptNote(popInput.value) ? "1" : "0";
+        }
         function showPopover(options) {
           popTitle.textContent = options.title;
           popQuote.textContent = options.quote.length > 400 ? `${options.quote.slice(0, 400)}…` : options.quote;
           popQuote.style.display = options.quote === "" ? "none" : "";
           popSource.textContent = options.sourceText;
           popInput.value = options.note;
+          syncAdoptTone();
           resetPopImages(options.images);
           popoverMode = options.mode;
           popoverTargetId = options.targetId ?? null;
@@ -3472,17 +3478,25 @@
         popDelete.addEventListener("click", () => deleteFromPopover());
         popInput.addEventListener("keydown", (event) => {
           const phrase = adoptTextOf();
-          if (event.key === "Backspace" && popInput.value === phrase && popInput.selectionStart === phrase.length && popInput.selectionEnd === phrase.length) {
-            event.preventDefault();
-            popInput.value = "";
-            syncPopInputHeight();
-            return;
+          if (event.key === "Backspace" && popInput.selectionStart === popInput.selectionEnd) {
+            const caret = popInput.selectionStart;
+            const value = popInput.value;
+            const at = value.indexOf(phrase);
+            if (at !== -1 && caret > at && caret <= at + phrase.length) {
+              event.preventDefault();
+              popInput.value = value.slice(0, at) + value.slice(at + phrase.length);
+              safe(() => popInput.setSelectionRange(at, at));
+              syncPopInputHeight();
+              syncAdoptTone();
+              return;
+            }
           }
           if (event.key === "Tab" && !event.shiftKey && popInput.value !== "" && phrase.startsWith(popInput.value)) {
             event.preventDefault();
             popInput.value = phrase;
             safe(() => popInput.setSelectionRange(phrase.length, phrase.length));
             syncPopInputHeight();
+            syncAdoptTone();
             return;
           }
           if (event.key === "Escape") closePopover();
@@ -3490,6 +3504,7 @@
         });
         popInput.addEventListener("input", () => {
           syncPopInputHeight();
+          syncAdoptTone();
         });
         popInput.addEventListener("pointerup", () => {
           if (!popInputAutoHeight) return;

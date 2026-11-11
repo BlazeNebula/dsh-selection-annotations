@@ -1652,12 +1652,17 @@ export function createPlugin(React, extras = {}) {
           popInputAutoValue = next
         }
 
+        function syncAdoptTone() {
+          popInput.dataset.adopt = hasAdoptNote(popInput.value) ? '1' : '0'
+        }
+
         function showPopover(options) {
           popTitle.textContent = options.title
           popQuote.textContent = options.quote.length > 400 ? `${options.quote.slice(0, 400)}…` : options.quote
           popQuote.style.display = options.quote === '' ? 'none' : ''
           popSource.textContent = options.sourceText
           popInput.value = options.note
+          syncAdoptTone()
           resetPopImages(options.images)
           popoverMode = options.mode
           popoverTargetId = options.targetId ?? null
@@ -1895,17 +1900,19 @@ export function createPlugin(React, extras = {}) {
         popDelete.addEventListener('click', () => deleteFromPopover())
         popInput.addEventListener('keydown', (event) => {
           const phrase = adoptTextOf()
-          // 采纳预填是一整句：整句还在时按一次退格就清空，不用逐字删。
-          if (
-            event.key === 'Backspace' &&
-            popInput.value === phrase &&
-            popInput.selectionStart === phrase.length &&
-            popInput.selectionEnd === phrase.length
-          ) {
-            event.preventDefault()
-            popInput.value = ''
-            syncPopInputHeight()
-            return
+          // 采纳预填是一整句：光标落在这句里面任意位置按退格，都整句删掉。
+          if (event.key === 'Backspace' && popInput.selectionStart === popInput.selectionEnd) {
+            const caret = popInput.selectionStart
+            const value = popInput.value
+            const at = value.indexOf(phrase)
+            if (at !== -1 && caret > at && caret <= at + phrase.length) {
+              event.preventDefault()
+              popInput.value = value.slice(0, at) + value.slice(at + phrase.length)
+              safe(() => popInput.setSelectionRange(at, at))
+              syncPopInputHeight()
+              syncAdoptTone()
+              return
+            }
           }
           // 手打前几个字时，Tab 补全成完整的采纳句。
           if (event.key === 'Tab' && !event.shiftKey && popInput.value !== '' && phrase.startsWith(popInput.value)) {
@@ -1913,6 +1920,7 @@ export function createPlugin(React, extras = {}) {
             popInput.value = phrase
             safe(() => popInput.setSelectionRange(phrase.length, phrase.length))
             syncPopInputHeight()
+            syncAdoptTone()
             return
           }
           if (event.key === 'Escape') closePopover()
@@ -1920,6 +1928,7 @@ export function createPlugin(React, extras = {}) {
         })
         popInput.addEventListener('input', () => {
           syncPopInputHeight()
+          syncAdoptTone()
         })
         // 原生 resize 手柄拖过之后，实际高度会与自动值不同 —— 从此不再覆盖用户的选择。
         popInput.addEventListener('pointerup', () => {
