@@ -2095,6 +2095,40 @@
     }
   }
 
+  // src/core/turn-anchor.js
+  var TURN_ANCHOR_SLOT = "conversation.chat.turnTail";
+  function registerTurnAnchor(ctx, h) {
+    const slots = ctx.slots;
+    if (slots === void 0 || slots === null) return;
+    if (typeof slots.inject !== "function" || typeof slots.register !== "function") return;
+    const TurnAnchor = (props) => {
+      const turn = Number(props?.turn);
+      if (!Number.isFinite(turn) || turn <= 0) return null;
+      const sessionId = typeof props?.sessionId === "string" ? props.sessionId : "";
+      return h("div", {
+        className: "sa-turn-anchor",
+        "data-sa-turn": String(turn),
+        "data-sa-session": sessionId
+      });
+    };
+    TurnAnchor.displayName = "SelectionAnnotationsTurnAnchor";
+    const register = () => slots.register(
+      {
+        name: TURN_ANCHOR_SLOT,
+        id: "selection-annotations-turn-anchor",
+        order: 20
+      },
+      TurnAnchor
+    );
+    ctx.effect(() => slots.inject(TURN_ANCHOR_SLOT, register), "selection-annotations: turn anchors");
+  }
+  function findTurnAnchor(turn, sessionId) {
+    if (!Number.isFinite(turn) || turn <= 0) return null;
+    const escaped = typeof sessionId === "string" && sessionId !== "" ? sessionId.replace(/["\\]/g, "\\$&") : "";
+    const selector = escaped === "" ? `[data-sa-turn="${turn}"]` : `[data-sa-turn="${turn}"][data-sa-session="${escaped}"]`;
+    return document.querySelector(selector);
+  }
+
   // src/plugin.js
   function createPlugin(React, extras = {}) {
     const h = React.createElement;
@@ -2106,6 +2140,7 @@
         const t = (key, params) => locale.t(key, params);
         const defaultInstruction = () => locale.defaultInstruction();
         const isDefaultInstruction = (text) => locale.isDefaultInstruction(text);
+        registerTurnAnchor(ctx, h);
         let annotations = [];
         let draftIds = [];
         let syncing = false;
@@ -2780,6 +2815,13 @@
               }
               continue;
             }
+            const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, sessionId) : null;
+            if (anchorEl !== null && anchorEl.parentElement !== null) {
+              if (card.parentElement !== anchorEl.parentElement || card.nextSibling !== anchorEl) {
+                anchorEl.parentElement.insertBefore(card, anchorEl);
+              }
+              continue;
+            }
             if (footer !== null) {
               if (footer.parentElement !== null && (card.parentElement !== footer.parentElement || card.nextSibling !== footer)) {
                 footer.parentElement.insertBefore(card, footer);
@@ -2824,6 +2866,15 @@
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement;
           if (parent === null) return;
+          const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, currentSessionId()) : null;
+          if (anchorEl !== null && anchorEl.parentElement !== null) {
+            let cursor2 = anchorEl;
+            while (cursor2.nextElementSibling !== null && cursor2.nextElementSibling.getAttribute?.("data-sa-ui") === "replies") {
+              cursor2 = cursor2.nextElementSibling;
+            }
+            anchorEl.parentElement.insertBefore(section, cursor2.nextSibling);
+            return;
+          }
           const block = footerBlockForTurn(turn);
           if (block !== null && block.parentElement !== null) {
             let cursor2 = block;

@@ -66,6 +66,7 @@ import {
   lineRangeWithin,
 } from './core/source-locate.js'
 import { safe, toBase64, cssEscape, truncateQuote, el, button } from './core/util.js'
+import { registerTurnAnchor, findTurnAnchor } from './core/turn-anchor.js'
 
 /**
  * 组合根：装配 src/core/ 下的模块并驱动界面。
@@ -86,6 +87,7 @@ export function createPlugin(React, extras = {}) {
     const t = (key, params) => locale.t(key, params)
     const defaultInstruction = () => locale.defaultInstruction()
     const isDefaultInstruction = (text) => locale.isDefaultInstruction(text)
+    registerTurnAnchor(ctx, h)
 
     /** 草稿在本地存储里的体积上限；超了先丢最旧批注的图片。*/
         /* ------------------------------------------------------------------ 状态*/
@@ -967,6 +969,14 @@ export function createPlugin(React, extras = {}) {
               }
               continue
             }
+            // 槽位锚点最准：DSH 每轮尾部都会渲染它，直接插在它前面，不再猜 DOM。
+            const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, sessionId) : null
+            if (anchorEl !== null && anchorEl.parentElement !== null) {
+              if (card.parentElement !== anchorEl.parentElement || card.nextSibling !== anchorEl) {
+                anchorEl.parentElement.insertBefore(card, anchorEl)
+              }
+              continue
+            }
             // 位置固定在轮次尾行之前；与消息在折叠组里、是否懒加载无关。
             // 已经在位就不要重复 insertBefore：把节点反复摘下再插回会打断正在进行的点击，
             // 表现为「偶尔点一下没反应，要多点几次才收展」。
@@ -1023,6 +1033,16 @@ export function createPlugin(React, extras = {}) {
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement
           if (parent === null) return
+          // 槽位锚点在轮次尾部：答复卡就贴在它后面。
+          const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, currentSessionId()) : null
+          if (anchorEl !== null && anchorEl.parentElement !== null) {
+            let cursor = anchorEl
+            while (cursor.nextElementSibling !== null && cursor.nextElementSibling.getAttribute?.('data-sa-ui') === 'replies') {
+              cursor = cursor.nextElementSibling
+            }
+            anchorEl.parentElement.insertBefore(section, cursor.nextSibling)
+            return
+          }
           const block = footerBlockForTurn(turn)
           if (block !== null && block.parentElement !== null) {
             let cursor = block
