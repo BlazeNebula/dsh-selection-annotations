@@ -969,7 +969,15 @@ export function createPlugin(React, extras = {}) {
               }
               continue
             }
-            // 槽位锚点最准：DSH 每轮尾部都会渲染它，直接插在它前面，不再猜 DOM。
+            // 已发送卡仍贴在「已完成」上方：先按该轮的已完成按钮定位；
+            // 槽位锚点只在没有按钮（进行中/无过程说明）时兜底，保证不会丢卡。
+            const disclosure = Number.isFinite(turn) ? turnDisclosureItem(turn) : null
+            if (disclosure !== null && disclosure.parentElement !== null) {
+              if (card.parentElement !== disclosure.parentElement || card.nextSibling !== disclosure) {
+                disclosure.parentElement.insertBefore(card, disclosure)
+              }
+              continue
+            }
             const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, sessionId) : null
             if (anchorEl !== null && anchorEl.parentElement !== null) {
               if (card.parentElement !== anchorEl.parentElement || card.nextSibling !== anchorEl) {

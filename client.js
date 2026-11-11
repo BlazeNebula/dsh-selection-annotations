@@ -2815,6 +2815,13 @@
               }
               continue;
             }
+            const disclosure = Number.isFinite(turn) ? turnDisclosureItem(turn) : null;
+            if (disclosure !== null && disclosure.parentElement !== null) {
+              if (card.parentElement !== disclosure.parentElement || card.nextSibling !== disclosure) {
+                disclosure.parentElement.insertBefore(card, disclosure);
+              }
+              continue;
+            }
             const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, sessionId) : null;
             if (anchorEl !== null && anchorEl.parentElement !== null) {
               if (card.parentElement !== anchorEl.parentElement || card.nextSibling !== anchorEl) {
