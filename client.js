@@ -232,6 +232,11 @@
   font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.3; color: var(--dsw-alias-label-secondary, #8b949e); }
 .sa-section-chevron { flex: none; display: block; width: 14px; height: 14px;
   color: var(--dsw-alias-label-secondary, #8b949e); transition: transform 180ms ease; }
+.sa-reuse { flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin-left: auto; border-radius: 6px; color: var(--sa-dim-tertiary);
+  cursor: pointer; }
+.sa-reuse:hover, .sa-reuse:focus-visible { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--sa-dim-primary); outline: none; }
 .sa-section-head[aria-expanded="true"] .sa-section-chevron { transform: rotate(90deg); }
 .sa-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; margin-top: 6px;
   transition: grid-template-rows 180ms ease, opacity 180ms ease; }
@@ -440,6 +445,7 @@
       "chip.label": "批注",
       "chip.count": "批注 ×{n}",
       "sent.title": "已发送的批注 ×{n}",
+      "sent.reuse": "把这些批注放回待发送",
       "replies.title": "批注答复 ×{n}",
       "replies.waiting": "批注答复：等待参数",
       "markdown.copy": "复制",
@@ -537,6 +543,7 @@
       "chip.label": "Annotate",
       "chip.count": "Annotate ×{n}",
       "sent.title": "Sent annotations ×{n}",
+      "sent.reuse": "Reuse these annotations",
       "replies.title": "Annotation replies ×{n}",
       "replies.waiting": "Annotation replies: waiting for arguments",
       "markdown.copy": "Copy",
@@ -1332,7 +1339,7 @@
       svg.appendChild(path);
       return svg;
     }
-    function buildSectionHead(label, meta) {
+    function buildSectionHead(label, meta, action) {
       const head = document.createElement("button");
       head.type = "button";
       head.className = "sa-section-head";
@@ -1347,7 +1354,40 @@
         metaEl.textContent = meta;
         head.appendChild(metaEl);
       }
+      if (action !== void 0 && action !== null) head.appendChild(action);
       return head;
+    }
+    function reuseButton(label, onClick) {
+      const button2 = document.createElement("span");
+      button2.className = "sa-reuse";
+      button2.setAttribute("role", "button");
+      button2.setAttribute("tabindex", "0");
+      button2.setAttribute("aria-label", label);
+      button2.title = label;
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 16 16");
+      svg.setAttribute("width", "13");
+      svg.setAttribute("height", "13");
+      svg.setAttribute("fill", "none");
+      svg.setAttribute("aria-hidden", "true");
+      for (const d of ["M3.2 3.2H12.8V12.8H3.2V3.2Z", "M8 5.6V10.4M5.6 8H10.4"]) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", d);
+        path.setAttribute("stroke", "currentColor");
+        path.setAttribute("stroke-width", "1.2");
+        svg.appendChild(path);
+      }
+      button2.appendChild(svg);
+      const run = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      };
+      button2.addEventListener("click", run);
+      button2.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") run(event);
+      });
+      return button2;
     }
     function collapsible(body, open) {
       const wrap = document.createElement("div");
@@ -1365,12 +1405,13 @@
       head.dataset.open = open ? "1" : "0";
       head.setAttribute("aria-expanded", String(open));
     }
-    function buildSentCard(record, anchorKey) {
+    function buildSentCard(record, anchorKey, options = {}) {
       const card = document.createElement("div");
       card.className = "sa-sent";
       card.setAttribute("data-sa-ui", "sent");
       if (typeof anchorKey === "string" && anchorKey !== "") card.setAttribute("data-anchor", anchorKey);
-      const head = buildSectionHead(t("sent.title", { n: record.items.length }));
+      const action = typeof options.onReuse === "function" ? reuseButton(t("sent.reuse"), options.onReuse) : void 0;
+      const head = buildSectionHead(t("sent.title", { n: record.items.length }), void 0, action);
       head.style.marginBottom = "0";
       card.style.display = "flex";
       card.style.flexDirection = "column";
@@ -2701,7 +2742,7 @@
         const buildSectionHead = (label, meta) => cards.buildSectionHead(label, meta);
         const collapsible = (body, open) => cards.collapsible(body, open);
         const applyCollapsed = (head, wrap, open) => cards.applyCollapsed(head, wrap, open);
-        const buildSentCard = (record, anchorKey) => cards.buildSentCard(record, anchorKey);
+        const buildSentCard = (record, anchorKey, options) => cards.buildSentCard(record, anchorKey, options);
         function turnBlockOf(row) {
           return typeof row.closest === "function" ? row.closest('[data-chat-flow-kind="turn-process"]') : null;
         }
@@ -2818,7 +2859,7 @@
             const footer = footerBlockForTurn(turn);
             if (row === null && footer === null) continue;
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
-            const card = existing ?? buildSentCard(record, anchorKey);
+            const card = existing ?? buildSentCard(record, anchorKey, { onReuse: () => reuseSentItems(record.items) });
             card.setAttribute("data-sa-key", storedKey);
             card.setAttribute("data-anchor", anchorKey);
             const bubbleKind = row === null ? "" : row.getAttribute("data-chat-flow-kind") ?? "";
@@ -3953,6 +3994,32 @@
               warn("[selection-annotations] 位置精修失败（不影响这条批注）：", err);
             });
           }
+        }
+        function reuseSentItems(items) {
+          const list = Array.isArray(items) ? items : [];
+          let added = 0;
+          for (const item of list) {
+            if (typeof item?.quote !== "string" && typeof item?.note !== "string") continue;
+            const images = (Array.isArray(item.thumbs) ? item.thumbs : []).filter((thumb) => typeof thumb?.dataUrl === "string" && thumb.dataUrl !== "").map((thumb, index) => {
+              const full = typeof thumb.preview === "string" && thumb.preview !== "" ? thumb.preview : thumb.dataUrl;
+              return {
+                id: `img-reuse-${Date.now().toString(36)}-${index}`,
+                name: typeof thumb.name === "string" ? thumb.name : t("image.alt"),
+                dataUrl: full,
+                thumb: thumb.dataUrl,
+                preview: full,
+                bytes: Math.round(full.length * 3 / 4)
+              };
+            });
+            addAnnotation({
+              quote: typeof item.quote === "string" ? item.quote : "",
+              note: typeof item.note === "string" ? item.note : "",
+              images,
+              source: item.source ?? { kind: "dom" }
+            });
+            added += 1;
+          }
+          return added;
         }
         function deleteFromPopover() {
           const target = popoverTargetId;

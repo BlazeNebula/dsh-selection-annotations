@@ -30,7 +30,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
   }
 
   /** 两个区域共用的收展入口：同一套结构、尺寸与留白。 */
-  function buildSectionHead(label, meta) {
+  function buildSectionHead(label, meta, action) {
     const head = document.createElement('button')
     head.type = 'button'
     head.className = 'sa-section-head'
@@ -45,7 +45,42 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       metaEl.textContent = meta
       head.appendChild(metaEl)
     }
+    if (action !== undefined && action !== null) head.appendChild(action)
     return head
+  }
+
+  /** 已发送区右上角的「复用」图标：把这些批注重新放回待发送列表。*/
+  function reuseButton(label, onClick) {
+    const button = document.createElement('span')
+    button.className = 'sa-reuse'
+    button.setAttribute('role', 'button')
+    button.setAttribute('tabindex', '0')
+    button.setAttribute('aria-label', label)
+    button.title = label
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('viewBox', '0 0 16 16')
+    svg.setAttribute('width', '13')
+    svg.setAttribute('height', '13')
+    svg.setAttribute('fill', 'none')
+    svg.setAttribute('aria-hidden', 'true')
+    for (const d of ['M3.2 3.2H12.8V12.8H3.2V3.2Z', 'M8 5.6V10.4M5.6 8H10.4']) {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.setAttribute('d', d)
+      path.setAttribute('stroke', 'currentColor')
+      path.setAttribute('stroke-width', '1.2')
+      svg.appendChild(path)
+    }
+    button.appendChild(svg)
+    const run = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onClick()
+    }
+    button.addEventListener('click', run)
+    button.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') run(event)
+    })
+    return button
   }
 
   /** 可折展容器：0fr↔1fr 撑开内容，收起时不占高度。 */
@@ -70,13 +105,16 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
   }
 
   /** 一条已提交批注在历史里的卡片：默认收起，点开看引文与批注文字。 */
-  function buildSentCard(record, anchorKey) {
+  function buildSentCard(record, anchorKey, options = {}) {
     const card = document.createElement('div')
     card.className = 'sa-sent'
     card.setAttribute('data-sa-ui', 'sent')
     // 记下锚点键：卡片现在插在消息行外，判重要靠它而不是「行内有没有卡片」。
     if (typeof anchorKey === 'string' && anchorKey !== '') card.setAttribute('data-anchor', anchorKey)
-    const head = buildSectionHead(t('sent.title', { n: record.items.length }))
+    const action = typeof options.onReuse === 'function'
+      ? reuseButton(t('sent.reuse'), options.onReuse)
+      : undefined
+    const head = buildSectionHead(t('sent.title', { n: record.items.length }), undefined, action)
     head.style.marginBottom = '0'
     card.style.display = 'flex'
     card.style.flexDirection = 'column'

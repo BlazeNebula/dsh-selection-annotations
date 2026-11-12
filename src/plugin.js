@@ -807,7 +807,7 @@ export function createPlugin(React, extras = {}) {
         const buildSectionHead = (label, meta) => cards.buildSectionHead(label, meta)
         const collapsible = (body, open) => cards.collapsible(body, open)
         const applyCollapsed = (head, wrap, open) => cards.applyCollapsed(head, wrap, open)
-        const buildSentCard = (record, anchorKey) => cards.buildSentCard(record, anchorKey)
+        const buildSentCard = (record, anchorKey, options) => cards.buildSentCard(record, anchorKey, options)
 
         /** 批注行所属的轮次块：行可能就在过程块内部（指向助手的答复或过程文字）。*/
         function turnBlockOf(row) {
@@ -951,7 +951,7 @@ export function createPlugin(React, extras = {}) {
             const footer = footerBlockForTurn(turn)
             if (row === null && footer === null) continue
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
-            const card = existing ?? buildSentCard(record, anchorKey)
+            const card = existing ?? buildSentCard(record, anchorKey, { onReuse: () => reuseSentItems(record.items) })
             card.setAttribute('data-sa-key', storedKey)
             card.setAttribute('data-anchor', anchorKey)
             // 批注优先挂在用户消息气泡下方：插队（steering）消息还没有轮次尾行时也能出现，
@@ -2307,6 +2307,36 @@ export function createPlugin(React, extras = {}) {
               warn('[selection-annotations] 位置精修失败（不影响这条批注）：', err)
             })
           }
+        }
+
+        /** 把一条已发送记录里的批注原样追加回待发送列表（图片也带上）。*/
+        function reuseSentItems(items) {
+          const list = Array.isArray(items) ? items : []
+          let added = 0
+          for (const item of list) {
+            if (typeof item?.quote !== 'string' && typeof item?.note !== 'string') continue
+            const images = (Array.isArray(item.thumbs) ? item.thumbs : [])
+              .filter((thumb) => typeof thumb?.dataUrl === 'string' && thumb.dataUrl !== '')
+              .map((thumb, index) => {
+                const full = typeof thumb.preview === 'string' && thumb.preview !== '' ? thumb.preview : thumb.dataUrl
+                return {
+                  id: `img-reuse-${Date.now().toString(36)}-${index}`,
+                  name: typeof thumb.name === 'string' ? thumb.name : t('image.alt'),
+                  dataUrl: full,
+                  thumb: thumb.dataUrl,
+                  preview: full,
+                  bytes: Math.round((full.length * 3) / 4),
+                }
+              })
+            addAnnotation({
+              quote: typeof item.quote === 'string' ? item.quote : '',
+              note: typeof item.note === 'string' ? item.note : '',
+              images,
+              source: item.source ?? { kind: 'dom' },
+            })
+            added += 1
+          }
+          return added
         }
 
         function deleteFromPopover() {
