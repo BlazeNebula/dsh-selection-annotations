@@ -205,7 +205,10 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     if (counts.partial) parts.push(t('summary.partial', { n: counts.partial }))
     if (counts.rejected) parts.push(t('summary.rejected', { n: counts.rejected }))
     if (counts.needs_info) parts.push(t('summary.needsInfo', { n: counts.needs_info }))
-    const head = buildSectionHead(t('replies.title', { n: replies.length }), parts.join(' · '))
+    const headAction = typeof options.onReuseAll === 'function'
+      ? reuseButton(t('sent.reuse'), options.onReuseAll, t('reuse.hint'))
+      : undefined
+    const head = buildSectionHead(t('replies.title', { n: replies.length }), parts.join(' · '), headAction)
     card.style.display = 'flex'
     card.style.flexDirection = 'column'
     card.style.rowGap = '8px'

@@ -232,15 +232,16 @@
   font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.3; color: var(--dsw-alias-label-secondary, #8b949e); }
 .sa-section-chevron { flex: none; display: block; width: 14px; height: 14px;
   color: var(--dsw-alias-label-secondary, #8b949e); transition: transform 180ms ease; }
-.sa-reuse { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center;
+.sa-reuse { position: relative; flex: none; display: inline-flex; align-items: center;
   height: 22px; padding: 0 2px; margin-left: auto; border-radius: 6px; color: var(--sa-dim-tertiary);
   cursor: pointer; transition: background 120ms ease, color 120ms ease; }
 .sa-reuse:hover, .sa-reuse:focus-visible { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
   color: var(--sa-dim-primary); outline: none; }
-.sa-reuse-text { max-width: 0; margin-left: 0; overflow: hidden; white-space: nowrap; opacity: 0;
+/* 文字始终占位，只切换透明度：悬停命中区域固定，不会随动画长大。 */
+.sa-reuse-text { margin-left: 4px; white-space: nowrap; opacity: 0;
   font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.3;
-  transition: max-width 160ms ease, opacity 160ms ease, margin-left 160ms ease; }
-.sa-reuse:hover .sa-reuse-text, .sa-reuse:focus-visible .sa-reuse-text { max-width: 140px; margin-left: 4px; opacity: 1; }
+  transition: opacity 160ms ease; }
+.sa-reuse:hover .sa-reuse-text, .sa-reuse:focus-visible .sa-reuse-text { opacity: 1; }
 .sa-section-head[aria-expanded="true"] .sa-section-chevron { transform: rotate(90deg); }
 .sa-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; margin-top: 6px;
   transition: grid-template-rows 180ms ease, opacity 180ms ease; }
@@ -1509,7 +1510,8 @@
       if (counts.partial) parts.push(t("summary.partial", { n: counts.partial }));
       if (counts.rejected) parts.push(t("summary.rejected", { n: counts.rejected }));
       if (counts.needs_info) parts.push(t("summary.needsInfo", { n: counts.needs_info }));
-      const head = buildSectionHead(t("replies.title", { n: replies.length }), parts.join(" · "));
+      const headAction = typeof options.onReuseAll === "function" ? reuseButton(t("sent.reuse"), options.onReuseAll, t("reuse.hint")) : void 0;
+      const head = buildSectionHead(t("replies.title", { n: replies.length }), parts.join(" · "), headAction);
       card.style.display = "flex";
       card.style.flexDirection = "column";
       card.style.rowGap = "8px";
@@ -2880,10 +2882,19 @@
             const footer = footerBlockForTurn(turn);
             if (row === null && footer === null) continue;
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
-            const card = existing ?? buildSentCard(record, anchorKey, {
+            const cardOptions = {
               onReuse: () => reuseSentItems(record.items),
               onReplayItem: (item) => reuseSentItems([item])
-            });
+            };
+            let card = existing;
+            if (card !== null && card.getAttribute("data-reuse") !== "3") {
+              const fresh = buildSentCard(record, anchorKey, cardOptions);
+              fresh.setAttribute("data-sa-key", storedKey);
+              existing.replaceWith(fresh);
+              card = fresh;
+            }
+            if (card === null) card = buildSentCard(record, anchorKey, cardOptions);
+            card.setAttribute("data-reuse", "3");
             card.setAttribute("data-sa-key", storedKey);
             card.setAttribute("data-anchor", anchorKey);
             const bubbleKind = row === null ? "" : row.getAttribute("data-chat-flow-kind") ?? "";
@@ -3077,11 +3088,14 @@
             if (sentCard === void 0) continue;
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
-            const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}#replay2`;
+            const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}#replay3`;
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`);
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue;
-              const fresh = buildReplySection(list, items, { onReplayItem: (item) => reuseSentItems([item]) });
+              const fresh = buildReplySection(list, items, {
+                onReuseAll: () => reuseSentItems(items),
+                onReplayItem: (item) => reuseSentItems([item])
+              });
               fresh.setAttribute("data-anchor", anchorKey);
               fresh.dataset.signature = signature;
               existing.replaceWith(fresh);
@@ -3089,7 +3103,10 @@
               collapseSentForReplies(sentCard, signature);
               continue;
             }
-            const section = buildReplySection(list, items, { onReplayItem: (item) => reuseSentItems([item]) });
+            const section = buildReplySection(list, items, {
+              onReuseAll: () => reuseSentItems(items),
+              onReplayItem: (item) => reuseSentItems([item])
+            });
             section.setAttribute("data-anchor", anchorKey);
             section.dataset.signature = signature;
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling);

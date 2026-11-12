@@ -951,10 +951,19 @@ export function createPlugin(React, extras = {}) {
             const footer = footerBlockForTurn(turn)
             if (row === null && footer === null) continue
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
-            const card = existing ?? buildSentCard(record, anchorKey, {
+            const cardOptions = {
               onReuse: () => reuseSentItems(record.items),
               onReplayItem: (item) => reuseSentItems([item]),
-            })
+            }
+            let card = existing
+            if (card !== null && card.getAttribute('data-reuse') !== '3') {
+              const fresh = buildSentCard(record, anchorKey, cardOptions)
+              fresh.setAttribute('data-sa-key', storedKey)
+              existing.replaceWith(fresh)
+              card = fresh
+            }
+            if (card === null) card = buildSentCard(record, anchorKey, cardOptions)
+            card.setAttribute('data-reuse', '3')
             card.setAttribute('data-sa-key', storedKey)
             card.setAttribute('data-anchor', anchorKey)
             // 批注优先挂在用户消息气泡下方：插队（steering）消息还没有轮次尾行时也能出现，
@@ -1191,11 +1200,14 @@ export function createPlugin(React, extras = {}) {
             if (sentCard === undefined) continue
             const items = byAnchor.get(anchorKey)?.record.items ?? []
             const turn = byAnchor.get(anchorKey)?.turn ?? null
-            const signature = `${list.map((batch) => String(batch.at)).join('|')}#${items.length}#replay2`
+            const signature = `${list.map((batch) => String(batch.at)).join('|')}#${items.length}#replay3`
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`)
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue
-              const fresh = buildReplySection(list, items, { onReplayItem: (item) => reuseSentItems([item]) })
+              const fresh = buildReplySection(list, items, {
+                onReuseAll: () => reuseSentItems(items),
+                onReplayItem: (item) => reuseSentItems([item]),
+              })
               fresh.setAttribute('data-anchor', anchorKey)
               fresh.dataset.signature = signature
               existing.replaceWith(fresh)
@@ -1203,7 +1215,10 @@ export function createPlugin(React, extras = {}) {
               collapseSentForReplies(sentCard, signature)
               continue
             }
-            const section = buildReplySection(list, items, { onReplayItem: (item) => reuseSentItems([item]) })
+            const section = buildReplySection(list, items, {
+              onReuseAll: () => reuseSentItems(items),
+              onReplayItem: (item) => reuseSentItems([item]),
+            })
             section.setAttribute('data-anchor', anchorKey)
             section.dataset.signature = signature
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling)
