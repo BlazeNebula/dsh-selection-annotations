@@ -161,8 +161,7 @@
   -webkit-line-clamp: 3; overflow: hidden; cursor: pointer; }
 .sa-item-quote.sa-q-open { display: block; -webkit-line-clamp: unset; }
 .sa-item-a { margin-top: 8px; }
-.sa-item-note { margin: 3px 0 0; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.7; white-space: pre-wrap; word-break: break-word;
-  color: var(--dsw-alias-label-primary, CanvasText); }
+.sa-item-note { margin: 3px 0 0; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
 .sa-link { font: inherit; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); padding: 2px 4px; cursor: pointer; background: none; border: none;
   color: var(--dsw-alias-label-secondary, GrayText); text-decoration: underline; }
 .sa-link:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }
@@ -268,7 +267,7 @@
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.6; color: var(--dsw-alias-label-secondary, #8b949e);
   white-space: pre-wrap; word-break: break-word; cursor: pointer; }
 .sa-q-quote.sa-q-open { display: block; -webkit-line-clamp: unset; }
-.sa-q-note { font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); font-weight: 500; line-height: 1.65; color: var(--dsw-alias-label-primary, CanvasText);
+.sa-q-note { font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); font-weight: 500; line-height: 1.65;
   white-space: pre-wrap; word-break: break-word; }
 
 /* 答复块：正文层，字号与对比度最高 */
@@ -305,7 +304,7 @@
 .sa-sent-text { min-width: 0; }
 .sa-sent-quote { padding-left: 8px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder);
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
-.sa-sent-note { margin-top: 4px; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.6; color: var(--dsw-alias-label-primary, CanvasText); white-space: pre-wrap; word-break: break-word; }
+.sa-sent-note { margin-top: 4px; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .sa-sent-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 /* 三处区域的文字亮度：除「答复」正文（.sa-a-reason）外统一压到 80%。
    用 color-mix 与黑色混合，亮度按比例下降；正文保持原色，作为唯一的第一层。*/
