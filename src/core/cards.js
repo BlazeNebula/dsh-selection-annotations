@@ -52,6 +52,8 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
   function collapsible(body, open) {
     const wrap = document.createElement('div')
     wrap.className = 'sa-collapse'
+    // 行内样式优先于样式表：即便页面上还留着旧版样式，两处区域的间距也保持一致。
+    wrap.style.marginTop = '8px'
     wrap.dataset.open = open ? '1' : '0'
     const inner = document.createElement('div')
     inner.className = 'sa-collapse-inner'
@@ -74,10 +76,13 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     // 记下锚点键：卡片现在插在消息行外，判重要靠它而不是「行内有没有卡片」。
     if (typeof anchorKey === 'string' && anchorKey !== '') card.setAttribute('data-anchor', anchorKey)
     const head = buildSectionHead(t('sent.title', { n: record.items.length }))
+    head.style.marginBottom = '0'
     const body = document.createElement('div')
     body.className = 'sa-sent-body'
+    body.style.paddingTop = '8px'
     const wrap = collapsible(body, true)
     applyCollapsed(head, wrap, true)
+    card.style.rowGap = '0'
     for (const item of record.items) {
       const line = document.createElement('div')
       line.className = 'sa-sent-item'
@@ -153,9 +158,11 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     if (counts.needs_info) parts.push(t('summary.needsInfo', { n: counts.needs_info }))
     const head = buildSectionHead(t('replies.title', { n: replies.length }), parts.join(' · '))
     card.appendChild(head)
+    card.style.rowGap = '0'
 
     const body = document.createElement('div')
     body.className = 'sa-replies-body'
+    body.style.paddingTop = '8px'
     for (const reply of replies) {
       const item = byIndex.get(reply.index)
       const [labelKey, tone] = VERDICT_LABELS[reply.verdict] ?? ['verdict.fallback', 'accepted']
