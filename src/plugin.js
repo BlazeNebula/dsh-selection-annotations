@@ -2287,6 +2287,28 @@ export function createPlugin(React, extras = {}) {
           }
         }
 
+        /** 采纳不走弹层：直接按当前选区落一条带「采纳」字样的批注。*/
+        function adoptSelectionDirectly() {
+          const selection = pendingSelection
+          if (selection === null) return
+          hideToolbar()
+          closeContextMenu()
+          const source = captureSource(selection.range)
+          const created = addAnnotation({
+            quote: selection.quote,
+            note: adoptTextOf(),
+            images: [],
+            source,
+            liveRange: selection.range,
+          })
+          safe(() => window.getSelection()?.removeAllRanges())
+          if (created !== undefined) {
+            refineSourcePosition(created.id, source, selection.quote).catch((err) => {
+              warn('[selection-annotations] 位置精修失败（不影响这条批注）：', err)
+            })
+          }
+        }
+
         function deleteFromPopover() {
           const target = popoverTargetId
           closePopover()
@@ -2306,7 +2328,7 @@ export function createPlugin(React, extras = {}) {
         })
         adoptButton.addEventListener('click', (event) => {
           event.preventDefault()
-          openCreatePopover({ adopt: true })
+          adoptSelectionDirectly()
         })
         copyButton.addEventListener('mousedown', (event) => {
           // 保住选区，复制到的就是当前划选内容。
@@ -2338,11 +2360,9 @@ export function createPlugin(React, extras = {}) {
         menuAdopt.addEventListener('click', (event) => {
           event.preventDefault()
           event.stopPropagation()
-          const selection = contextMenuSelection ?? pendingSelection
+          if (contextMenuSelection !== null) pendingSelection = contextMenuSelection
           closeContextMenu()
-          if (selection === null) return
-          pendingSelection = selection
-          openCreatePopover({ adopt: true })
+          adoptSelectionDirectly()
         })
         menuCopy.addEventListener('mousedown', (event) => {
           event.preventDefault()

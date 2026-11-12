@@ -3934,6 +3934,26 @@
             });
           }
         }
+        function adoptSelectionDirectly() {
+          const selection = pendingSelection;
+          if (selection === null) return;
+          hideToolbar();
+          closeContextMenu();
+          const source = captureSource(selection.range);
+          const created = addAnnotation({
+            quote: selection.quote,
+            note: adoptTextOf(),
+            images: [],
+            source,
+            liveRange: selection.range
+          });
+          safe(() => window.getSelection()?.removeAllRanges());
+          if (created !== void 0) {
+            refineSourcePosition(created.id, source, selection.quote).catch((err) => {
+              warn("[selection-annotations] 位置精修失败（不影响这条批注）：", err);
+            });
+          }
+        }
         function deleteFromPopover() {
           const target = popoverTargetId;
           closePopover();
@@ -3951,7 +3971,7 @@
         });
         adoptButton.addEventListener("click", (event) => {
           event.preventDefault();
-          openCreatePopover({ adopt: true });
+          adoptSelectionDirectly();
         });
         copyButton.addEventListener("mousedown", (event) => {
           event.preventDefault();
@@ -3981,11 +4001,9 @@
         menuAdopt.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          const selection = contextMenuSelection ?? pendingSelection;
+          if (contextMenuSelection !== null) pendingSelection = contextMenuSelection;
           closeContextMenu();
-          if (selection === null) return;
-          pendingSelection = selection;
-          openCreatePopover({ adopt: true });
+          adoptSelectionDirectly();
         });
         menuCopy.addEventListener("mousedown", (event) => {
           event.preventDefault();
