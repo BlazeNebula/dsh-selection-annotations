@@ -1374,7 +1374,7 @@
       head.style.marginBottom = "0";
       card.style.display = "flex";
       card.style.flexDirection = "column";
-      card.style.rowGap = "12px";
+      card.style.rowGap = "8px";
       const body = document.createElement("div");
       body.className = "sa-sent-body";
       body.style.paddingTop = "0px";
@@ -1454,11 +1454,12 @@
       const head = buildSectionHead(t("replies.title", { n: replies.length }), parts.join(" · "));
       card.style.display = "flex";
       card.style.flexDirection = "column";
-      card.style.rowGap = "12px";
+      card.style.rowGap = "8px";
       card.appendChild(head);
       const body = document.createElement("div");
       body.className = "sa-replies-body";
       body.style.paddingTop = "0px";
+      body.style.rowGap = "8px";
       for (const reply of replies) {
         const item = byIndex.get(reply.index);
         const [labelKey, tone] = VERDICT_LABELS2[reply.verdict] ?? ["verdict.fallback", "accepted"];
@@ -2894,7 +2895,7 @@
               if (kind.startsWith("assistant")) lastAssistant = item;
             }
             if (lastAssistant !== null && lastAssistant.parentElement !== null) {
-              lastAssistant.parentElement.insertBefore(section, lastAssistant.nextSibling);
+              lastAssistant.parentElement.insertBefore(section, lastAssistant);
               return;
             }
           }

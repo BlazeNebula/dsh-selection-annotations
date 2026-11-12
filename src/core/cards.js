@@ -80,7 +80,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     head.style.marginBottom = '0'
     card.style.display = 'flex'
     card.style.flexDirection = 'column'
-    card.style.rowGap = '12px'
+    card.style.rowGap = '8px'
     const body = document.createElement('div')
     body.className = 'sa-sent-body'
     body.style.paddingTop = '0px'
@@ -162,12 +162,14 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     const head = buildSectionHead(t('replies.title', { n: replies.length }), parts.join(' · '))
     card.style.display = 'flex'
     card.style.flexDirection = 'column'
-    card.style.rowGap = '12px'
+    card.style.rowGap = '8px'
     card.appendChild(head)
 
     const body = document.createElement('div')
     body.className = 'sa-replies-body'
     body.style.paddingTop = '0px'
+    // 卡片之间也用同一档 8px，标题到首卡、卡到卡完全一致。
+    body.style.rowGap = '8px'
     for (const reply of replies) {
       const item = byIndex.get(reply.index)
       const [labelKey, tone] = VERDICT_LABELS[reply.verdict] ?? ['verdict.fallback', 'accepted']

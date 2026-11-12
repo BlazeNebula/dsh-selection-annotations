@@ -1050,8 +1050,10 @@ export function createPlugin(React, extras = {}) {
               const kind = item.getAttribute?.('data-chat-flow-kind') ?? ''
               if (kind.startsWith('assistant')) lastAssistant = item
             }
+            // 「已完成」内联在助手消息体内；插队消息会排在最终输出之前，
+            // 用户要的是答复紧贴在最终输出之前，所以插在最后一个助手内容块前面。
             if (lastAssistant !== null && lastAssistant.parentElement !== null) {
-              lastAssistant.parentElement.insertBefore(section, lastAssistant.nextSibling)
+              lastAssistant.parentElement.insertBefore(section, lastAssistant)
               return
             }
           }
