@@ -237,8 +237,8 @@
   cursor: pointer; transition: background 120ms ease, color 120ms ease; }
 .sa-reuse:hover, .sa-reuse:focus-visible { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
   color: var(--sa-dim-primary); outline: none; }
-/* 文字始终占位，只切换透明度：悬停命中区域固定，不会随动画长大。 */
-.sa-reuse-text { margin-left: 4px; white-space: nowrap; opacity: 0;
+/* 文字始终占位，只切换透明度：悬停命中区域固定，不会随动画长大；图标固定贴右。 */
+.sa-reuse-text { margin-right: 4px; white-space: nowrap; opacity: 0;
   font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.3;
   transition: opacity 160ms ease; }
 .sa-reuse:hover .sa-reuse-text, .sa-reuse:focus-visible .sa-reuse-text { opacity: 1; }
@@ -1381,18 +1381,17 @@
       svg.setAttribute("height", "13");
       svg.setAttribute("fill", "none");
       svg.setAttribute("aria-hidden", "true");
-      for (const d of ["M3.2 3.2H12.8V12.8H3.2V3.2Z", "M8 5.6V10.4M5.6 8H10.4"]) {
+      for (const d of ["M5.6 5.6H12.4V12.4H5.6V5.6Z", "M3.6 3.6H9.4V5.6"]) {
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
         path.setAttribute("d", d);
         path.setAttribute("stroke", "currentColor");
         path.setAttribute("stroke-width", "1.2");
         svg.appendChild(path);
       }
-      button2.appendChild(svg);
       const text = document.createElement("span");
       text.className = "sa-reuse-text";
       text.textContent = label;
-      button2.appendChild(text);
+      button2.append(text, svg);
       const run = (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -2887,14 +2886,14 @@
               onReplayItem: (item) => reuseSentItems([item])
             };
             let card = existing;
-            if (card !== null && card.getAttribute("data-reuse") !== "3") {
+            if (card !== null && card.getAttribute("data-reuse") !== "4") {
               const fresh = buildSentCard(record, anchorKey, cardOptions);
               fresh.setAttribute("data-sa-key", storedKey);
               existing.replaceWith(fresh);
               card = fresh;
             }
             if (card === null) card = buildSentCard(record, anchorKey, cardOptions);
-            card.setAttribute("data-reuse", "3");
+            card.setAttribute("data-reuse", "4");
             card.setAttribute("data-sa-key", storedKey);
             card.setAttribute("data-anchor", anchorKey);
             const bubbleKind = row === null ? "" : row.getAttribute("data-chat-flow-kind") ?? "";
@@ -3088,7 +3087,7 @@
             if (sentCard === void 0) continue;
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
-            const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}#replay3`;
+            const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}#replay4`;
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`);
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue;

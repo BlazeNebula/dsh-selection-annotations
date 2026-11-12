@@ -63,18 +63,18 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     svg.setAttribute('height', '13')
     svg.setAttribute('fill', 'none')
     svg.setAttribute('aria-hidden', 'true')
-    for (const d of ['M3.2 3.2H12.8V12.8H3.2V3.2Z', 'M8 5.6V10.4M5.6 8H10.4']) {
+    for (const d of ['M5.6 5.6H12.4V12.4H5.6V5.6Z', 'M3.6 3.6H9.4V5.6']) {
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
       path.setAttribute('d', d)
       path.setAttribute('stroke', 'currentColor')
       path.setAttribute('stroke-width', '1.2')
       svg.appendChild(path)
     }
-    button.appendChild(svg)
     const text = document.createElement('span')
     text.className = 'sa-reuse-text'
     text.textContent = label
-    button.appendChild(text)
+    // 文字在前、复制图标贴右：与「回放」的语义一致。
+    button.append(text, svg)
     const run = (event) => {
       event.preventDefault()
       event.stopPropagation()

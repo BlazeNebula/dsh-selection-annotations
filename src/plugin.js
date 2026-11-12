@@ -956,14 +956,14 @@ export function createPlugin(React, extras = {}) {
               onReplayItem: (item) => reuseSentItems([item]),
             }
             let card = existing
-            if (card !== null && card.getAttribute('data-reuse') !== '3') {
+            if (card !== null && card.getAttribute('data-reuse') !== '4') {
               const fresh = buildSentCard(record, anchorKey, cardOptions)
               fresh.setAttribute('data-sa-key', storedKey)
               existing.replaceWith(fresh)
               card = fresh
             }
             if (card === null) card = buildSentCard(record, anchorKey, cardOptions)
-            card.setAttribute('data-reuse', '3')
+            card.setAttribute('data-reuse', '4')
             card.setAttribute('data-sa-key', storedKey)
             card.setAttribute('data-anchor', anchorKey)
             // 批注优先挂在用户消息气泡下方：插队（steering）消息还没有轮次尾行时也能出现，
@@ -1200,7 +1200,7 @@ export function createPlugin(React, extras = {}) {
             if (sentCard === undefined) continue
             const items = byAnchor.get(anchorKey)?.record.items ?? []
             const turn = byAnchor.get(anchorKey)?.turn ?? null
-            const signature = `${list.map((batch) => String(batch.at)).join('|')}#${items.length}#replay3`
+            const signature = `${list.map((batch) => String(batch.at)).join('|')}#${items.length}#replay4`
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`)
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue

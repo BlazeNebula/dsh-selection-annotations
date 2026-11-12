@@ -235,8 +235,8 @@ export const CSS = `
   cursor: pointer; transition: background 120ms ease, color 120ms ease; }
 .sa-reuse:hover, .sa-reuse:focus-visible { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
   color: var(--sa-dim-primary); outline: none; }
-/* 文字始终占位，只切换透明度：悬停命中区域固定，不会随动画长大。 */
-.sa-reuse-text { margin-left: 4px; white-space: nowrap; opacity: 0;
+/* 文字始终占位，只切换透明度：悬停命中区域固定，不会随动画长大；图标固定贴右。 */
+.sa-reuse-text { margin-right: 4px; white-space: nowrap; opacity: 0;
   font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.3;
   transition: opacity 160ms ease; }
 .sa-reuse:hover .sa-reuse-text, .sa-reuse:focus-visible .sa-reuse-text { opacity: 1; }
