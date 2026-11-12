@@ -218,7 +218,7 @@
 .sa-settings-card .sa-settings-actions { justify-content: flex-end; margin-top: 0; }
 .sa-settings-page .sa-hint { font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.6; margin: 0; }
 .sa-replies-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l1, #3333); border-radius: 10px; background: var(--dsw-alias-bg-layer-1, #0001); }
-.sa-replies { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; padding: 0;
+.sa-replies { display: flex; flex-direction: column; gap: 0; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; padding: 0;
   border: none; background: transparent; }
 /* 两个区域共用同一个收展头：同样的高度、底色、圆角、图标位置与开合动画。*/
 .sa-section-head { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
