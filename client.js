@@ -1374,7 +1374,7 @@
       head.style.marginBottom = "0";
       card.style.display = "flex";
       card.style.flexDirection = "column";
-      card.style.rowGap = "16px";
+      card.style.rowGap = "12px";
       const body = document.createElement("div");
       body.className = "sa-sent-body";
       body.style.paddingTop = "0px";
@@ -1454,7 +1454,7 @@
       const head = buildSectionHead(t("replies.title", { n: replies.length }), parts.join(" · "));
       card.style.display = "flex";
       card.style.flexDirection = "column";
-      card.style.rowGap = "16px";
+      card.style.rowGap = "12px";
       card.appendChild(head);
       const body = document.createElement("div");
       body.className = "sa-replies-body";
@@ -2886,14 +2886,17 @@
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement;
           if (parent === null) return;
-          const disclosure = Number.isFinite(turn) ? turnDisclosureItem(turn) : null;
-          if (disclosure !== null && disclosure.parentElement !== null) {
-            let cursor2 = disclosure;
-            while (cursor2.nextElementSibling !== null && cursor2.nextElementSibling.getAttribute?.("data-sa-ui") === "replies") {
-              cursor2 = cursor2.nextElementSibling;
+          if (Number.isFinite(turn)) {
+            const items = document.querySelectorAll(`[data-chat-turn="${turn}"]`);
+            let lastAssistant = null;
+            for (const item of items) {
+              const kind = item.getAttribute?.("data-chat-flow-kind") ?? "";
+              if (kind.startsWith("assistant")) lastAssistant = item;
             }
-            disclosure.parentElement.insertBefore(section, cursor2.nextSibling);
-            return;
+            if (lastAssistant !== null && lastAssistant.parentElement !== null) {
+              lastAssistant.parentElement.insertBefore(section, lastAssistant.nextSibling);
+              return;
+            }
           }
           const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, currentSessionId()) : null;
           if (anchorEl !== null && anchorEl.parentElement !== null) {
@@ -3271,7 +3274,7 @@
         const copyLabel = document.createElement("span");
         copyLabel.textContent = t("annotate.copy");
         copyButton.append(dshIconSvg("copy"), copyLabel);
-        toolbar.append(copyButton, adoptButton, annotateButton);
+        toolbar.append(adoptButton, annotateButton, copyButton);
         const contextMenu = document.createElement("div");
         contextMenu.className = "sa-menu";
         contextMenu.setAttribute("data-sa-ui", "menu");

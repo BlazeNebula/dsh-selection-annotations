@@ -1041,15 +1041,19 @@ export function createPlugin(React, extras = {}) {
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement
           if (parent === null) return
-          // 答复卡紧跟在「已完成」所在的消息之后：下方即使有插队消息，也不会把答复与正文隔开太远。
-          const disclosure = Number.isFinite(turn) ? turnDisclosureItem(turn) : null
-          if (disclosure !== null && disclosure.parentElement !== null) {
-            let cursor = disclosure
-            while (cursor.nextElementSibling !== null && cursor.nextElementSibling.getAttribute?.('data-sa-ui') === 'replies') {
-              cursor = cursor.nextElementSibling
+          // 答复卡紧跟在最终输出之后：找到该轮最后一个助手内容块，插在它后面；
+          // 下方即使还有插队消息，答复也不会被推远。
+          if (Number.isFinite(turn)) {
+            const items = document.querySelectorAll(`[data-chat-turn="${turn}"]`)
+            let lastAssistant = null
+            for (const item of items) {
+              const kind = item.getAttribute?.('data-chat-flow-kind') ?? ''
+              if (kind.startsWith('assistant')) lastAssistant = item
             }
-            disclosure.parentElement.insertBefore(section, cursor.nextSibling)
-            return
+            if (lastAssistant !== null && lastAssistant.parentElement !== null) {
+              lastAssistant.parentElement.insertBefore(section, lastAssistant.nextSibling)
+              return
+            }
           }
           // 槽位锚点在轮次尾部：没有「已完成」时贴在它后面。
           const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, currentSessionId()) : null
@@ -1504,8 +1508,8 @@ export function createPlugin(React, extras = {}) {
         const copyLabel = document.createElement('span')
         copyLabel.textContent = t('annotate.copy')
         copyButton.append(dshIconSvg('copy'), copyLabel)
-        // 左边复制、中间采纳、右边反馈。
-        toolbar.append(copyButton, adoptButton, annotateButton)
+        // 左边采纳、中间反馈、右边复制。
+        toolbar.append(adoptButton, annotateButton, copyButton)
 
         /* ------------------------------------------------------------------ 右键菜单*/
 

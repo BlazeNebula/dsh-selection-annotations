@@ -80,7 +80,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     head.style.marginBottom = '0'
     card.style.display = 'flex'
     card.style.flexDirection = 'column'
-    card.style.rowGap = '16px'
+    card.style.rowGap = '12px'
     const body = document.createElement('div')
     body.className = 'sa-sent-body'
     body.style.paddingTop = '0px'
@@ -162,7 +162,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     const head = buildSectionHead(t('replies.title', { n: replies.length }), parts.join(' · '))
     card.style.display = 'flex'
     card.style.flexDirection = 'column'
-    card.style.rowGap = '16px'
+    card.style.rowGap = '12px'
     card.appendChild(head)
 
     const body = document.createElement('div')
