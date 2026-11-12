@@ -233,10 +233,12 @@
 .sa-section-chevron { flex: none; display: block; width: 14px; height: 14px;
   color: var(--dsw-alias-label-secondary, #8b949e); transition: transform 180ms ease; }
 .sa-reuse { position: relative; flex: none; display: inline-flex; align-items: center;
-  height: 22px; padding: 0 2px; margin-left: auto; border-radius: 6px; color: var(--sa-dim-tertiary);
+  height: 24px; padding: 0 6px; margin-left: auto; border-radius: 6px; color: var(--sa-dim-tertiary);
   cursor: pointer; transition: background 120ms ease, color 120ms ease; }
-.sa-reuse:hover, .sa-reuse:focus-visible { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
-  color: var(--sa-dim-primary); outline: none; }
+.sa-reuse:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--sa-dim-primary); }
+.sa-reuse:focus-visible { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--sa-dim-primary); outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 1px; }
 /* 文字始终占位，只切换透明度：悬停命中区域固定，不会随动画长大；图标固定贴右。 */
 .sa-reuse-text { margin-right: 4px; white-space: nowrap; opacity: 0;
   font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.3;
