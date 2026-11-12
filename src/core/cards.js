@@ -83,7 +83,8 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     card.style.rowGap = '8px'
     const body = document.createElement('div')
     body.className = 'sa-sent-body'
-    body.style.paddingTop = '0px'
+    // 卡片内部的呼吸感：首行文字离边框 8px，和标题到卡片的 8px 分开控制。
+    body.style.padding = '8px'
     const wrap = collapsible(body, true)
     applyCollapsed(head, wrap, true)
     for (const item of record.items) {

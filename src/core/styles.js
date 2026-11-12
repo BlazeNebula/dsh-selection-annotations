@@ -236,7 +236,7 @@ export const CSS = `
 .sa-collapse[data-open="1"] { grid-template-rows: 1fr; opacity: 1; }
 .sa-collapse-inner { min-height: 0; overflow: hidden; }
 .sa-replies-head { font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); }
-.sa-replies-body { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; }
+.sa-replies-body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
 
 /* 每条答复一张独立卡片：抬升表面 + 判定色左边线，肉眼先分条、再读内容 */
 .sa-reply-item { display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
@@ -253,7 +253,7 @@ export const CSS = `
   border-bottom: 1px solid var(--dsw-alias-border-secondary, #3333); }
 .sa-reply-index { font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: 0.06em;
   color: var(--dsw-alias-label-secondary, #8b949e); }
-.sa-reply-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.sa-reply-body { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
 
 /* 批注块：内嵌浅底 + 左竖线，把引用与批注降为「上下文」层 */
 .sa-q { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 9px 12px;
