@@ -2861,17 +2861,21 @@
         const buildReplySection = (batches, items) => cards.buildReplySection(batches, items);
         function syncReplyCollapse(origin) {
           for (const section of document.querySelectorAll('[data-sa-ui="replies"]')) {
-            let node = section.previousElementSibling ?? null;
-            let footer = null;
-            while (node !== null) {
-              if (node.getAttribute?.("data-sa-ui") === "replies") {
-                node = node.previousElementSibling ?? null;
-                continue;
+            const known = section.dataset.saTurn;
+            let button3 = typeof known === "string" && known !== "" ? document.querySelector(`[data-turn-process="${known}"]`) : null;
+            if (button3 === null) {
+              let node = section.previousElementSibling ?? null;
+              let footer = null;
+              while (node !== null) {
+                if (node.getAttribute?.("data-sa-ui") === "replies") {
+                  node = node.previousElementSibling ?? null;
+                  continue;
+                }
+                if (node.getAttribute?.("data-chat-flow-kind") === "turn-process" || node.matches?.("[data-turn-process]")) footer = node;
+                break;
               }
-              if (node.getAttribute?.("data-chat-flow-kind") === "turn-process" || node.matches?.("[data-turn-process]")) footer = node;
-              break;
+              button3 = footer === null ? null : footer.matches?.("[data-turn-process]") ? footer : footer.querySelector?.("[data-turn-process]");
             }
-            const button3 = footer === null ? null : footer.matches?.("[data-turn-process]") ? footer : footer.querySelector?.("[data-turn-process]");
             if (button3 !== null && origin !== void 0 && button3 !== origin) continue;
             const head = typeof section.querySelector === "function" ? section.querySelector(".sa-section-head") : null;
             const wrap = typeof section.querySelector === "function" ? section.querySelector(".sa-collapse") : null;
@@ -2887,6 +2891,7 @@
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement;
           if (parent === null) return;
+          if (Number.isFinite(turn)) section.dataset.saTurn = String(turn);
           if (Number.isFinite(turn)) {
             const items = document.querySelectorAll(`[data-chat-turn="${turn}"]`);
             let lastAssistant = null;

@@ -1012,17 +1012,24 @@ export function createPlugin(React, extras = {}) {
         /** 跟着「已完成」一起收展：只同步答复卡片里的内容，卡片本身与标题始终留在外面。*/
         function syncReplyCollapse(origin) {
           for (const section of document.querySelectorAll('[data-sa-ui="replies"]')) {
-            let node = section.previousElementSibling ?? null
-            let footer = null
-            while (node !== null) {
-              if (node.getAttribute?.('data-sa-ui') === 'replies') {
-                node = node.previousElementSibling ?? null
-                continue
+            // 优先用挂载时记下的轮次找「已完成」按钮，避免结构变化后靠相邻节点猜错。
+            const known = section.dataset.saTurn
+            let button = typeof known === 'string' && known !== ''
+              ? document.querySelector(`[data-turn-process="${known}"]`)
+              : null
+            if (button === null) {
+              let node = section.previousElementSibling ?? null
+              let footer = null
+              while (node !== null) {
+                if (node.getAttribute?.('data-sa-ui') === 'replies') {
+                  node = node.previousElementSibling ?? null
+                  continue
+                }
+                if (node.getAttribute?.('data-chat-flow-kind') === 'turn-process' || node.matches?.('[data-turn-process]')) footer = node
+                break
               }
-              if (node.getAttribute?.('data-chat-flow-kind') === 'turn-process' || node.matches?.('[data-turn-process]')) footer = node
-              break
+              button = footer === null ? null : footer.matches?.('[data-turn-process]') ? footer : footer.querySelector?.('[data-turn-process]')
             }
-            const button = footer === null ? null : footer.matches?.('[data-turn-process]') ? footer : footer.querySelector?.('[data-turn-process]')
             // 只响应用户亲手点开/收起的那一下：同一状态不重复套用，之后答复区可以自己开合。
             if (button !== null && origin !== undefined && button !== origin) continue
             const head = typeof section.querySelector === 'function' ? section.querySelector('.sa-section-head') : null
@@ -1041,6 +1048,7 @@ export function createPlugin(React, extras = {}) {
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement
           if (parent === null) return
+          if (Number.isFinite(turn)) section.dataset.saTurn = String(turn)
           // 答复卡紧跟在最终输出之后：找到该轮最后一个助手内容块，插在它后面；
           // 下方即使还有插队消息，答复也不会被推远。
           if (Number.isFinite(turn)) {
