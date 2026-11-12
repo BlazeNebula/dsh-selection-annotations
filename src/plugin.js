@@ -1191,7 +1191,7 @@ export function createPlugin(React, extras = {}) {
             if (sentCard === undefined) continue
             const items = byAnchor.get(anchorKey)?.record.items ?? []
             const turn = byAnchor.get(anchorKey)?.turn ?? null
-            const signature = `${list.map((batch) => String(batch.at)).join('|')}#${items.length}`
+            const signature = `${list.map((batch) => String(batch.at)).join('|')}#${items.length}#replay2`
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`)
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue

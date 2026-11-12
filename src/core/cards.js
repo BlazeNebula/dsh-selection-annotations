@@ -50,13 +50,13 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
   }
 
   /** 已发送区右上角的「复用」图标：把这些批注重新放回待发送列表。*/
-  function reuseButton(label, onClick) {
+  function reuseButton(label, onClick, hint) {
     const button = document.createElement('span')
     button.className = 'sa-reuse'
     button.setAttribute('role', 'button')
     button.setAttribute('tabindex', '0')
     button.setAttribute('aria-label', label)
-    button.dataset.label = label
+    if (typeof hint === 'string' && hint !== '') button.title = hint
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     svg.setAttribute('viewBox', '0 0 16 16')
     svg.setAttribute('width', '13')
@@ -71,6 +71,10 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       svg.appendChild(path)
     }
     button.appendChild(svg)
+    const text = document.createElement('span')
+    text.className = 'sa-reuse-text'
+    text.textContent = label
+    button.appendChild(text)
     const run = (event) => {
       event.preventDefault()
       event.stopPropagation()
@@ -112,7 +116,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     // 记下锚点键：卡片现在插在消息行外，判重要靠它而不是「行内有没有卡片」。
     if (typeof anchorKey === 'string' && anchorKey !== '') card.setAttribute('data-anchor', anchorKey)
     const action = typeof options.onReuse === 'function'
-      ? reuseButton(t('sent.reuse'), options.onReuse)
+      ? reuseButton(t('sent.reuse'), options.onReuse, t('reuse.hint'))
       : undefined
     const head = buildSectionHead(t('sent.title', { n: record.items.length }), undefined, action)
     head.style.marginBottom = '0'
@@ -169,7 +173,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       }
       line.append(num, text)
       if (typeof options.onReplayItem === 'function') {
-        line.appendChild(reuseButton(t('sent.replayItem'), () => options.onReplayItem(item)))
+        line.appendChild(reuseButton(t('sent.replayItem'), () => options.onReplayItem(item), t('reuse.hint')))
       }
       body.appendChild(line)
     }
@@ -229,8 +233,9 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       verdict.className = `sa-a-verdict sa-reply-${tone}`
       verdict.textContent = t(labelKey)
       cardHead.append(index, verdict)
-      if (item !== undefined && typeof options.onReplayItem === 'function') {
-        cardHead.appendChild(reuseButton(t('replies.replay'), () => options.onReplayItem(item)))
+      const replayItem = item ?? { quote: reply.quote, note: reply.note }
+      if (typeof options.onReplayItem === 'function') {
+        cardHead.appendChild(reuseButton(t('replies.replay'), () => options.onReplayItem(replayItem), t('reuse.hint')))
       }
       group.appendChild(cardHead)
 

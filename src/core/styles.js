@@ -231,16 +231,14 @@ export const CSS = `
 .sa-section-chevron { flex: none; display: block; width: 14px; height: 14px;
   color: var(--dsw-alias-label-secondary, #8b949e); transition: transform 180ms ease; }
 .sa-reuse { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; margin-left: auto; border-radius: 6px; color: var(--sa-dim-tertiary);
-  cursor: pointer; }
+  height: 22px; padding: 0 2px; margin-left: auto; border-radius: 6px; color: var(--sa-dim-tertiary);
+  cursor: pointer; transition: background 120ms ease, color 120ms ease; }
 .sa-reuse:hover, .sa-reuse:focus-visible { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
   color: var(--sa-dim-primary); outline: none; }
-.sa-reuse::after { content: attr(data-label); position: absolute; right: 0; bottom: calc(100% + 6px);
-  padding: 4px 8px; border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-2, Canvas); color: var(--dsw-alias-label-primary, CanvasText);
-  font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.3; white-space: nowrap;
-  opacity: 0; pointer-events: none; transition: opacity 120ms ease; z-index: 60; }
-.sa-reuse:hover::after, .sa-reuse:focus-visible::after { opacity: 1; }
+.sa-reuse-text { max-width: 0; margin-left: 0; overflow: hidden; white-space: nowrap; opacity: 0;
+  font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.3;
+  transition: max-width 160ms ease, opacity 160ms ease, margin-left 160ms ease; }
+.sa-reuse:hover .sa-reuse-text, .sa-reuse:focus-visible .sa-reuse-text { max-width: 140px; margin-left: 4px; opacity: 1; }
 .sa-section-head[aria-expanded="true"] .sa-section-chevron { transform: rotate(90deg); }
 .sa-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; margin-top: 6px;
   transition: grid-template-rows 180ms ease, opacity 180ms ease; }

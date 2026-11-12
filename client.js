@@ -233,16 +233,14 @@
 .sa-section-chevron { flex: none; display: block; width: 14px; height: 14px;
   color: var(--dsw-alias-label-secondary, #8b949e); transition: transform 180ms ease; }
 .sa-reuse { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; margin-left: auto; border-radius: 6px; color: var(--sa-dim-tertiary);
-  cursor: pointer; }
+  height: 22px; padding: 0 2px; margin-left: auto; border-radius: 6px; color: var(--sa-dim-tertiary);
+  cursor: pointer; transition: background 120ms ease, color 120ms ease; }
 .sa-reuse:hover, .sa-reuse:focus-visible { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
   color: var(--sa-dim-primary); outline: none; }
-.sa-reuse::after { content: attr(data-label); position: absolute; right: 0; bottom: calc(100% + 6px);
-  padding: 4px 8px; border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-2, Canvas); color: var(--dsw-alias-label-primary, CanvasText);
-  font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.3; white-space: nowrap;
-  opacity: 0; pointer-events: none; transition: opacity 120ms ease; z-index: 60; }
-.sa-reuse:hover::after, .sa-reuse:focus-visible::after { opacity: 1; }
+.sa-reuse-text { max-width: 0; margin-left: 0; overflow: hidden; white-space: nowrap; opacity: 0;
+  font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.3;
+  transition: max-width 160ms ease, opacity 160ms ease, margin-left 160ms ease; }
+.sa-reuse:hover .sa-reuse-text, .sa-reuse:focus-visible .sa-reuse-text { max-width: 140px; margin-left: 4px; opacity: 1; }
 .sa-section-head[aria-expanded="true"] .sa-section-chevron { transform: rotate(90deg); }
 .sa-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; margin-top: 6px;
   transition: grid-template-rows 180ms ease, opacity 180ms ease; }
@@ -453,6 +451,7 @@
       "sent.title": "已发送的批注 ×{n}",
       "sent.reuse": "回放所有批注",
       "sent.replayItem": "回放批注",
+      "reuse.hint": "按原样添加到待发送的批注队列",
       "replies.title": "批注答复 ×{n}",
       "replies.replay": "回放批注",
       "replies.waiting": "批注答复：等待参数",
@@ -553,6 +552,7 @@
       "sent.title": "Sent annotations ×{n}",
       "sent.reuse": "Replay all annotations",
       "sent.replayItem": "Replay annotation",
+      "reuse.hint": "Add to the pending annotation queue as-is",
       "replies.title": "Annotation replies ×{n}",
       "replies.replay": "Replay annotation",
       "replies.waiting": "Annotation replies: waiting for arguments",
@@ -1367,13 +1367,13 @@
       if (action !== void 0 && action !== null) head.appendChild(action);
       return head;
     }
-    function reuseButton(label, onClick) {
+    function reuseButton(label, onClick, hint) {
       const button2 = document.createElement("span");
       button2.className = "sa-reuse";
       button2.setAttribute("role", "button");
       button2.setAttribute("tabindex", "0");
       button2.setAttribute("aria-label", label);
-      button2.dataset.label = label;
+      if (typeof hint === "string" && hint !== "") button2.title = hint;
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.setAttribute("viewBox", "0 0 16 16");
       svg.setAttribute("width", "13");
@@ -1388,6 +1388,10 @@
         svg.appendChild(path);
       }
       button2.appendChild(svg);
+      const text = document.createElement("span");
+      text.className = "sa-reuse-text";
+      text.textContent = label;
+      button2.appendChild(text);
       const run = (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1420,7 +1424,7 @@
       card.className = "sa-sent";
       card.setAttribute("data-sa-ui", "sent");
       if (typeof anchorKey === "string" && anchorKey !== "") card.setAttribute("data-anchor", anchorKey);
-      const action = typeof options.onReuse === "function" ? reuseButton(t("sent.reuse"), options.onReuse) : void 0;
+      const action = typeof options.onReuse === "function" ? reuseButton(t("sent.reuse"), options.onReuse, t("reuse.hint")) : void 0;
       const head = buildSectionHead(t("sent.title", { n: record.items.length }), void 0, action);
       head.style.marginBottom = "0";
       card.style.display = "flex";
@@ -1475,7 +1479,7 @@
         }
         line.append(num, text);
         if (typeof options.onReplayItem === "function") {
-          line.appendChild(reuseButton(t("sent.replayItem"), () => options.onReplayItem(item)));
+          line.appendChild(reuseButton(t("sent.replayItem"), () => options.onReplayItem(item), t("reuse.hint")));
         }
         body.appendChild(line);
       }
@@ -1530,8 +1534,9 @@
         verdict.className = `sa-a-verdict sa-reply-${tone}`;
         verdict.textContent = t(labelKey);
         cardHead.append(index, verdict);
-        if (item !== void 0 && typeof options.onReplayItem === "function") {
-          cardHead.appendChild(reuseButton(t("replies.replay"), () => options.onReplayItem(item)));
+        const replayItem = item ?? { quote: reply.quote, note: reply.note };
+        if (typeof options.onReplayItem === "function") {
+          cardHead.appendChild(reuseButton(t("replies.replay"), () => options.onReplayItem(replayItem), t("reuse.hint")));
         }
         group.appendChild(cardHead);
         const content = document.createElement("div");
@@ -3072,7 +3077,7 @@
             if (sentCard === void 0) continue;
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
-            const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}`;
+            const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}#replay2`;
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`);
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue;
