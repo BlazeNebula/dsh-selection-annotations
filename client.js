@@ -232,11 +232,17 @@
   font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.3; color: var(--dsw-alias-label-secondary, #8b949e); }
 .sa-section-chevron { flex: none; display: block; width: 14px; height: 14px;
   color: var(--dsw-alias-label-secondary, #8b949e); transition: transform 180ms ease; }
-.sa-reuse { flex: none; display: inline-flex; align-items: center; justify-content: center;
+.sa-reuse { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; margin-left: auto; border-radius: 6px; color: var(--sa-dim-tertiary);
   cursor: pointer; }
 .sa-reuse:hover, .sa-reuse:focus-visible { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
   color: var(--sa-dim-primary); outline: none; }
+.sa-reuse::after { content: attr(data-label); position: absolute; right: 0; bottom: calc(100% + 6px);
+  padding: 4px 8px; border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, Canvas); color: var(--dsw-alias-label-primary, CanvasText);
+  font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.3; white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity 120ms ease; z-index: 60; }
+.sa-reuse:hover::after, .sa-reuse:focus-visible::after { opacity: 1; }
 .sa-section-head[aria-expanded="true"] .sa-section-chevron { transform: rotate(90deg); }
 .sa-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; margin-top: 6px;
   transition: grid-template-rows 180ms ease, opacity 180ms ease; }
@@ -445,8 +451,10 @@
       "chip.label": "批注",
       "chip.count": "批注 ×{n}",
       "sent.title": "已发送的批注 ×{n}",
-      "sent.reuse": "把这些批注放回待发送",
+      "sent.reuse": "回放所有批注",
+      "sent.replayItem": "回放批注",
       "replies.title": "批注答复 ×{n}",
+      "replies.replay": "回放批注",
       "replies.waiting": "批注答复：等待参数",
       "markdown.copy": "复制",
       "markdown.copied": "已复制",
@@ -543,8 +551,10 @@
       "chip.label": "Annotate",
       "chip.count": "Annotate ×{n}",
       "sent.title": "Sent annotations ×{n}",
-      "sent.reuse": "Reuse these annotations",
+      "sent.reuse": "Replay all annotations",
+      "sent.replayItem": "Replay annotation",
       "replies.title": "Annotation replies ×{n}",
+      "replies.replay": "Replay annotation",
       "replies.waiting": "Annotation replies: waiting for arguments",
       "markdown.copy": "Copy",
       "markdown.copied": "Copied",
@@ -1363,7 +1373,7 @@
       button2.setAttribute("role", "button");
       button2.setAttribute("tabindex", "0");
       button2.setAttribute("aria-label", label);
-      button2.title = label;
+      button2.dataset.label = label;
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.setAttribute("viewBox", "0 0 16 16");
       svg.setAttribute("width", "13");
@@ -1464,6 +1474,9 @@
           if (gallery.childNodes.length > 0) text.appendChild(gallery);
         }
         line.append(num, text);
+        if (typeof options.onReplayItem === "function") {
+          line.appendChild(reuseButton(t("sent.replayItem"), () => options.onReplayItem(item)));
+        }
         body.appendChild(line);
       }
       head.addEventListener("click", (event) => {
@@ -1474,7 +1487,7 @@
       card.append(head, wrap);
       return card;
     }
-    function buildReplySection(batches, items = []) {
+    function buildReplySection(batches, items = [], options = {}) {
       const replies = mergeReplyBatches(batches);
       const byIndex = /* @__PURE__ */ new Map();
       for (const item of Array.isArray(items) ? items : []) {
@@ -1517,6 +1530,9 @@
         verdict.className = `sa-a-verdict sa-reply-${tone}`;
         verdict.textContent = t(labelKey);
         cardHead.append(index, verdict);
+        if (item !== void 0 && typeof options.onReplayItem === "function") {
+          cardHead.appendChild(reuseButton(t("replies.replay"), () => options.onReplayItem(item)));
+        }
         group.appendChild(cardHead);
         const content = document.createElement("div");
         content.className = "sa-reply-body";
@@ -2859,7 +2875,10 @@
             const footer = footerBlockForTurn(turn);
             if (row === null && footer === null) continue;
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
-            const card = existing ?? buildSentCard(record, anchorKey, { onReuse: () => reuseSentItems(record.items) });
+            const card = existing ?? buildSentCard(record, anchorKey, {
+              onReuse: () => reuseSentItems(record.items),
+              onReplayItem: (item) => reuseSentItems([item])
+            });
             card.setAttribute("data-sa-key", storedKey);
             card.setAttribute("data-anchor", anchorKey);
             const bubbleKind = row === null ? "" : row.getAttribute("data-chat-flow-kind") ?? "";
@@ -2899,7 +2918,7 @@
           }
           if (learnedTurn) saveSent(sessionId, table);
         }
-        const buildReplySection = (batches, items) => cards.buildReplySection(batches, items);
+        const buildReplySection = (batches, items, options) => cards.buildReplySection(batches, items, options);
         function syncReplyCollapse(origin) {
           for (const section of document.querySelectorAll('[data-sa-ui="replies"]')) {
             const known = section.dataset.saTurn;
@@ -3057,7 +3076,7 @@
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`);
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue;
-              const fresh = buildReplySection(list, items);
+              const fresh = buildReplySection(list, items, { onReplayItem: (item) => reuseSentItems([item]) });
               fresh.setAttribute("data-anchor", anchorKey);
               fresh.dataset.signature = signature;
               existing.replaceWith(fresh);
@@ -3065,7 +3084,7 @@
               collapseSentForReplies(sentCard, signature);
               continue;
             }
-            const section = buildReplySection(list, items);
+            const section = buildReplySection(list, items, { onReplayItem: (item) => reuseSentItems([item]) });
             section.setAttribute("data-anchor", anchorKey);
             section.dataset.signature = signature;
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling);

@@ -56,7 +56,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     button.setAttribute('role', 'button')
     button.setAttribute('tabindex', '0')
     button.setAttribute('aria-label', label)
-    button.title = label
+    button.dataset.label = label
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     svg.setAttribute('viewBox', '0 0 16 16')
     svg.setAttribute('width', '13')
@@ -168,6 +168,9 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
         if (gallery.childNodes.length > 0) text.appendChild(gallery)
       }
       line.append(num, text)
+      if (typeof options.onReplayItem === 'function') {
+        line.appendChild(reuseButton(t('sent.replayItem'), () => options.onReplayItem(item)))
+      }
       body.appendChild(line)
     }
     head.addEventListener('click', (event) => {
@@ -179,7 +182,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return card
   }
 
-  function buildReplySection(batches, items = []) {
+  function buildReplySection(batches, items = [], options = {}) {
     const replies = mergeReplyBatches(batches)
     const byIndex = new Map()
     for (const item of Array.isArray(items) ? items : []) {
@@ -226,6 +229,9 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       verdict.className = `sa-a-verdict sa-reply-${tone}`
       verdict.textContent = t(labelKey)
       cardHead.append(index, verdict)
+      if (item !== undefined && typeof options.onReplayItem === 'function') {
+        cardHead.appendChild(reuseButton(t('replies.replay'), () => options.onReplayItem(item)))
+      }
       group.appendChild(cardHead)
 
       const content = document.createElement('div')

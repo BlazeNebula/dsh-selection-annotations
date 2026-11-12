@@ -951,7 +951,10 @@ export function createPlugin(React, extras = {}) {
             const footer = footerBlockForTurn(turn)
             if (row === null && footer === null) continue
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
-            const card = existing ?? buildSentCard(record, anchorKey, { onReuse: () => reuseSentItems(record.items) })
+            const card = existing ?? buildSentCard(record, anchorKey, {
+              onReuse: () => reuseSentItems(record.items),
+              onReplayItem: (item) => reuseSentItems([item]),
+            })
             card.setAttribute('data-sa-key', storedKey)
             card.setAttribute('data-anchor', anchorKey)
             // 批注优先挂在用户消息气泡下方：插队（steering）消息还没有轮次尾行时也能出现，
@@ -1007,7 +1010,7 @@ export function createPlugin(React, extras = {}) {
           if (learnedTurn) saveSent(sessionId, table)
         }
 
-        const buildReplySection = (batches, items) => cards.buildReplySection(batches, items)
+        const buildReplySection = (batches, items, options) => cards.buildReplySection(batches, items, options)
 
         /** 跟着「已完成」一起收展：只同步答复卡片里的内容，卡片本身与标题始终留在外面。*/
         function syncReplyCollapse(origin) {
@@ -1192,7 +1195,7 @@ export function createPlugin(React, extras = {}) {
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`)
             if (existing !== null) {
               if (existing.dataset.signature === signature) continue
-              const fresh = buildReplySection(list, items)
+              const fresh = buildReplySection(list, items, { onReplayItem: (item) => reuseSentItems([item]) })
               fresh.setAttribute('data-anchor', anchorKey)
               fresh.dataset.signature = signature
               existing.replaceWith(fresh)
@@ -1200,7 +1203,7 @@ export function createPlugin(React, extras = {}) {
               collapseSentForReplies(sentCard, signature)
               continue
             }
-            const section = buildReplySection(list, items)
+            const section = buildReplySection(list, items, { onReplayItem: (item) => reuseSentItems([item]) })
             section.setAttribute('data-anchor', anchorKey)
             section.dataset.signature = signature
             sentCard.parentElement?.insertBefore(section, sentCard.nextSibling)
