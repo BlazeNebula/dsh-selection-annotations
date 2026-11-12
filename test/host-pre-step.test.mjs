@@ -193,12 +193,12 @@ test('Config：非法 maxPayloadBytes 回落到默认值而不是报错', async 
 let reminderSessionSeq = 0
 
 /** 组装一个带 systemPrompt、会话事件与 turn-stopping 的 ctx。 */
-function makeReminderCtx() {
+function makeReminderCtx(options = {}) {
   const handlers = new Map()
   const sections = []
   const steered = []
   const agent = {
-    session: { id: `session-reminder-${++reminderSessionSeq}`, header: {} },
+    session: { id: `session-reminder-${++reminderSessionSeq}`, header: {}, ...(options.log === undefined ? {} : { log: options.log }) },
     steer(message) {
       steered.push(message)
     },
@@ -274,6 +274,18 @@ test('回合结束检查：这一轮没有批注时不提醒', () => {
   const { steered, emit, stop } = makeReminderCtx()
   emit('turn/start', { turn: 5 })
   stop(5)
+  assert.equal(steered.length, 0)
+})
+
+test('回合结束检查：DS Bot 会话不补提醒（避免并进 Bot 的答复）', () => {
+  const botPrompt = {
+    type: 'system/message',
+    data: { message: { source: { kind: 'system-prompt' }, content: [{ type: 'text', text: '## How your Bot team works\n…' }] } },
+  }
+  const { steered, emit, stop } = makeReminderCtx({ log: [botPrompt] })
+  emit('turn/start', { turn: 9 })
+  emit('user/message', { source: { kind: 'annotation' } })
+  stop(9)
   assert.equal(steered.length, 0)
 })
 
