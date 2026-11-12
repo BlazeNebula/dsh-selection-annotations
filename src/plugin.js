@@ -1041,7 +1041,17 @@ export function createPlugin(React, extras = {}) {
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement
           if (parent === null) return
-          // 槽位锚点在轮次尾部：答复卡就贴在它后面。
+          // 答复卡紧跟在「已完成」所在的消息之后：下方即使有插队消息，也不会把答复与正文隔开太远。
+          const disclosure = Number.isFinite(turn) ? turnDisclosureItem(turn) : null
+          if (disclosure !== null && disclosure.parentElement !== null) {
+            let cursor = disclosure
+            while (cursor.nextElementSibling !== null && cursor.nextElementSibling.getAttribute?.('data-sa-ui') === 'replies') {
+              cursor = cursor.nextElementSibling
+            }
+            disclosure.parentElement.insertBefore(section, cursor.nextSibling)
+            return
+          }
+          // 槽位锚点在轮次尾部：没有「已完成」时贴在它后面。
           const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, currentSessionId()) : null
           if (anchorEl !== null && anchorEl.parentElement !== null) {
             let cursor = anchorEl
@@ -1080,6 +1090,7 @@ export function createPlugin(React, extras = {}) {
           safe(() => {
             annotateLabel.textContent = t('annotate')
             adoptLabel.textContent = t('annotate.adopt')
+            copyLabel.textContent = t('annotate.copy')
           })
           safe(() => {
             menuAnnotate.textContent = t('menu.annotate')
@@ -1463,6 +1474,9 @@ export function createPlugin(React, extras = {}) {
           }
           if (kind === 'check') {
             path('M2.25 8.5L5.49732 11.7473C5.90519 12.1552 6.57263 12.1344 6.95426 11.7018L13.75 4')
+          } else if (kind === 'copy') {
+            path('M5.6 5.6H12.4V12.4H5.6V5.6Z')
+            path('M3.6 3.6H9.4V5.6')
           } else {
             path('M8.85596 2.69971H4.19971C3.37141 2.69971 2.69992 3.37146 2.69971 4.19971V11.8003C2.69992 12.6285 3.37141 13.3003 4.19971 13.3003H11.8003C12.6283 13.2999 13.3001 12.6283 13.3003 11.8003V7.89893H14.3003V11.8003C14.3001 13.1806 13.1806 14.2999 11.8003 14.3003H4.19971C2.81913 14.3003 1.69992 13.1808 1.69971 11.8003V4.19971C1.69992 2.81918 2.81913 1.69971 4.19971 1.69971H8.85596V2.69971Z', { fill: 'currentColor', stroke: 'none' })
             path('M7.7849 8.23878L13.888 2.13574')
@@ -1483,8 +1497,15 @@ export function createPlugin(React, extras = {}) {
         const adoptLabel = document.createElement('span')
         adoptLabel.textContent = t('annotate.adopt')
         adoptButton.append(dshIconSvg('check'), adoptLabel)
-        // 左边采纳、右边反馈。
-        toolbar.append(adoptButton, annotateButton)
+        // 「复制」放在最左，先复制再决定批注还是采纳。
+        const copyButton = document.createElement('button')
+        copyButton.type = 'button'
+        copyButton.className = 'sa-btn'
+        const copyLabel = document.createElement('span')
+        copyLabel.textContent = t('annotate.copy')
+        copyButton.append(dshIconSvg('copy'), copyLabel)
+        // 左边复制、中间采纳、右边反馈。
+        toolbar.append(copyButton, adoptButton, annotateButton)
 
         /* ------------------------------------------------------------------ 右键菜单*/
 
@@ -2272,6 +2293,17 @@ export function createPlugin(React, extras = {}) {
         adoptButton.addEventListener('click', (event) => {
           event.preventDefault()
           openCreatePopover({ adopt: true })
+        })
+        copyButton.addEventListener('mousedown', (event) => {
+          // 保住选区，复制到的就是当前划选内容。
+          event.preventDefault()
+        })
+        copyButton.addEventListener('click', (event) => {
+          event.preventDefault()
+          const selection = pendingSelection
+          if (selection === null) return
+          copyPlainText(selection.quote)
+          hideToolbar()
         })
         menuAnnotate.addEventListener('mousedown', (event) => {
           // 和上方按钮一样保住选区。

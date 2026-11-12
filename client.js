@@ -390,6 +390,7 @@
     zh: {
       annotate: "批注反馈",
       "annotate.adopt": "批注采纳",
+      "annotate.copy": "复制",
       "menu.annotate": "为划选部分批注反馈",
       "menu.adopt": "为划选部分批注采纳",
       "menu.copy": "复制",
@@ -486,6 +487,7 @@
     en: {
       annotate: "Feedback",
       "annotate.adopt": "Adopt",
+      "annotate.copy": "Copy",
       "menu.annotate": "Feedback on selection",
       "menu.adopt": "Adopt selection",
       "menu.copy": "Copy",
@@ -1350,7 +1352,7 @@
     function collapsible(body, open) {
       const wrap = document.createElement("div");
       wrap.className = "sa-collapse";
-      wrap.style.marginTop = "8px";
+      wrap.style.marginTop = "0px";
       wrap.dataset.open = open ? "1" : "0";
       const inner = document.createElement("div");
       inner.className = "sa-collapse-inner";
@@ -1370,12 +1372,14 @@
       if (typeof anchorKey === "string" && anchorKey !== "") card.setAttribute("data-anchor", anchorKey);
       const head = buildSectionHead(t("sent.title", { n: record.items.length }));
       head.style.marginBottom = "0";
+      card.style.display = "flex";
+      card.style.flexDirection = "column";
+      card.style.rowGap = "16px";
       const body = document.createElement("div");
       body.className = "sa-sent-body";
-      body.style.paddingTop = "8px";
+      body.style.paddingTop = "0px";
       const wrap = collapsible(body, true);
       applyCollapsed(head, wrap, true);
-      card.style.rowGap = "0";
       for (const item of record.items) {
         const line = document.createElement("div");
         line.className = "sa-sent-item";
@@ -1448,11 +1452,13 @@
       if (counts.rejected) parts.push(t("summary.rejected", { n: counts.rejected }));
       if (counts.needs_info) parts.push(t("summary.needsInfo", { n: counts.needs_info }));
       const head = buildSectionHead(t("replies.title", { n: replies.length }), parts.join(" · "));
+      card.style.display = "flex";
+      card.style.flexDirection = "column";
+      card.style.rowGap = "16px";
       card.appendChild(head);
-      card.style.rowGap = "0";
       const body = document.createElement("div");
       body.className = "sa-replies-body";
-      body.style.paddingTop = "8px";
+      body.style.paddingTop = "0px";
       for (const reply of replies) {
         const item = byIndex.get(reply.index);
         const [labelKey, tone] = VERDICT_LABELS2[reply.verdict] ?? ["verdict.fallback", "accepted"];
@@ -2880,6 +2886,15 @@
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement;
           if (parent === null) return;
+          const disclosure = Number.isFinite(turn) ? turnDisclosureItem(turn) : null;
+          if (disclosure !== null && disclosure.parentElement !== null) {
+            let cursor2 = disclosure;
+            while (cursor2.nextElementSibling !== null && cursor2.nextElementSibling.getAttribute?.("data-sa-ui") === "replies") {
+              cursor2 = cursor2.nextElementSibling;
+            }
+            disclosure.parentElement.insertBefore(section, cursor2.nextSibling);
+            return;
+          }
           const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, currentSessionId()) : null;
           if (anchorEl !== null && anchorEl.parentElement !== null) {
             let cursor2 = anchorEl;
@@ -2913,6 +2928,7 @@
           safe(() => {
             annotateLabel.textContent = t("annotate");
             adoptLabel.textContent = t("annotate.adopt");
+            copyLabel.textContent = t("annotate.copy");
           });
           safe(() => {
             menuAnnotate.textContent = t("menu.annotate");
@@ -3228,6 +3244,9 @@
           };
           if (kind === "check") {
             path("M2.25 8.5L5.49732 11.7473C5.90519 12.1552 6.57263 12.1344 6.95426 11.7018L13.75 4");
+          } else if (kind === "copy") {
+            path("M5.6 5.6H12.4V12.4H5.6V5.6Z");
+            path("M3.6 3.6H9.4V5.6");
           } else {
             path("M8.85596 2.69971H4.19971C3.37141 2.69971 2.69992 3.37146 2.69971 4.19971V11.8003C2.69992 12.6285 3.37141 13.3003 4.19971 13.3003H11.8003C12.6283 13.2999 13.3001 12.6283 13.3003 11.8003V7.89893H14.3003V11.8003C14.3001 13.1806 13.1806 14.2999 11.8003 14.3003H4.19971C2.81913 14.3003 1.69992 13.1808 1.69971 11.8003V4.19971C1.69992 2.81918 2.81913 1.69971 4.19971 1.69971H8.85596V2.69971Z", { fill: "currentColor", stroke: "none" });
             path("M7.7849 8.23878L13.888 2.13574");
@@ -3246,7 +3265,13 @@
         const adoptLabel = document.createElement("span");
         adoptLabel.textContent = t("annotate.adopt");
         adoptButton.append(dshIconSvg("check"), adoptLabel);
-        toolbar.append(adoptButton, annotateButton);
+        const copyButton = document.createElement("button");
+        copyButton.type = "button";
+        copyButton.className = "sa-btn";
+        const copyLabel = document.createElement("span");
+        copyLabel.textContent = t("annotate.copy");
+        copyButton.append(dshIconSvg("copy"), copyLabel);
+        toolbar.append(copyButton, adoptButton, annotateButton);
         const contextMenu = document.createElement("div");
         contextMenu.className = "sa-menu";
         contextMenu.setAttribute("data-sa-ui", "menu");
@@ -3918,6 +3943,16 @@
         adoptButton.addEventListener("click", (event) => {
           event.preventDefault();
           openCreatePopover({ adopt: true });
+        });
+        copyButton.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+        });
+        copyButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          const selection = pendingSelection;
+          if (selection === null) return;
+          copyPlainText(selection.quote);
+          hideToolbar();
         });
         menuAnnotate.addEventListener("mousedown", (event) => {
           event.preventDefault();

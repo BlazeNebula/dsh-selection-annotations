@@ -2,6 +2,7 @@ export const MESSAGES = {
       zh: {
         annotate: '批注反馈',
         'annotate.adopt': '批注采纳',
+  'annotate.copy': '复制',
         'menu.annotate': '为划选部分批注反馈',
         'menu.adopt': '为划选部分批注采纳',
         'menu.copy': '复制',
@@ -98,6 +99,7 @@ export const MESSAGES = {
       en: {
         annotate: 'Feedback',
         'annotate.adopt': 'Adopt',
+  'annotate.copy': 'Copy',
         'menu.annotate': 'Feedback on selection',
         'menu.adopt': 'Adopt selection',
         'menu.copy': 'Copy',
