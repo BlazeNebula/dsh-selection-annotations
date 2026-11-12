@@ -966,6 +966,8 @@ export function createPlugin(React, extras = {}) {
             card.setAttribute('data-reuse', '4')
             card.setAttribute('data-sa-key', storedKey)
             card.setAttribute('data-anchor', anchorKey)
+            if (Number.isFinite(turn)) card.setAttribute('data-sa-turn', String(turn))
+            else if (typeof card.removeAttribute === 'function') card.removeAttribute('data-sa-turn')
             // 批注优先挂在用户消息气泡下方：插队（steering）消息还没有轮次尾行时也能出现，
             // 位置也贴着「自己这一条」，不必等整轮结束。
             const bubbleKind = row === null ? '' : (row.getAttribute('data-chat-flow-kind') ?? '')
@@ -1061,6 +1063,21 @@ export function createPlugin(React, extras = {}) {
           const parent = section.parentElement
           if (parent === null) return
           if (Number.isFinite(turn)) section.dataset.saTurn = String(turn)
+          // 回合还在跑（还没有「已完成」）：此时最后一个助手内容块其实是工具链，
+          // 插在它前面就会被折进过程区。先跟着「已发送」卡放在过程区外面，
+          // 等 final output 出现后，再按正常规则挪到最终输出之前。
+          if (Number.isFinite(turn) && document.querySelector(`[data-turn-process="${turn}"]`) === null) {
+            const sent = document.querySelector(`[data-sa-ui="sent"][data-sa-turn="${turn}"]`)
+            if (sent !== null && sent.parentElement !== null) {
+              let cursor = sent
+              while (cursor.nextElementSibling !== null
+                && cursor.nextElementSibling.getAttribute?.('data-sa-ui') === 'replies') {
+                cursor = cursor.nextElementSibling
+              }
+              sent.parentElement.insertBefore(section, cursor.nextSibling)
+              return
+            }
+          }
           // 答复卡紧跟在最终输出之后：找到该轮最后一个助手内容块，插在它后面；
           // 下方即使还有插队消息，答复也不会被推远。
           if (Number.isFinite(turn)) {
@@ -1203,7 +1220,12 @@ export function createPlugin(React, extras = {}) {
             const signature = `${list.map((batch) => String(batch.at)).join('|')}#${items.length}#replay4`
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`)
             if (existing !== null) {
-              if (existing.dataset.signature === signature) continue
+              if (existing.dataset.signature === signature) {
+                // 内容没变也要重新落位：回合从「进行中」变成有 final output 时，
+                // 答复卡要从「已发送」后面挪到最终输出之前。
+                placeReplyAfterTurnProcess(existing, turn)
+                continue
+              }
               const fresh = buildReplySection(list, items, {
                 onReuseAll: () => reuseSentItems(items),
                 onReplayItem: (item) => reuseSentItems([item]),

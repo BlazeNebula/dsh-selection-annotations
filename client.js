@@ -2898,6 +2898,8 @@
             card.setAttribute("data-reuse", "4");
             card.setAttribute("data-sa-key", storedKey);
             card.setAttribute("data-anchor", anchorKey);
+            if (Number.isFinite(turn)) card.setAttribute("data-sa-turn", String(turn));
+            else if (typeof card.removeAttribute === "function") card.removeAttribute("data-sa-turn");
             const bubbleKind = row === null ? "" : row.getAttribute("data-chat-flow-kind") ?? "";
             const onBubble = !Number.isFinite(turn) && row !== null && (bubbleKind === "user" || bubbleKind === "steering" || row.hasAttribute("data-pending-steering"));
             if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {
@@ -2969,6 +2971,17 @@
           const parent = section.parentElement;
           if (parent === null) return;
           if (Number.isFinite(turn)) section.dataset.saTurn = String(turn);
+          if (Number.isFinite(turn) && document.querySelector(`[data-turn-process="${turn}"]`) === null) {
+            const sent = document.querySelector(`[data-sa-ui="sent"][data-sa-turn="${turn}"]`);
+            if (sent !== null && sent.parentElement !== null) {
+              let cursor2 = sent;
+              while (cursor2.nextElementSibling !== null && cursor2.nextElementSibling.getAttribute?.("data-sa-ui") === "replies") {
+                cursor2 = cursor2.nextElementSibling;
+              }
+              sent.parentElement.insertBefore(section, cursor2.nextSibling);
+              return;
+            }
+          }
           if (Number.isFinite(turn)) {
             const items = document.querySelectorAll(`[data-chat-turn="${turn}"]`);
             let lastAssistant = null;
@@ -3092,7 +3105,10 @@
             const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}#replay4`;
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`);
             if (existing !== null) {
-              if (existing.dataset.signature === signature) continue;
+              if (existing.dataset.signature === signature) {
+                placeReplyAfterTurnProcess(existing, turn);
+                continue;
+              }
               const fresh = buildReplySection(list, items, {
                 onReuseAll: () => reuseSentItems(items),
                 onReplayItem: (item) => reuseSentItems([item])
