@@ -2967,9 +2967,15 @@
             section.dataset.open = wrap.dataset.open;
           }
         }
+        function moveSection(section, container, before) {
+          if (container === null || container === void 0) return;
+          if (section.parentElement === container && section.nextSibling === before) return;
+          container.insertBefore(section, before);
+        }
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement;
           if (parent === null) return;
+          if (pointerSelecting === true) return;
           if (Number.isFinite(turn)) section.dataset.saTurn = String(turn);
           if (Number.isFinite(turn) && document.querySelector(`[data-turn-process="${turn}"]`) === null) {
             const sent = document.querySelector(`[data-sa-ui="sent"][data-sa-turn="${turn}"]`);
@@ -2978,7 +2984,7 @@
               while (cursor2.nextElementSibling !== null && cursor2.nextElementSibling.getAttribute?.("data-sa-ui") === "replies") {
                 cursor2 = cursor2.nextElementSibling;
               }
-              sent.parentElement.insertBefore(section, cursor2.nextSibling);
+              moveSection(section, sent.parentElement, cursor2.nextSibling);
               return;
             }
           }
@@ -2990,7 +2996,7 @@
               if (kind.startsWith("assistant")) lastAssistant = item;
             }
             if (lastAssistant !== null && lastAssistant.parentElement !== null) {
-              lastAssistant.parentElement.insertBefore(section, lastAssistant);
+              moveSection(section, lastAssistant.parentElement, lastAssistant);
               return;
             }
           }
@@ -3000,7 +3006,7 @@
             while (cursor2.nextElementSibling !== null && cursor2.nextElementSibling.getAttribute?.("data-sa-ui") === "replies") {
               cursor2 = cursor2.nextElementSibling;
             }
-            anchorEl.parentElement.insertBefore(section, cursor2.nextSibling);
+            moveSection(section, anchorEl.parentElement, cursor2.nextSibling);
             return;
           }
           const block = footerBlockForTurn(turn);
@@ -3009,7 +3015,7 @@
             while (cursor2.nextElementSibling !== null && cursor2.nextElementSibling.getAttribute?.("data-sa-ui") === "replies") {
               cursor2 = cursor2.nextElementSibling;
             }
-            block.parentElement.insertBefore(section, cursor2.nextSibling);
+            moveSection(section, block.parentElement, cursor2.nextSibling);
             return;
           }
           let sibling = typeof section.nextElementSibling === "undefined" ? null : section.nextElementSibling;
@@ -3021,7 +3027,7 @@
           while (cursor.nextElementSibling !== null && cursor.nextElementSibling.getAttribute?.("data-sa-ui") === "replies") {
             cursor = cursor.nextElementSibling;
           }
-          parent.insertBefore(section, cursor.nextSibling);
+          moveSection(section, parent, cursor.nextSibling);
         }
         function applyLocale() {
           safe(() => {

@@ -1058,10 +1058,19 @@ export function createPlugin(React, extras = {}) {
           }
         }
 
+        /** 只在位置真的不同时才移动，避免每次重绘都摘挂节点打断选区。*/
+        function moveSection(section, container, before) {
+          if (container === null || container === undefined) return
+          if (section.parentElement === container && section.nextSibling === before) return
+          container.insertBefore(section, before)
+        }
+
         /** 答复卡留在「已完成」之下：有轮次号时按轮次尾行定位，否则退回相邻节点查找。*/
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement
           if (parent === null) return
+          // 正在拖选时不挪卡片：节点一摘一挂，选区起点就会被重置。
+          if (pointerSelecting === true) return
           if (Number.isFinite(turn)) section.dataset.saTurn = String(turn)
           // 回合还在跑（还没有「已完成」）：此时最后一个助手内容块其实是工具链，
           // 插在它前面就会被折进过程区。先跟着「已发送」卡放在过程区外面，
@@ -1074,7 +1083,7 @@ export function createPlugin(React, extras = {}) {
                 && cursor.nextElementSibling.getAttribute?.('data-sa-ui') === 'replies') {
                 cursor = cursor.nextElementSibling
               }
-              sent.parentElement.insertBefore(section, cursor.nextSibling)
+              moveSection(section, sent.parentElement, cursor.nextSibling)
               return
             }
           }
@@ -1090,7 +1099,7 @@ export function createPlugin(React, extras = {}) {
             // 「已完成」内联在助手消息体内；插队消息会排在最终输出之前，
             // 用户要的是答复紧贴在最终输出之前，所以插在最后一个助手内容块前面。
             if (lastAssistant !== null && lastAssistant.parentElement !== null) {
-              lastAssistant.parentElement.insertBefore(section, lastAssistant)
+              moveSection(section, lastAssistant.parentElement, lastAssistant)
               return
             }
           }
@@ -1101,7 +1110,7 @@ export function createPlugin(React, extras = {}) {
             while (cursor.nextElementSibling !== null && cursor.nextElementSibling.getAttribute?.('data-sa-ui') === 'replies') {
               cursor = cursor.nextElementSibling
             }
-            anchorEl.parentElement.insertBefore(section, cursor.nextSibling)
+            moveSection(section, anchorEl.parentElement, cursor.nextSibling)
             return
           }
           const block = footerBlockForTurn(turn)
@@ -1110,7 +1119,7 @@ export function createPlugin(React, extras = {}) {
             while (cursor.nextElementSibling !== null && cursor.nextElementSibling.getAttribute?.('data-sa-ui') === 'replies') {
               cursor = cursor.nextElementSibling
             }
-            block.parentElement.insertBefore(section, cursor.nextSibling)
+            moveSection(section, block.parentElement, cursor.nextSibling)
             return
           }
           let sibling = typeof section.nextElementSibling === 'undefined' ? null : section.nextElementSibling
@@ -1122,7 +1131,7 @@ export function createPlugin(React, extras = {}) {
           while (cursor.nextElementSibling !== null && (cursor.nextElementSibling.getAttribute?.('data-sa-ui') === 'replies')) {
             cursor = cursor.nextElementSibling
           }
-          parent.insertBefore(section, cursor.nextSibling)
+          moveSection(section, parent, cursor.nextSibling)
         }
 
         /**
