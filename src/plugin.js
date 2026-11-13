@@ -2892,6 +2892,7 @@ export function createPlugin(React, extras = {}) {
             imageSettingsOf().quality = Number(quality.value)
             qualityText.textContent = `${Math.round(Number(quality.value) * 100)}%`
             persistImageSettings()
+            section.refreshStatus()
           })
           qualityRow.append(document.createTextNode(t('settings.quality')), quality, qualityText)
 
@@ -2949,12 +2950,17 @@ export function createPlugin(React, extras = {}) {
             persistInstructionSettings(area.value)
             section.refreshStatus()
           })
+          area.addEventListener('blur', () => {
+            if (area.value.trim() !== '') return
+            area.value = defaultInstruction()
+            persistInstructionSettings(defaultInstruction())
+            section.refreshStatus()
+          })
 
           const section = settingsSection({
             open: instructionSettingsOpen,
             label: t('settings.instructionClosed'),
-            getStatus: () => (isDefaultInstruction(instructionOf()) ? t('settings.default') : t('settings.customized')),
-            body: [area],
+            getStatus: () => (isDefaultInstruction(instructionOf()) ? t('settings.default') : t('settings.customized')),            body: [area],
             restoreTitle: t('settings.instrHint'),
             onRestore: () => {
               persistInstructionSettings(defaultInstruction())
@@ -2978,12 +2984,20 @@ export function createPlugin(React, extras = {}) {
             persistFallbackText(area.value)
             section.refreshStatus()
           })
+          area.addEventListener('blur', () => {
+            if (area.value.trim() !== '') return
+            area.value = DEFAULT_FALLBACK_TEXT
+            persistFallbackText(DEFAULT_FALLBACK_TEXT)
+            section.refreshStatus()
+          })
 
           const section = settingsSection({
             open: fallbackSettingsOpen,
             label: t('settings.fallbackClosed'),
             getStatus: () =>
-              fallbackTextOf().trim() === '' ? t('settings.fallbackOff') : t('settings.fallbackOn'),
+              fallbackTextOf().trim() === DEFAULT_FALLBACK_TEXT.trim()
+                ? t('settings.default')
+                : t('settings.customized'),
             body: [area],
             restoreTitle: t('settings.fallbackHint'),
             onRestore: () => {

@@ -93,13 +93,14 @@ export function createSettings(getStorage, locale) {
     safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText })))
   }
 
-  /** 空提示词填充：没存过用默认；显式存了空串表示关闭。 */
+  /** 空提示词填充：空串等同默认文案；旧默认「请按批注内容处理。」静默迁移。 */
   function loadFallbackText() {
     const storage = getStorage()
     if (storage === undefined) return DEFAULT_FALLBACK_TEXT
     const parsed = safe(() => JSON.parse(storage.getItem(FALLBACK_SETTINGS_KEY) ?? 'null'))
     if (parsed === null || typeof parsed !== 'object') return DEFAULT_FALLBACK_TEXT
-    const text = typeof parsed.text === 'string' ? parsed.text : DEFAULT_FALLBACK_TEXT
+    const text = typeof parsed.text === 'string' ? parsed.text : ''
+    if (text.trim() === '') return DEFAULT_FALLBACK_TEXT
     // 旧默认文案静默迁移到新的模板，不要求用户手动恢复。
     return text === '请按批注内容处理。' ? DEFAULT_FALLBACK_TEXT : text
   }

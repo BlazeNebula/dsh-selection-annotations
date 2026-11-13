@@ -468,7 +468,7 @@
       "settings.adoptLabel": "「批注采纳」预填文本",
       "settings.adoptHint": "采纳模式下自动写入批注正文的句子；输入前缀会出现补全提示。",
       "settings.fallbackLabel": "空提示词填充",
-      "settings.fallbackHint": "只带批注、正文为空时自动填入；{count} 换成批注条数，{time} 换成发送时间。清空即关闭。",
+      "settings.fallbackHint": "只带批注、正文为空时自动填入；{count} 换成批注条数，{time} 换成发送时间。留空则使用默认文案。",
       "settings.fallbackOpen": "收起空提示词设置",
       "settings.fallbackClosed": "空提示词填充",
       "settings.fallbackOff": "已关闭（正文为空时不填充）",
@@ -576,7 +576,7 @@
       "settings.adoptLabel": "Prefilled “Adopt” text",
       "settings.adoptHint": "Written into the note in Adopt mode; typing a prefix shows an inline completion.",
       "settings.fallbackLabel": "Empty prompt fallback",
-      "settings.fallbackHint": "Filled into the message body when you send only annotations and the prompt is empty. {count} becomes the annotation count, {time} the send time. Clear the field to disable.",
+      "settings.fallbackHint": "Filled into the message body when you send only annotations and the prompt is empty. {count} becomes the annotation count, {time} the send time. Leave it empty to use the default text.",
       "settings.fallbackOpen": "Hide empty prompt fallback",
       "settings.fallbackClosed": "Empty prompt fallback",
       "settings.fallbackOff": "Off (nothing is filled when the prompt is empty)",
@@ -870,7 +870,8 @@
       if (storage === void 0) return DEFAULT_FALLBACK_TEXT;
       const parsed = safe(() => JSON.parse(storage.getItem(FALLBACK_SETTINGS_KEY) ?? "null"));
       if (parsed === null || typeof parsed !== "object") return DEFAULT_FALLBACK_TEXT;
-      const text = typeof parsed.text === "string" ? parsed.text : DEFAULT_FALLBACK_TEXT;
+      const text = typeof parsed.text === "string" ? parsed.text : "";
+      if (text.trim() === "") return DEFAULT_FALLBACK_TEXT;
       return text === "请按批注内容处理。" ? DEFAULT_FALLBACK_TEXT : text;
     }
     function fallbackTextOf() {
@@ -4596,6 +4597,7 @@
             imageSettingsOf().quality = Number(quality.value);
             qualityText.textContent = `${Math.round(Number(quality.value) * 100)}%`;
             persistImageSettings();
+            section.refreshStatus();
           });
           qualityRow.append(document.createTextNode(t("settings.quality")), quality, qualityText);
           const sizeRow = el("label", "sa-setting");
@@ -4644,6 +4646,12 @@
             persistInstructionSettings(area.value);
             section.refreshStatus();
           });
+          area.addEventListener("blur", () => {
+            if (area.value.trim() !== "") return;
+            area.value = defaultInstruction();
+            persistInstructionSettings(defaultInstruction());
+            section.refreshStatus();
+          });
           const section = settingsSection({
             open: instructionSettingsOpen,
             label: t("settings.instructionClosed"),
@@ -4670,10 +4678,16 @@
             persistFallbackText(area.value);
             section.refreshStatus();
           });
+          area.addEventListener("blur", () => {
+            if (area.value.trim() !== "") return;
+            area.value = DEFAULT_FALLBACK_TEXT;
+            persistFallbackText(DEFAULT_FALLBACK_TEXT);
+            section.refreshStatus();
+          });
           const section = settingsSection({
             open: fallbackSettingsOpen,
             label: t("settings.fallbackClosed"),
-            getStatus: () => fallbackTextOf().trim() === "" ? t("settings.fallbackOff") : t("settings.fallbackOn"),
+            getStatus: () => fallbackTextOf().trim() === DEFAULT_FALLBACK_TEXT.trim() ? t("settings.default") : t("settings.customized"),
             body: [area],
             restoreTitle: t("settings.fallbackHint"),
             onRestore: () => {
