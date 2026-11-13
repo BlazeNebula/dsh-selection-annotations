@@ -19,7 +19,7 @@ export const ADOPT_SETTINGS_KEY = 'dsh-selection-annotations:adopt-settings'
 export const DEFAULT_ADOPT_TEXT = '【意见采纳】'
     /** 空提示词填充：只发批注、正文为空时自动填入的句子；设为空串即关闭。*/
 export const FALLBACK_SETTINGS_KEY = 'dsh-selection-annotations:fallback-settings'
-export const DEFAULT_FALLBACK_TEXT = '此轮对话内容均在批注中给出，总计 {count} 条批注，请逐一受理。\n此轮消息发起时间：{time}'
+export const DEFAULT_FALLBACK_TEXT = '此轮对话内容均在批注中给出，总计 {count} 条批注。\n此轮消息发起时间：{time}'
     /** 默认批注指令；删掉「必须调用annotation_replies」这句，逐条答复会退化成正文自由文本。*/
 export const DEFAULT_INSTRUCTION = [
       '这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n',

@@ -374,7 +374,7 @@
   var ADOPT_SETTINGS_KEY = "dsh-selection-annotations:adopt-settings";
   var DEFAULT_ADOPT_TEXT = "【意见采纳】";
   var FALLBACK_SETTINGS_KEY = "dsh-selection-annotations:fallback-settings";
-  var DEFAULT_FALLBACK_TEXT = "此轮对话内容均在批注中给出，总计 {count} 条批注，请逐一受理。\n此轮消息发起时间：{time}";
+  var DEFAULT_FALLBACK_TEXT = "此轮对话内容均在批注中给出，总计 {count} 条批注。\n此轮消息发起时间：{time}";
   var DEFAULT_INSTRUCTION = [
     "这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n",
     "\n",
@@ -872,7 +872,9 @@
       if (parsed === null || typeof parsed !== "object") return DEFAULT_FALLBACK_TEXT;
       const text = typeof parsed.text === "string" ? parsed.text : "";
       if (text.trim() === "") return DEFAULT_FALLBACK_TEXT;
-      return text === "请按批注内容处理。" ? DEFAULT_FALLBACK_TEXT : text;
+      if (text === "请按批注内容处理。") return DEFAULT_FALLBACK_TEXT;
+      if (text.startsWith("此轮对话内容均在批注中给出") && text.includes("请逐一受理")) return DEFAULT_FALLBACK_TEXT;
+      return text;
     }
     function fallbackTextOf() {
       if (fallbackText === void 0) fallbackText = loadFallbackText();

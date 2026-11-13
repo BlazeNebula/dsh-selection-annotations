@@ -101,8 +101,10 @@ export function createSettings(getStorage, locale) {
     if (parsed === null || typeof parsed !== 'object') return DEFAULT_FALLBACK_TEXT
     const text = typeof parsed.text === 'string' ? parsed.text : ''
     if (text.trim() === '') return DEFAULT_FALLBACK_TEXT
-    // 旧默认文案静默迁移到新的模板，不要求用户手动恢复。
-    return text === '请按批注内容处理。' ? DEFAULT_FALLBACK_TEXT : text
+    // 旧默认文案（含「请按批注内容处理。」与带「请逐一受理」的旧模板）静默迁移到当前模板。
+    if (text === '请按批注内容处理。') return DEFAULT_FALLBACK_TEXT
+    if (text.startsWith('此轮对话内容均在批注中给出') && text.includes('请逐一受理')) return DEFAULT_FALLBACK_TEXT
+    return text
   }
 
   function fallbackTextOf() {
