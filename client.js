@@ -350,6 +350,8 @@
   var INSTRUCTION_SETTINGS_KEY = "dsh-selection-annotations:instruction-settings";
   var ADOPT_SETTINGS_KEY = "dsh-selection-annotations:adopt-settings";
   var DEFAULT_ADOPT_TEXT = "【意见采纳】";
+  var FALLBACK_SETTINGS_KEY = "dsh-selection-annotations:fallback-settings";
+  var DEFAULT_FALLBACK_TEXT = "请按批注内容处理。";
   var DEFAULT_INSTRUCTION = [
     "这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n",
     "\n",
@@ -387,7 +389,7 @@
     "- Use the body only for an overall summary or clarifying questions."
   ].join("");
   var LOCALE_NS = "selection-annotations";
-  var PLUGIN_BUILD = "1.3.0";
+  var PLUGIN_BUILD = "1.3.1";
   var DRAFT_STORAGE_PREFIX = "dsh-selection-annotations:draft:";
   var DRAFT_MAX_SESSIONS = 24;
   var DRAFT_MAX_ITEMS = 200;
@@ -442,6 +444,8 @@
       "settings.pageTitle": "批注指令",
       "settings.adoptLabel": "「批注采纳」预填文本",
       "settings.adoptHint": "采纳模式下自动写入批注正文的句子；输入前缀会出现补全提示。",
+      "settings.fallbackLabel": "空提示词填充",
+      "settings.fallbackHint": "只带批注、正文为空时自动填入这句，避免其他插件拦截空正文发送；清空即关闭。",
       "settings.default": "默认文案",
       "settings.customized": "已自定义",
       "settings.restore": "恢复默认",
@@ -543,6 +547,8 @@
       "settings.pageTitle": "Annotation instruction",
       "settings.adoptLabel": "Prefilled “Adopt” text",
       "settings.adoptHint": "Written into the note in Adopt mode; typing a prefix shows an inline completion.",
+      "settings.fallbackLabel": "Empty prompt fallback",
+      "settings.fallbackHint": "Filled into the message body when you send only annotations and the prompt is empty, so other plugins cannot block it. Clear the field to disable.",
       "settings.default": "Default text",
       "settings.customized": "Customized",
       "settings.restore": "Restore default",
@@ -766,6 +772,7 @@
     let imageSettings;
     let instructionSettings;
     let adoptText;
+    let fallbackText;
     function loadImageSettings() {
       const settings = { ...DEFAULT_IMAGE_SETTINGS };
       const storage = getStorage();
@@ -825,6 +832,23 @@
       if (storage === void 0) return;
       safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText })));
     }
+    function loadFallbackText() {
+      const storage = getStorage();
+      if (storage === void 0) return DEFAULT_FALLBACK_TEXT;
+      const parsed = safe(() => JSON.parse(storage.getItem(FALLBACK_SETTINGS_KEY) ?? "null"));
+      if (parsed === null || typeof parsed !== "object") return DEFAULT_FALLBACK_TEXT;
+      return typeof parsed.text === "string" ? parsed.text : DEFAULT_FALLBACK_TEXT;
+    }
+    function fallbackTextOf() {
+      if (fallbackText === void 0) fallbackText = loadFallbackText();
+      return fallbackText;
+    }
+    function persistFallbackText(text) {
+      fallbackText = typeof text === "string" ? text : "";
+      const storage = getStorage();
+      if (storage === void 0) return;
+      safe(() => storage.setItem(FALLBACK_SETTINGS_KEY, JSON.stringify({ text: fallbackText })));
+    }
     return {
       loadImageSettings,
       imageSettingsOf,
@@ -834,7 +858,10 @@
       persistInstructionSettings,
       loadAdoptText,
       adoptTextOf,
-      persistAdoptText
+      persistAdoptText,
+      loadFallbackText,
+      fallbackTextOf,
+      persistFallbackText
     };
   }
 
@@ -1698,6 +1725,7 @@
     openImageViewer,
     imageSettingsRow,
     instructionSettingsRow,
+    fallbackSettingsRow,
     isAdopt = () => false
   }) {
     function render(panelEl) {
@@ -1812,6 +1840,7 @@
       }
       panelBody.appendChild(imageSettingsRow());
       panelBody.appendChild(instructionSettingsRow());
+      panelBody.appendChild(fallbackSettingsRow());
       panelEl.appendChild(panelBody);
       const panelFoot = el("div", "sa-panel-foot");
       const build = el("span", "sa-build", `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`);
@@ -2404,6 +2433,8 @@
         const persistInstructionSettings = (text) => settings.persistInstructionSettings(text);
         const adoptTextOf = () => settings.adoptTextOf();
         const persistAdoptText = (text) => settings.persistAdoptText(text);
+        const fallbackTextOf = () => settings.fallbackTextOf();
+        const persistFallbackText = (text) => settings.persistFallbackText(text);
         const hasAdoptNote = (note) => typeof note === "string" && note.includes(adoptTextOf());
         const remoteReplyCache = /* @__PURE__ */ new Map();
         function absorbRemoteReplies(sessionId, remote) {
@@ -3271,6 +3302,7 @@
             }
             lastAnnotatedKeys = captureAnchorKeys();
             attachedSessionId = sessionId;
+            ensureFallbackPrompt(shell);
             log(`[selection-annotations] 批注块已挂到本条消息（${annotations.length} 条）`);
           } catch (err) {
             warn("[selection-annotations] 批注附件同步失败：", err);
@@ -3278,6 +3310,16 @@
             syncing = false;
             maintaining = false;
           }
+        }
+        function ensureFallbackPrompt(shell) {
+          const text = fallbackTextOf();
+          if (typeof text !== "string" || text.trim() === "") return;
+          const snapshot2 = safe(() => shell?.state?.getSnapshot());
+          const draft = typeof snapshot2?.draft === "string" ? snapshot2.draft : "";
+          if (draft.trim() !== "") return;
+          const apply = typeof shell?.setDraft === "function" ? shell.setDraft.bind(shell) : shell?.actions?.setDraft;
+          if (typeof apply !== "function") return;
+          safe(() => apply(text));
         }
         const overlay = document.createElement("div");
         overlay.className = "sa-overlay";
@@ -4423,6 +4465,7 @@
           openImageViewer: (url, name) => openImageViewer(url, name),
           imageSettingsRow: () => imageSettingsRow(),
           instructionSettingsRow: () => instructionSettingsRow(),
+          fallbackSettingsRow: () => fallbackSettingsRow(),
           isAdopt: hasAdoptNote
         });
         const renderPanel = () => panelRenderer.render(panelEl);
@@ -4485,6 +4528,21 @@
           });
           sizeRow.append(document.createTextNode(t("settings.minSizeBefore")), size, document.createTextNode(t("settings.minSizeAfter")));
           box.appendChild(sizeRow);
+          return box;
+        }
+        function fallbackSettingsRow() {
+          const box = el("div", "sa-settings");
+          const head = el("div", "sa-settings-head");
+          head.appendChild(el("span", "sa-settings-title", t("settings.fallbackLabel")));
+          box.appendChild(head);
+          const input = document.createElement("input");
+          input.className = "sa-setting-input";
+          input.setAttribute("aria-label", t("settings.fallbackLabel"));
+          input.value = fallbackTextOf();
+          input.placeholder = t("settings.fallbackHint");
+          input.addEventListener("input", () => persistFallbackText(input.value));
+          box.appendChild(input);
+          box.appendChild(el("span", "sa-hint", t("settings.fallbackHint")));
           return box;
         }
         function instructionSettingsRow() {
@@ -4820,6 +4878,7 @@
         function AnnotationInstructionSettings() {
           const [text, setText] = React.useState(() => instructionOf());
           const [adoptText, setAdoptText] = React.useState(() => adoptTextOf());
+          const [fallbackText, setFallbackText] = React.useState(() => fallbackTextOf());
           const customized = !isDefaultInstruction(text);
           const card = (key, title, hint, control, actions) => h(
             "section",
@@ -4885,6 +4944,33 @@
                     const next = DEFAULT_ADOPT_TEXT;
                     setAdoptText(next);
                     persistAdoptText(next);
+                  }
+                },
+                t("settings.restore")
+              )
+            ),
+            card(
+              "fallback",
+              t("settings.fallbackLabel"),
+              t("settings.fallbackHint"),
+              h("input", {
+                className: "sa-setting-input",
+                "aria-label": t("settings.fallbackLabel"),
+                value: fallbackText,
+                onChange: (event) => {
+                  setFallbackText(event.target.value);
+                  persistFallbackText(event.target.value);
+                }
+              }),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "sa-link",
+                  onClick: () => {
+                    const next = DEFAULT_FALLBACK_TEXT;
+                    setFallbackText(next);
+                    persistFallbackText(next);
                   }
                 },
                 t("settings.restore")

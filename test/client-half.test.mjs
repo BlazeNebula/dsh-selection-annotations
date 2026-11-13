@@ -410,7 +410,7 @@ function makeHarness(options = {}) {
   // 运行时外壳的「实时字段」：插件据此判断附件是否还在。
   let liveIds = []
   // 「已发布快照」：只有 publish() 之后才与实时字段一致（真实运行时也会滞后）。
-  let inputSnapshot = { draft: '', attachmentIds: [] }
+  let inputSnapshot = { draft: typeof options.initialDraft === 'string' ? options.initialDraft : '', attachmentIds: [] }
   const inputSubscribers = new Set()
   const publish = () => {
     for (const fn of [...inputSubscribers]) fn()
@@ -443,6 +443,10 @@ function makeHarness(options = {}) {
       syncSnapshot()
       publish()
       return true
+    },
+    setDraft(text) {
+      inputSnapshot = { ...inputSnapshot, draft: text }
+      publish()
     },
   }
 
@@ -717,6 +721,20 @@ test('批注集合 → 运行时草稿附件 → 挂进输入态（官方 create
   const drafts = harness.debug.drafts()
   assert.equal(drafts.length, 1, '必须让运行时登记草稿附件，而不是只塞 id')
   assert.deepEqual(harness.inputState().attachmentIds, drafts, '附件必须挂进输入态')
+})
+
+test('只发批注、正文为空时自动补一句正文', async () => {
+  const harness = makeHarness()
+  harness.debug.add({ quote: 'q', note: 'n', source: { kind: 'message', anchorKey: 'k1' } })
+  await settle()
+  assert.equal(harness.inputState().draft, '请按批注内容处理。')
+})
+
+test('正文已有内容时不改动用户的草稿', async () => {
+  const harness = makeHarness({ initialDraft: '我自己写的提示词' })
+  harness.debug.add({ quote: 'q', note: 'n', source: { kind: 'message', anchorKey: 'k1' } })
+  await settle()
+  assert.equal(harness.inputState().draft, '我自己写的提示词')
 })
 
 test('不在上传就绪前挂载：否则 sendSession 会整条消息抛错', async () => {

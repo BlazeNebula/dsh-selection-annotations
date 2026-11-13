@@ -1,8 +1,10 @@
 import {
   ADOPT_SETTINGS_KEY,
   DEFAULT_ADOPT_TEXT,
+  DEFAULT_FALLBACK_TEXT,
   DEFAULT_IMAGE_SETTINGS,
   DEFAULT_INSTRUCTION,
+  FALLBACK_SETTINGS_KEY,
   IMAGE_SETTINGS_KEY,
   INSTRUCTION_SETTINGS_KEY,
 } from './config.js'
@@ -16,6 +18,7 @@ export function createSettings(getStorage, locale) {
   let imageSettings
   let instructionSettings
   let adoptText
+  let fallbackText
 
   /** 图片设置：读坏了回落到默认值。 */
   function loadImageSettings() {
@@ -90,6 +93,27 @@ export function createSettings(getStorage, locale) {
     safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText })))
   }
 
+  /** 空提示词填充：没存过用默认；显式存了空串表示关闭。 */
+  function loadFallbackText() {
+    const storage = getStorage()
+    if (storage === undefined) return DEFAULT_FALLBACK_TEXT
+    const parsed = safe(() => JSON.parse(storage.getItem(FALLBACK_SETTINGS_KEY) ?? 'null'))
+    if (parsed === null || typeof parsed !== 'object') return DEFAULT_FALLBACK_TEXT
+    return typeof parsed.text === 'string' ? parsed.text : DEFAULT_FALLBACK_TEXT
+  }
+
+  function fallbackTextOf() {
+    if (fallbackText === undefined) fallbackText = loadFallbackText()
+    return fallbackText
+  }
+
+  function persistFallbackText(text) {
+    fallbackText = typeof text === 'string' ? text : ''
+    const storage = getStorage()
+    if (storage === undefined) return
+    safe(() => storage.setItem(FALLBACK_SETTINGS_KEY, JSON.stringify({ text: fallbackText })))
+  }
+
   return {
     loadImageSettings,
     imageSettingsOf,
@@ -100,5 +124,8 @@ export function createSettings(getStorage, locale) {
     loadAdoptText,
     adoptTextOf,
     persistAdoptText,
+    loadFallbackText,
+    fallbackTextOf,
+    persistFallbackText,
   }
 }

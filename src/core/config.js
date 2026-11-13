@@ -17,6 +17,9 @@ export const INSTRUCTION_SETTINGS_KEY = 'dsh-selection-annotations:instruction-s
     /** 「批注采纳」预填文本：可在插件设置里改，恢复默认回到下面这句。*/
 export const ADOPT_SETTINGS_KEY = 'dsh-selection-annotations:adopt-settings'
 export const DEFAULT_ADOPT_TEXT = '【意见采纳】'
+    /** 空提示词填充：只发批注、正文为空时自动填入的句子；设为空串即关闭。*/
+export const FALLBACK_SETTINGS_KEY = 'dsh-selection-annotations:fallback-settings'
+export const DEFAULT_FALLBACK_TEXT = '请按批注内容处理。'
     /** 默认批注指令；删掉「必须调用annotation_replies」这句，逐条答复会退化成正文自由文本。*/
 export const DEFAULT_INSTRUCTION = [
       '这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n',
@@ -60,7 +63,7 @@ export const DEFAULT_INSTRUCTION_EN = [
     /** 界面文案命名空间；DSH 按语言注册后由 bind 解析。*/
 export const LOCALE_NS = 'selection-annotations'
     /** 构建标记：显示在批注总览底部，用来确认当前页面加载的是哪一版代码。*/
-export const PLUGIN_BUILD = '1.3.0'
+export const PLUGIN_BUILD = '1.3.1'
 
     /** 未提交草稿的本地存储前缀：按会话分键。*/
 export const DRAFT_STORAGE_PREFIX = 'dsh-selection-annotations:draft:'

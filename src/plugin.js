@@ -2,6 +2,7 @@ import { CSS } from './core/styles.js'
 import {
   ANNOTATION_FILE,
   DEFAULT_ADOPT_TEXT,
+  DEFAULT_FALLBACK_TEXT,
   DEFAULT_IMAGE_SETTINGS,
   DEFAULT_INSTRUCTION,
   DEFAULT_INSTRUCTION_EN,
@@ -353,6 +354,8 @@ export function createPlugin(React, extras = {}) {
         const persistInstructionSettings = (text) => settings.persistInstructionSettings(text)
         const adoptTextOf = () => settings.adoptTextOf()
         const persistAdoptText = (text) => settings.persistAdoptText(text)
+        const fallbackTextOf = () => settings.fallbackTextOf()
+        const persistFallbackText = (text) => settings.persistFallbackText(text)
         /** 批注正文里出现「采纳」预填文本时，整条批注改用绿色标识。 */
         const hasAdoptNote = (note) => typeof note === 'string' && note.includes(adoptTextOf())
 
@@ -1440,6 +1443,7 @@ export function createPlugin(React, extras = {}) {
             // 发出去之前页面上已有的批注消息行：发送后据此区分「新消息」与「旧历史」。
             lastAnnotatedKeys = captureAnchorKeys()
             attachedSessionId = sessionId
+            ensureFallbackPrompt(shell)
             log(`[selection-annotations] 批注块已挂到本条消息（${annotations.length} 条）`)
           } catch (err) {
             warn('[selection-annotations] 批注附件同步失败：', err)
@@ -1450,6 +1454,18 @@ export function createPlugin(React, extras = {}) {
         }
 
         /* ------------------------------------------------------------------ 覆盖层绘到*/
+
+        /** 只带批注、正文为空时补一句正文：有的插件会拦截空正文的发送。 */
+        function ensureFallbackPrompt(shell) {
+          const text = fallbackTextOf()
+          if (typeof text !== 'string' || text.trim() === '') return
+          const snapshot = safe(() => shell?.state?.getSnapshot())
+          const draft = typeof snapshot?.draft === 'string' ? snapshot.draft : ''
+          if (draft.trim() !== '') return
+          const apply = typeof shell?.setDraft === 'function' ? shell.setDraft.bind(shell) : shell?.actions?.setDraft
+          if (typeof apply !== 'function') return
+          safe(() => apply(text))
+        }
 
         const overlay = document.createElement('div')
         overlay.className = 'sa-overlay'
@@ -2770,6 +2786,7 @@ export function createPlugin(React, extras = {}) {
           openImageViewer: (url, name) => openImageViewer(url, name),
           imageSettingsRow: () => imageSettingsRow(),
           instructionSettingsRow: () => instructionSettingsRow(),
+          fallbackSettingsRow: () => fallbackSettingsRow(),
           isAdopt: hasAdoptNote,
         })
         const renderPanel = () => panelRenderer.render(panelEl)
@@ -2842,6 +2859,23 @@ export function createPlugin(React, extras = {}) {
           sizeRow.append(document.createTextNode(t('settings.minSizeBefore')), size, document.createTextNode(t('settings.minSizeAfter')))
           box.appendChild(sizeRow)
 
+          return box
+        }
+
+        /** 面板里的空提示词填充设置：清空即关闭。 */
+        function fallbackSettingsRow() {
+          const box = el('div', 'sa-settings')
+          const head = el('div', 'sa-settings-head')
+          head.appendChild(el('span', 'sa-settings-title', t('settings.fallbackLabel')))
+          box.appendChild(head)
+          const input = document.createElement('input')
+          input.className = 'sa-setting-input'
+          input.setAttribute('aria-label', t('settings.fallbackLabel'))
+          input.value = fallbackTextOf()
+          input.placeholder = t('settings.fallbackHint')
+          input.addEventListener('input', () => persistFallbackText(input.value))
+          box.appendChild(input)
+          box.appendChild(el('span', 'sa-hint', t('settings.fallbackHint')))
           return box
         }
 
@@ -3220,6 +3254,7 @@ export function createPlugin(React, extras = {}) {
         function AnnotationInstructionSettings() {
           const [text, setText] = React.useState(() => instructionOf())
           const [adoptText, setAdoptText] = React.useState(() => adoptTextOf())
+          const [fallbackText, setFallbackText] = React.useState(() => fallbackTextOf())
           const customized = !isDefaultInstruction(text)
           const card = (key, title, hint, control, actions) =>
             h(
@@ -3286,6 +3321,33 @@ export function createPlugin(React, extras = {}) {
                     const next = DEFAULT_ADOPT_TEXT
                     setAdoptText(next)
                     persistAdoptText(next)
+                  },
+                },
+                t('settings.restore'),
+              ),
+            ),
+            card(
+              'fallback',
+              t('settings.fallbackLabel'),
+              t('settings.fallbackHint'),
+              h('input', {
+                className: 'sa-setting-input',
+                'aria-label': t('settings.fallbackLabel'),
+                value: fallbackText,
+                onChange: (event) => {
+                  setFallbackText(event.target.value)
+                  persistFallbackText(event.target.value)
+                },
+              }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'sa-link',
+                  onClick: () => {
+                    const next = DEFAULT_FALLBACK_TEXT
+                    setFallbackText(next)
+                    persistFallbackText(next)
                   },
                 },
                 t('settings.restore'),

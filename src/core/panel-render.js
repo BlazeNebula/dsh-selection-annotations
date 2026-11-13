@@ -16,6 +16,7 @@ export function createPanelRenderer({
   openImageViewer,
   imageSettingsRow,
   instructionSettingsRow,
+  fallbackSettingsRow,
   isAdopt = () => false,
 }) {
   function render(panelEl) {
@@ -134,6 +135,7 @@ export function createPanelRenderer({
 
     panelBody.appendChild(imageSettingsRow())
     panelBody.appendChild(instructionSettingsRow())
+    panelBody.appendChild(fallbackSettingsRow())
     panelEl.appendChild(panelBody)
 
     const panelFoot = el('div', 'sa-panel-foot')
