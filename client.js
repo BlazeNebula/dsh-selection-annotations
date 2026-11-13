@@ -199,6 +199,17 @@
 .sa-setting-textarea { width: 100%; min-height: 96px; box-sizing: border-box; resize: vertical; margin-top: 6px;
   padding: 6px 8px; font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-layer-2, ButtonFace); border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
+/* 面板里的单行设置项：与指令行的说明/恢复行同一套节奏，标签在上、输入占满、说明在下。*/
+.sa-setting-block { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 6px; }
+.sa-setting-label { font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
+  color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-setting-input { width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit;
+  font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5; color: var(--dsw-alias-label-primary, CanvasText);
+  background: var(--dsw-alias-bg-layer-2, ButtonFace); border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
+.sa-setting-input:focus-visible, .sa-setting-textarea:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary, #247bbf)); outline-offset: 1px; }
+.sa-settings .sa-hint { font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.6; margin: 0;
+  color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-settings-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .sa-settings-page { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 8px; max-width: 720px; }
 .sa-settings-page-head { display: flex; align-items: center; gap: 8px; }
@@ -445,7 +456,12 @@
       "settings.adoptLabel": "「批注采纳」预填文本",
       "settings.adoptHint": "采纳模式下自动写入批注正文的句子；输入前缀会出现补全提示。",
       "settings.fallbackLabel": "空提示词填充",
-      "settings.fallbackHint": "只带批注、正文为空时自动填入这句，避免其他插件拦截空正文发送；清空即关闭。",
+      "settings.fallbackHint": "只带批注、正文为空时自动填入这句，避免其他插件拦截空正文；清空即关闭。",
+      "settings.fallbackOpen": "收起空提示词设置",
+      "settings.fallbackClosed": "空提示词填充",
+      "settings.fallbackOff": "已关闭（正文为空时不填充）",
+      "settings.fallbackOn": "已启用",
+      "settings.fallbackField": "只带批注时自动填入的正文",
       "settings.default": "默认文案",
       "settings.customized": "已自定义",
       "settings.restore": "恢复默认",
@@ -549,6 +565,11 @@
       "settings.adoptHint": "Written into the note in Adopt mode; typing a prefix shows an inline completion.",
       "settings.fallbackLabel": "Empty prompt fallback",
       "settings.fallbackHint": "Filled into the message body when you send only annotations and the prompt is empty, so other plugins cannot block it. Clear the field to disable.",
+      "settings.fallbackOpen": "Hide empty prompt fallback",
+      "settings.fallbackClosed": "Empty prompt fallback",
+      "settings.fallbackOff": "Off (nothing is filled when the prompt is empty)",
+      "settings.fallbackOn": "On",
+      "settings.fallbackField": "Body filled when only annotations are attached",
       "settings.default": "Default text",
       "settings.customized": "Customized",
       "settings.restore": "Restore default",
@@ -4430,6 +4451,7 @@
         let panelHideTimer = 0;
         let imageSettingsOpen = false;
         let instructionSettingsOpen = false;
+        let fallbackSettingsOpen = false;
         function button2(className, text, onClick) {
           const created = el("button", className, text);
           created.type = "button";
@@ -4533,16 +4555,41 @@
         function fallbackSettingsRow() {
           const box = el("div", "sa-settings");
           const head = el("div", "sa-settings-head");
-          head.appendChild(el("span", "sa-settings-title", t("settings.fallbackLabel")));
+          head.appendChild(
+            button2(
+              "sa-link",
+              fallbackSettingsOpen ? t("settings.fallbackOpen") : t("settings.fallbackClosed"),
+              () => {
+                fallbackSettingsOpen = !fallbackSettingsOpen;
+                refreshPanel();
+              }
+            )
+          );
+          const current = fallbackTextOf();
+          head.appendChild(
+            el("span", "sa-hint", current.trim() === "" ? t("settings.fallbackOff") : t("settings.fallbackOn"))
+          );
           box.appendChild(head);
+          if (!fallbackSettingsOpen) return box;
+          const label = el("label", "sa-setting sa-setting-block");
+          label.appendChild(el("span", "sa-setting-label", t("settings.fallbackField")));
           const input = document.createElement("input");
           input.className = "sa-setting-input";
-          input.setAttribute("aria-label", t("settings.fallbackLabel"));
-          input.value = fallbackTextOf();
-          input.placeholder = t("settings.fallbackHint");
-          input.addEventListener("input", () => persistFallbackText(input.value));
-          box.appendChild(input);
-          box.appendChild(el("span", "sa-hint", t("settings.fallbackHint")));
+          input.value = current;
+          input.addEventListener("input", () => {
+            persistFallbackText(input.value);
+          });
+          label.appendChild(input);
+          box.appendChild(label);
+          const actions = el("div", "sa-settings-actions");
+          actions.appendChild(
+            button2("sa-link", t("settings.restore"), () => {
+              persistFallbackText(DEFAULT_FALLBACK_TEXT);
+              refreshPanel();
+            })
+          );
+          actions.appendChild(el("span", "sa-hint", t("settings.fallbackHint")));
+          box.appendChild(actions);
           return box;
         }
         function instructionSettingsRow() {

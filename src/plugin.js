@@ -2746,6 +2746,7 @@ export function createPlugin(React, extras = {}) {
         let imageSettingsOpen = false
         /** 面板底部的批注指令设置是否展开。*/
         let instructionSettingsOpen = false
+        let fallbackSettingsOpen = false
 
         function button(className, text, onClick) {
           const created = el('button', className, text)
@@ -2862,20 +2863,47 @@ export function createPlugin(React, extras = {}) {
           return box
         }
 
-        /** 面板里的空提示词填充设置：清空即关闭。 */
+        /** 面板里的空提示词填充设置：与批注指令同一套折叠头、说明与恢复默认。 */
         function fallbackSettingsRow() {
           const box = el('div', 'sa-settings')
           const head = el('div', 'sa-settings-head')
-          head.appendChild(el('span', 'sa-settings-title', t('settings.fallbackLabel')))
+          head.appendChild(
+            button(
+              'sa-link',
+              fallbackSettingsOpen ? t('settings.fallbackOpen') : t('settings.fallbackClosed'),
+              () => {
+                fallbackSettingsOpen = !fallbackSettingsOpen
+                refreshPanel()
+              },
+            ),
+          )
+          const current = fallbackTextOf()
+          head.appendChild(
+            el('span', 'sa-hint', current.trim() === '' ? t('settings.fallbackOff') : t('settings.fallbackOn')),
+          )
           box.appendChild(head)
+          if (!fallbackSettingsOpen) return box
+
+          const label = el('label', 'sa-setting sa-setting-block')
+          label.appendChild(el('span', 'sa-setting-label', t('settings.fallbackField')))
           const input = document.createElement('input')
           input.className = 'sa-setting-input'
-          input.setAttribute('aria-label', t('settings.fallbackLabel'))
-          input.value = fallbackTextOf()
-          input.placeholder = t('settings.fallbackHint')
-          input.addEventListener('input', () => persistFallbackText(input.value))
-          box.appendChild(input)
-          box.appendChild(el('span', 'sa-hint', t('settings.fallbackHint')))
+          input.value = current
+          input.addEventListener('input', () => {
+            persistFallbackText(input.value)
+          })
+          label.appendChild(input)
+          box.appendChild(label)
+
+          const actions = el('div', 'sa-settings-actions')
+          actions.appendChild(
+            button('sa-link', t('settings.restore'), () => {
+              persistFallbackText(DEFAULT_FALLBACK_TEXT)
+              refreshPanel()
+            }),
+          )
+          actions.appendChild(el('span', 'sa-hint', t('settings.fallbackHint')))
+          box.appendChild(actions)
           return box
         }
 

@@ -197,6 +197,17 @@ export const CSS = `
 .sa-setting-textarea { width: 100%; min-height: 96px; box-sizing: border-box; resize: vertical; margin-top: 6px;
   padding: 6px 8px; font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-layer-2, ButtonFace); border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
+/* 面板里的单行设置项：与指令行的说明/恢复行同一套节奏，标签在上、输入占满、说明在下。*/
+.sa-setting-block { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 6px; }
+.sa-setting-label { font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
+  color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-setting-input { width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit;
+  font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5; color: var(--dsw-alias-label-primary, CanvasText);
+  background: var(--dsw-alias-bg-layer-2, ButtonFace); border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
+.sa-setting-input:focus-visible, .sa-setting-textarea:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary, #247bbf)); outline-offset: 1px; }
+.sa-settings .sa-hint { font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.6; margin: 0;
+  color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-settings-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .sa-settings-page { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 8px; max-width: 720px; }
 .sa-settings-page-head { display: flex; align-items: center; gap: 8px; }
