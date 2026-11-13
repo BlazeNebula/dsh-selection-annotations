@@ -4686,34 +4686,6 @@
           });
           return section.box;
         }
-        function instructionSettingsRow() {
-          const box = el("div", "sa-settings");
-          const head = el("div", "sa-settings-head");
-          const toggle = button2("sa-link", instructionSettingsOpen ? t("settings.instructionOpen") : t("settings.instructionClosed"), () => {
-            instructionSettingsOpen = !instructionSettingsOpen;
-            refreshPanel();
-          });
-          head.appendChild(toggle);
-          head.appendChild(el("span", "sa-hint", isDefaultInstruction(instructionOf()) ? t("settings.default") : t("settings.customized")));
-          box.appendChild(head);
-          if (!instructionSettingsOpen) return box;
-          const area = document.createElement("textarea");
-          area.className = "sa-setting-textarea";
-          area.rows = 6;
-          area.value = instructionOf();
-          area.addEventListener("input", () => persistInstructionSettings(area.value));
-          box.appendChild(area);
-          const actions = el("div", "sa-settings-actions");
-          actions.appendChild(
-            button2("sa-link", t("settings.restore"), () => {
-              persistInstructionSettings(defaultInstruction());
-              refreshPanel();
-            })
-          );
-          actions.appendChild(el("span", "sa-hint", t("settings.instrHint")));
-          box.appendChild(actions);
-          return box;
-        }
         function refreshPanel() {
           renderPanel();
           if (panelOpen) positionPanel();

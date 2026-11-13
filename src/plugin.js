@@ -2997,39 +2997,6 @@ export function createPlugin(React, extras = {}) {
           return section.box
         }
 
-        /** 面板底部的批注指令设置：可编辑，一键恢复默认。*/
-        function instructionSettingsRow() {
-          const box = el('div', 'sa-settings')
-          const head = el('div', 'sa-settings-head')
-          const toggle = button('sa-link', instructionSettingsOpen ? t('settings.instructionOpen') : t('settings.instructionClosed'), () => {
-            instructionSettingsOpen = !instructionSettingsOpen
-            refreshPanel()
-          })
-          head.appendChild(toggle)
-          head.appendChild(el('span', 'sa-hint', isDefaultInstruction(instructionOf()) ? t('settings.default') : t('settings.customized')))
-          box.appendChild(head)
-          if (!instructionSettingsOpen) return box
-
-          const area = document.createElement('textarea')
-          area.className = 'sa-setting-textarea'
-          area.rows = 6
-          area.value = instructionOf()
-          area.addEventListener('input', () => persistInstructionSettings(area.value))
-          box.appendChild(area)
-
-          const actions = el('div', 'sa-settings-actions')
-          actions.appendChild(
-            button('sa-link', t('settings.restore'), () => {
-              persistInstructionSettings(defaultInstruction())
-              refreshPanel()
-            }),
-          )
-          actions.appendChild(el('span', 'sa-hint', t('settings.instrHint')))
-          box.appendChild(actions)
-
-          return box
-        }
-
         /** 面板内容高度变化时重渲染并重新定位；面板在上方时底边因此保持不动。*/
         function refreshPanel() {
           renderPanel()
