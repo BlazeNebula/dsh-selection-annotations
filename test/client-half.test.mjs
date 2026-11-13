@@ -723,17 +723,20 @@ test('批注集合 → 运行时草稿附件 → 挂进输入态（官方 create
   assert.deepEqual(harness.inputState().attachmentIds, drafts, '附件必须挂进输入态')
 })
 
-test('只发批注、正文为空时自动补一句正文', async () => {
+test('新建批注时不改写输入框，只有发送动作才补正文', async () => {
   const harness = makeHarness()
   harness.debug.add({ quote: 'q', note: 'n', source: { kind: 'message', anchorKey: 'k1' } })
   await settle()
+  assert.equal(harness.inputState().draft, '', '挂批注时不应直接写正文')
+  harness.debug.fillFallback()
   assert.match(harness.inputState().draft, /^此轮对话内容均在批注中给出，总计 1 条批注，请逐一受理。\n此轮消息发起时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
 })
 
-test('正文已有内容时不改动用户的草稿', async () => {
+test('正文已有内容时，发送动作不改动用户的草稿', async () => {
   const harness = makeHarness({ initialDraft: '我自己写的提示词' })
   harness.debug.add({ quote: 'q', note: 'n', source: { kind: 'message', anchorKey: 'k1' } })
   await settle()
+  harness.debug.fillFallback()
   assert.equal(harness.inputState().draft, '我自己写的提示词')
 })
 

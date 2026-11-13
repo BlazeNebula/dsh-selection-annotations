@@ -1443,7 +1443,6 @@ export function createPlugin(React, extras = {}) {
             // 发出去之前页面上已有的批注消息行：发送后据此区分「新消息」与「旧历史」。
             lastAnnotatedKeys = captureAnchorKeys()
             attachedSessionId = sessionId
-            ensureFallbackPrompt(shell)
             log(`[selection-annotations] 批注块已挂到本条消息（${annotations.length} 条）`)
           } catch (err) {
             warn('[selection-annotations] 批注附件同步失败：', err)
@@ -3233,11 +3232,33 @@ export function createPlugin(React, extras = {}) {
             if (target !== null && target.closest('[data-sa-ui="menu"]') !== null) return
             closeContextMenu()
           }
-          const onMenuKeydown = (event) => {
+          /** 发送动作发生前补正文：点击发送按钮或按 Enter 提交时都要经过这里。 */
+          const fillFallbackIfSending = () => {
+            if (annotations.length === 0) return
+            const shell = inputShell()
+            if (shell === undefined) return
+            ensureFallbackPrompt(shell)
+          }
+          const onDocumentClick = (event) => {
+            const target = elementOf(event.target)
+            if (target === null) return
+            const button = target.closest('button')
+            if (button === null || button.closest('[data-composer-card]') === null) return
+            const label = button.getAttribute('aria-label')
+            if (typeof label !== 'string' || !/^(发送|Send)/i.test(label)) return
+            fillFallbackIfSending()
+          }
+          const onDocumentKeydown = (event) => {
             if (event.key === 'Escape') closeContextMenu()
+            if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return
+            const target = elementOf(event.target)
+            if (target === null || target.closest('[data-composer-card]') === null) return
+            if (target.closest('[contenteditable="true"], textarea, input') === null) return
+            fillFallbackIfSending()
           }
           document.addEventListener('pointerdown', onMenuPointerDown, true)
-          document.addEventListener('keydown', onMenuKeydown, true)
+          document.addEventListener('click', onDocumentClick, true)
+          document.addEventListener('keydown', onDocumentKeydown, true)
           const onViewport = () => {
             scheduleRepaint()
             positionPanel()
@@ -3267,7 +3288,8 @@ export function createPlugin(React, extras = {}) {
             document.removeEventListener('pointermove', onPointerMove, true)
             document.removeEventListener('contextmenu', onContextMenu, true)
             document.removeEventListener('pointerdown', onMenuPointerDown, true)
-            document.removeEventListener('keydown', onMenuKeydown, true)
+            document.removeEventListener('click', onDocumentClick, true)
+            document.removeEventListener('keydown', onDocumentKeydown, true)
             window.removeEventListener('scroll', onViewport, true)
             window.removeEventListener('resize', onViewport)
             observer.disconnect()
@@ -3480,6 +3502,10 @@ export function createPlugin(React, extras = {}) {
           clear: clearAnnotations,
           update: (id, note) => updateAnnotation(id, note),
           add: (input) => addAnnotation(input),
+          fillFallback: () => {
+            const shell = inputShell()
+            if (shell !== undefined) ensureFallbackPrompt(shell)
+          },
           _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar },
         }
     },
