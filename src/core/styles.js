@@ -216,6 +216,10 @@ export const CSS = `
 .sa-settings-inner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .sa-settings-inner > :first-child { margin-top: 6px; }
 .sa-settings-restore { margin-left: auto; }
+/* 收展图标在标题前，标题文字保持不变；展开时箭头转 90 度。*/
+.sa-settings-toggle { display: inline-flex; align-items: center; gap: 4px; }
+.sa-settings-toggle svg { flex: none; transition: transform 180ms ease; }
+.sa-settings-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
 .sa-setting-textarea-compact { min-height: 0; resize: none; }
 .sa-settings-page { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 8px; max-width: 720px; }
 .sa-settings-page-head { display: flex; align-items: center; gap: 8px; }

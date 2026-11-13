@@ -2804,16 +2804,36 @@ export function createPlugin(React, extras = {}) {
         })
         const renderPanel = () => panelRenderer.render(panelEl)
 
+        /** 统一的小箭头：与「已发送/批注答复」同一套矢量路径。 */
+        function settingsChevron() {
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+          svg.setAttribute('viewBox', '0 0 16 16')
+          svg.setAttribute('width', '12')
+          svg.setAttribute('height', '12')
+          svg.setAttribute('aria-hidden', 'true')
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+          path.setAttribute('d', 'M6.2 3.6 10.7 8l-4.5 4.4')
+          path.setAttribute('fill', 'none')
+          path.setAttribute('stroke', 'currentColor')
+          path.setAttribute('stroke-width', '1.8')
+          path.setAttribute('stroke-linecap', 'round')
+          path.setAttribute('stroke-linejoin', 'round')
+          svg.appendChild(path)
+          return svg
+        }
+
         /** 面板设置块的统一外壳：同一条折叠动画，恢复默认放在标题行右侧、仅在展开时出现。 */
         function settingsSection(options) {
           let open = options.open === true
           const box = el('div', 'sa-settings')
           const head = el('div', 'sa-settings-head')
-          const toggle = button('sa-link', '', () => {
+          const toggle = button('sa-link sa-settings-toggle', '', () => {
             open = !open
             apply()
             if (typeof options.onOpenChange === 'function') options.onOpenChange(open)
           })
+          toggle.appendChild(settingsChevron())
+          toggle.appendChild(el('span', 'sa-settings-toggle-label', options.label))
           const status = el('span', 'sa-hint', typeof options.getStatus === 'function' ? options.getStatus() : '')
           head.appendChild(toggle)
           head.appendChild(status)
@@ -2833,9 +2853,8 @@ export function createPlugin(React, extras = {}) {
           box.appendChild(head)
           box.appendChild(wrap)
           const apply = () => {
-            toggle.textContent = open ? options.toggleOpen : options.toggleClosed
-            wrap.dataset.open = open ? '1' : '0'
             toggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+            wrap.dataset.open = open ? '1' : '0'
             if (restore !== null) restore.hidden = !open
           }
           apply()
@@ -2895,13 +2914,24 @@ export function createPlugin(React, extras = {}) {
 
           const section = settingsSection({
             open: imageSettingsOpen,
-            toggleOpen: t('settings.imagesOpen'),
-            toggleClosed: t('settings.imagesClosed'),
+            label: t('settings.imagesClosed'),
             getStatus: () =>
               imageSettingsOf().compress
                 ? t('settings.imagesOn', { n: Math.round(imageSettingsOf().quality * 100) })
                 : t('settings.imagesOff'),
             body: [compressRow, qualityRow, sizeRow],
+            onRestore: () => {
+              const next = { ...DEFAULT_IMAGE_SETTINGS }
+              const current = imageSettingsOf()
+              current.compress = next.compress
+              current.quality = next.quality
+              current.minSize = next.minSize
+              persistImageSettings()
+              compress.checked = next.compress
+              quality.value = String(next.quality)
+              qualityText.textContent = `${Math.round(next.quality * 100)}%`
+              size.value = String(next.minSize)
+            },
             onOpenChange: (open) => {
               imageSettingsOpen = open
             },
@@ -2922,8 +2952,7 @@ export function createPlugin(React, extras = {}) {
 
           const section = settingsSection({
             open: instructionSettingsOpen,
-            toggleOpen: t('settings.instructionOpen'),
-            toggleClosed: t('settings.instructionClosed'),
+            label: t('settings.instructionClosed'),
             getStatus: () => (isDefaultInstruction(instructionOf()) ? t('settings.default') : t('settings.customized')),
             body: [area],
             restoreTitle: t('settings.instrHint'),
@@ -2952,8 +2981,7 @@ export function createPlugin(React, extras = {}) {
 
           const section = settingsSection({
             open: fallbackSettingsOpen,
-            toggleOpen: t('settings.fallbackOpen'),
-            toggleClosed: t('settings.fallbackClosed'),
+            label: t('settings.fallbackClosed'),
             getStatus: () =>
               fallbackTextOf().trim() === '' ? t('settings.fallbackOff') : t('settings.fallbackOn'),
             body: [area],
