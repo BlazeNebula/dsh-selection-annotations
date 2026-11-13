@@ -1457,8 +1457,21 @@ export function createPlugin(React, extras = {}) {
 
         /** 只带批注、正文为空时补一句正文：有的插件会拦截空正文的发送。 */
         function ensureFallbackPrompt(shell) {
-          const text = fallbackTextOf()
+          let text = fallbackTextOf()
           if (typeof text !== 'string' || text.trim() === '') return
+          const now = new Date()
+          const stamp = [
+            now.getFullYear(),
+            String(now.getMonth() + 1).padStart(2, '0'),
+            String(now.getDate()).padStart(2, '0'),
+          ].join('-') + ' ' + [
+            String(now.getHours()).padStart(2, '0'),
+            String(now.getMinutes()).padStart(2, '0'),
+            String(now.getSeconds()).padStart(2, '0'),
+          ].join(':')
+          text = text
+            .replace(/\{count\}/g, String(annotations.length))
+            .replace(/\{time\}/g, stamp)
           const snapshot = safe(() => shell?.state?.getSnapshot())
           const draft = typeof snapshot?.draft === 'string' ? snapshot.draft : ''
           if (draft.trim() !== '') return
@@ -2792,28 +2805,52 @@ export function createPlugin(React, extras = {}) {
         })
         const renderPanel = () => panelRenderer.render(panelEl)
 
+        /** 面板设置块的统一外壳：同一条折叠动画，恢复默认放在标题行右侧、仅在展开时出现。 */
+        function settingsSection(options) {
+          let open = options.open === true
+          const box = el('div', 'sa-settings')
+          const head = el('div', 'sa-settings-head')
+          const toggle = button('sa-link', '', () => {
+            open = !open
+            apply()
+            if (typeof options.onOpenChange === 'function') options.onOpenChange(open)
+          })
+          const status = el('span', 'sa-hint', typeof options.getStatus === 'function' ? options.getStatus() : '')
+          head.appendChild(toggle)
+          head.appendChild(status)
+          let restore = null
+          if (typeof options.onRestore === 'function') {
+            restore = button('sa-link sa-settings-restore', t('settings.restore'), () => {
+              options.onRestore()
+              status.textContent = typeof options.getStatus === 'function' ? options.getStatus() : ''
+            })
+            if (options.restoreTitle !== undefined) restore.title = options.restoreTitle
+            head.appendChild(restore)
+          }
+          const wrap = el('div', 'sa-settings-body')
+          const inner = el('div', 'sa-settings-inner')
+          inner.append(...options.body)
+          wrap.appendChild(inner)
+          box.appendChild(head)
+          box.appendChild(wrap)
+          const apply = () => {
+            toggle.textContent = open ? options.toggleOpen : options.toggleClosed
+            wrap.dataset.open = open ? '1' : '0'
+            toggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+            if (restore !== null) restore.hidden = !open
+          }
+          apply()
+          return {
+            box,
+            refreshStatus() {
+              status.textContent = typeof options.getStatus === 'function' ? options.getStatus() : ''
+            },
+          }
+        }
+
         /** 面板底部的图片设置：压缩开关、JPEG 质量、触发压缩的最短边。 */
         function imageSettingsRow() {
           const settings = imageSettingsOf()
-          const box = el('div', 'sa-settings')
-          const head = el('div', 'sa-settings-head')
-          const toggle = button('sa-link', imageSettingsOpen ? t('settings.imagesOpen') : t('settings.imagesClosed'), () => {
-            imageSettingsOpen = !imageSettingsOpen
-            refreshPanel()
-          })
-          head.appendChild(toggle)
-          head.appendChild(
-            el(
-              'span',
-              'sa-hint',
-              settings.compress
-                ? t('settings.imagesOn', { n: Math.round(settings.quality * 100) })
-                : t('settings.imagesOff'),
-            ),
-          )
-          box.appendChild(head)
-          if (!imageSettingsOpen) return box
-
           const compressRow = el('label', 'sa-setting')
           const compress = document.createElement('input')
           compress.type = 'checkbox'
@@ -2821,10 +2858,9 @@ export function createPlugin(React, extras = {}) {
           compress.addEventListener('change', () => {
             imageSettingsOf().compress = compress.checked
             persistImageSettings()
-            refreshPanel()
+            section.refreshStatus()
           })
           compressRow.append(compress, document.createTextNode(t('settings.compress')))
-          box.appendChild(compressRow)
 
           const qualityRow = el('label', 'sa-setting')
           const quality = document.createElement('input')
@@ -2840,7 +2876,6 @@ export function createPlugin(React, extras = {}) {
             persistImageSettings()
           })
           qualityRow.append(document.createTextNode(t('settings.quality')), quality, qualityText)
-          box.appendChild(qualityRow)
 
           const sizeRow = el('label', 'sa-setting')
           const size = document.createElement('input')
@@ -2858,53 +2893,81 @@ export function createPlugin(React, extras = {}) {
             persistImageSettings()
           })
           sizeRow.append(document.createTextNode(t('settings.minSizeBefore')), size, document.createTextNode(t('settings.minSizeAfter')))
-          box.appendChild(sizeRow)
 
-          return box
+          const section = settingsSection({
+            open: imageSettingsOpen,
+            toggleOpen: t('settings.imagesOpen'),
+            toggleClosed: t('settings.imagesClosed'),
+            getStatus: () =>
+              imageSettingsOf().compress
+                ? t('settings.imagesOn', { n: Math.round(imageSettingsOf().quality * 100) })
+                : t('settings.imagesOff'),
+            body: [compressRow, qualityRow, sizeRow],
+            onOpenChange: (open) => {
+              imageSettingsOpen = open
+            },
+          })
+          return section.box
         }
 
-        /** 面板里的空提示词填充设置：与批注指令同一套折叠头、说明与恢复默认。 */
-        function fallbackSettingsRow() {
-          const box = el('div', 'sa-settings')
-          const head = el('div', 'sa-settings-head')
-          head.appendChild(
-            button(
-              'sa-link',
-              fallbackSettingsOpen ? t('settings.fallbackOpen') : t('settings.fallbackClosed'),
-              () => {
-                fallbackSettingsOpen = !fallbackSettingsOpen
-                refreshPanel()
-              },
-            ),
-          )
-          const current = fallbackTextOf()
-          head.appendChild(
-            el('span', 'sa-hint', current.trim() === '' ? t('settings.fallbackOff') : t('settings.fallbackOn')),
-          )
-          box.appendChild(head)
-          if (!fallbackSettingsOpen) return box
-
-          const label = el('label', 'sa-setting sa-setting-block')
-          label.appendChild(el('span', 'sa-setting-label', t('settings.fallbackField')))
-          const input = document.createElement('input')
-          input.className = 'sa-setting-input'
-          input.value = current
-          input.addEventListener('input', () => {
-            persistFallbackText(input.value)
+        /** 面板底部的批注指令设置：可编辑，一键恢复默认。*/
+        function instructionSettingsRow() {
+          const area = document.createElement('textarea')
+          area.className = 'sa-setting-textarea'
+          area.rows = 6
+          area.value = instructionOf()
+          area.addEventListener('input', () => {
+            persistInstructionSettings(area.value)
+            section.refreshStatus()
           })
-          label.appendChild(input)
-          box.appendChild(label)
 
-          const actions = el('div', 'sa-settings-actions')
-          actions.appendChild(
-            button('sa-link', t('settings.restore'), () => {
+          const section = settingsSection({
+            open: instructionSettingsOpen,
+            toggleOpen: t('settings.instructionOpen'),
+            toggleClosed: t('settings.instructionClosed'),
+            getStatus: () => (isDefaultInstruction(instructionOf()) ? t('settings.default') : t('settings.customized')),
+            body: [area],
+            restoreTitle: t('settings.instrHint'),
+            onRestore: () => {
+              persistInstructionSettings(defaultInstruction())
+              area.value = instructionOf()
+            },
+            onOpenChange: (open) => {
+              instructionSettingsOpen = open
+            },
+          })
+          return section.box
+        }
+
+        /** 面板里的空提示词填充设置：和批注指令同一套折叠头、状态与恢复默认。 */
+        function fallbackSettingsRow() {
+          const area = document.createElement('textarea')
+          area.className = 'sa-setting-textarea sa-setting-textarea-compact'
+          area.rows = 3
+          area.value = fallbackTextOf()
+          area.setAttribute('aria-label', t('settings.fallbackLabel'))
+          area.addEventListener('input', () => {
+            persistFallbackText(area.value)
+            section.refreshStatus()
+          })
+
+          const section = settingsSection({
+            open: fallbackSettingsOpen,
+            toggleOpen: t('settings.fallbackOpen'),
+            toggleClosed: t('settings.fallbackClosed'),
+            getStatus: () =>
+              fallbackTextOf().trim() === '' ? t('settings.fallbackOff') : t('settings.fallbackOn'),
+            body: [area],
+            restoreTitle: t('settings.fallbackHint'),
+            onRestore: () => {
               persistFallbackText(DEFAULT_FALLBACK_TEXT)
-              refreshPanel()
-            }),
-          )
-          actions.appendChild(el('span', 'sa-hint', t('settings.fallbackHint')))
-          box.appendChild(actions)
-          return box
+              area.value = fallbackTextOf()
+            },
+            onOpenChange: (open) => {
+              fallbackSettingsOpen = open
+            },
+          })
+          return section.box
         }
 
         /** 面板底部的批注指令设置：可编辑，一键恢复默认。*/
@@ -3358,9 +3421,10 @@ export function createPlugin(React, extras = {}) {
               'fallback',
               t('settings.fallbackLabel'),
               t('settings.fallbackHint'),
-              h('input', {
-                className: 'sa-setting-input',
+              h('textarea', {
+                className: 'sa-setting-textarea',
                 'aria-label': t('settings.fallbackLabel'),
+                rows: 3,
                 value: fallbackText,
                 onChange: (event) => {
                   setFallbackText(event.target.value)

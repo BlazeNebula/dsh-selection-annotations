@@ -99,7 +99,9 @@ export function createSettings(getStorage, locale) {
     if (storage === undefined) return DEFAULT_FALLBACK_TEXT
     const parsed = safe(() => JSON.parse(storage.getItem(FALLBACK_SETTINGS_KEY) ?? 'null'))
     if (parsed === null || typeof parsed !== 'object') return DEFAULT_FALLBACK_TEXT
-    return typeof parsed.text === 'string' ? parsed.text : DEFAULT_FALLBACK_TEXT
+    const text = typeof parsed.text === 'string' ? parsed.text : DEFAULT_FALLBACK_TEXT
+    // 旧默认文案静默迁移到新的模板，不要求用户手动恢复。
+    return text === '请按批注内容处理。' ? DEFAULT_FALLBACK_TEXT : text
   }
 
   function fallbackTextOf() {

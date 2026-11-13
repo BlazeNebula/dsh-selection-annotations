@@ -727,7 +727,7 @@ test('只发批注、正文为空时自动补一句正文', async () => {
   const harness = makeHarness()
   harness.debug.add({ quote: 'q', note: 'n', source: { kind: 'message', anchorKey: 'k1' } })
   await settle()
-  assert.equal(harness.inputState().draft, '请按批注内容处理。')
+  assert.match(harness.inputState().draft, /^此轮对话内容均在批注中给出，总计 1 条批注，请逐一受理。\n此轮消息发起时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
 })
 
 test('正文已有内容时不改动用户的草稿', async () => {

@@ -211,6 +211,14 @@
 .sa-settings .sa-hint { font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.6; margin: 0;
   color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-settings-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+/* 面板设置块的折叠体：同一条 180ms 动画，避免展开/收起时视野瞬间跳动。*/
+.sa-settings-body { display: grid; grid-template-rows: 0fr; opacity: 0;
+  transition: grid-template-rows 180ms ease, opacity 180ms ease; }
+.sa-settings-body[data-open="1"] { grid-template-rows: 1fr; opacity: 1; }
+.sa-settings-inner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.sa-settings-inner > :first-child { margin-top: 6px; }
+.sa-settings-restore { margin-left: auto; }
+.sa-setting-textarea-compact { min-height: 0; resize: none; }
 .sa-settings-page { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 8px; max-width: 720px; }
 .sa-settings-page-head { display: flex; align-items: center; gap: 8px; }
 .sa-settings-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 10px;
@@ -362,7 +370,7 @@
   var ADOPT_SETTINGS_KEY = "dsh-selection-annotations:adopt-settings";
   var DEFAULT_ADOPT_TEXT = "【意见采纳】";
   var FALLBACK_SETTINGS_KEY = "dsh-selection-annotations:fallback-settings";
-  var DEFAULT_FALLBACK_TEXT = "请按批注内容处理。";
+  var DEFAULT_FALLBACK_TEXT = "此轮对话内容均在批注中给出，总计 {count} 条批注，请逐一受理。\n此轮消息发起时间：{time}";
   var DEFAULT_INSTRUCTION = [
     "这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n",
     "\n",
@@ -456,7 +464,7 @@
       "settings.adoptLabel": "「批注采纳」预填文本",
       "settings.adoptHint": "采纳模式下自动写入批注正文的句子；输入前缀会出现补全提示。",
       "settings.fallbackLabel": "空提示词填充",
-      "settings.fallbackHint": "只带批注、正文为空时自动填入这句，避免其他插件拦截空正文；清空即关闭。",
+      "settings.fallbackHint": "只带批注、正文为空时自动填入；{count} 换成批注条数，{time} 换成发送时间。清空即关闭。",
       "settings.fallbackOpen": "收起空提示词设置",
       "settings.fallbackClosed": "空提示词填充",
       "settings.fallbackOff": "已关闭（正文为空时不填充）",
@@ -564,7 +572,7 @@
       "settings.adoptLabel": "Prefilled “Adopt” text",
       "settings.adoptHint": "Written into the note in Adopt mode; typing a prefix shows an inline completion.",
       "settings.fallbackLabel": "Empty prompt fallback",
-      "settings.fallbackHint": "Filled into the message body when you send only annotations and the prompt is empty, so other plugins cannot block it. Clear the field to disable.",
+      "settings.fallbackHint": "Filled into the message body when you send only annotations and the prompt is empty. {count} becomes the annotation count, {time} the send time. Clear the field to disable.",
       "settings.fallbackOpen": "Hide empty prompt fallback",
       "settings.fallbackClosed": "Empty prompt fallback",
       "settings.fallbackOff": "Off (nothing is filled when the prompt is empty)",
@@ -858,7 +866,8 @@
       if (storage === void 0) return DEFAULT_FALLBACK_TEXT;
       const parsed = safe(() => JSON.parse(storage.getItem(FALLBACK_SETTINGS_KEY) ?? "null"));
       if (parsed === null || typeof parsed !== "object") return DEFAULT_FALLBACK_TEXT;
-      return typeof parsed.text === "string" ? parsed.text : DEFAULT_FALLBACK_TEXT;
+      const text = typeof parsed.text === "string" ? parsed.text : DEFAULT_FALLBACK_TEXT;
+      return text === "请按批注内容处理。" ? DEFAULT_FALLBACK_TEXT : text;
     }
     function fallbackTextOf() {
       if (fallbackText === void 0) fallbackText = loadFallbackText();
@@ -3333,8 +3342,19 @@
           }
         }
         function ensureFallbackPrompt(shell) {
-          const text = fallbackTextOf();
+          let text = fallbackTextOf();
           if (typeof text !== "string" || text.trim() === "") return;
+          const now = /* @__PURE__ */ new Date();
+          const stamp = [
+            now.getFullYear(),
+            String(now.getMonth() + 1).padStart(2, "0"),
+            String(now.getDate()).padStart(2, "0")
+          ].join("-") + " " + [
+            String(now.getHours()).padStart(2, "0"),
+            String(now.getMinutes()).padStart(2, "0"),
+            String(now.getSeconds()).padStart(2, "0")
+          ].join(":");
+          text = text.replace(/\{count\}/g, String(annotations.length)).replace(/\{time\}/g, stamp);
           const snapshot2 = safe(() => shell?.state?.getSnapshot());
           const draft = typeof snapshot2?.draft === "string" ? snapshot2.draft : "";
           if (draft.trim() !== "") return;
@@ -4491,24 +4511,49 @@
           isAdopt: hasAdoptNote
         });
         const renderPanel = () => panelRenderer.render(panelEl);
-        function imageSettingsRow() {
-          const settings2 = imageSettingsOf();
+        function settingsSection(options) {
+          let open = options.open === true;
           const box = el("div", "sa-settings");
           const head = el("div", "sa-settings-head");
-          const toggle = button2("sa-link", imageSettingsOpen ? t("settings.imagesOpen") : t("settings.imagesClosed"), () => {
-            imageSettingsOpen = !imageSettingsOpen;
-            refreshPanel();
+          const toggle = button2("sa-link", "", () => {
+            open = !open;
+            apply();
+            if (typeof options.onOpenChange === "function") options.onOpenChange(open);
           });
+          const status = el("span", "sa-hint", typeof options.getStatus === "function" ? options.getStatus() : "");
           head.appendChild(toggle);
-          head.appendChild(
-            el(
-              "span",
-              "sa-hint",
-              settings2.compress ? t("settings.imagesOn", { n: Math.round(settings2.quality * 100) }) : t("settings.imagesOff")
-            )
-          );
+          head.appendChild(status);
+          let restore = null;
+          if (typeof options.onRestore === "function") {
+            restore = button2("sa-link sa-settings-restore", t("settings.restore"), () => {
+              options.onRestore();
+              status.textContent = typeof options.getStatus === "function" ? options.getStatus() : "";
+            });
+            if (options.restoreTitle !== void 0) restore.title = options.restoreTitle;
+            head.appendChild(restore);
+          }
+          const wrap = el("div", "sa-settings-body");
+          const inner = el("div", "sa-settings-inner");
+          inner.append(...options.body);
+          wrap.appendChild(inner);
           box.appendChild(head);
-          if (!imageSettingsOpen) return box;
+          box.appendChild(wrap);
+          const apply = () => {
+            toggle.textContent = open ? options.toggleOpen : options.toggleClosed;
+            wrap.dataset.open = open ? "1" : "0";
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            if (restore !== null) restore.hidden = !open;
+          };
+          apply();
+          return {
+            box,
+            refreshStatus() {
+              status.textContent = typeof options.getStatus === "function" ? options.getStatus() : "";
+            }
+          };
+        }
+        function imageSettingsRow() {
+          const settings2 = imageSettingsOf();
           const compressRow = el("label", "sa-setting");
           const compress = document.createElement("input");
           compress.type = "checkbox";
@@ -4516,10 +4561,9 @@
           compress.addEventListener("change", () => {
             imageSettingsOf().compress = compress.checked;
             persistImageSettings();
-            refreshPanel();
+            section.refreshStatus();
           });
           compressRow.append(compress, document.createTextNode(t("settings.compress")));
-          box.appendChild(compressRow);
           const qualityRow = el("label", "sa-setting");
           const quality = document.createElement("input");
           quality.type = "range";
@@ -4534,7 +4578,6 @@
             persistImageSettings();
           });
           qualityRow.append(document.createTextNode(t("settings.quality")), quality, qualityText);
-          box.appendChild(qualityRow);
           const sizeRow = el("label", "sa-setting");
           const size = document.createElement("input");
           size.type = "number";
@@ -4549,48 +4592,70 @@
             persistImageSettings();
           });
           sizeRow.append(document.createTextNode(t("settings.minSizeBefore")), size, document.createTextNode(t("settings.minSizeAfter")));
-          box.appendChild(sizeRow);
-          return box;
+          const section = settingsSection({
+            open: imageSettingsOpen,
+            toggleOpen: t("settings.imagesOpen"),
+            toggleClosed: t("settings.imagesClosed"),
+            getStatus: () => imageSettingsOf().compress ? t("settings.imagesOn", { n: Math.round(imageSettingsOf().quality * 100) }) : t("settings.imagesOff"),
+            body: [compressRow, qualityRow, sizeRow],
+            onOpenChange: (open) => {
+              imageSettingsOpen = open;
+            }
+          });
+          return section.box;
+        }
+        function instructionSettingsRow() {
+          const area = document.createElement("textarea");
+          area.className = "sa-setting-textarea";
+          area.rows = 6;
+          area.value = instructionOf();
+          area.addEventListener("input", () => {
+            persistInstructionSettings(area.value);
+            section.refreshStatus();
+          });
+          const section = settingsSection({
+            open: instructionSettingsOpen,
+            toggleOpen: t("settings.instructionOpen"),
+            toggleClosed: t("settings.instructionClosed"),
+            getStatus: () => isDefaultInstruction(instructionOf()) ? t("settings.default") : t("settings.customized"),
+            body: [area],
+            restoreTitle: t("settings.instrHint"),
+            onRestore: () => {
+              persistInstructionSettings(defaultInstruction());
+              area.value = instructionOf();
+            },
+            onOpenChange: (open) => {
+              instructionSettingsOpen = open;
+            }
+          });
+          return section.box;
         }
         function fallbackSettingsRow() {
-          const box = el("div", "sa-settings");
-          const head = el("div", "sa-settings-head");
-          head.appendChild(
-            button2(
-              "sa-link",
-              fallbackSettingsOpen ? t("settings.fallbackOpen") : t("settings.fallbackClosed"),
-              () => {
-                fallbackSettingsOpen = !fallbackSettingsOpen;
-                refreshPanel();
-              }
-            )
-          );
-          const current = fallbackTextOf();
-          head.appendChild(
-            el("span", "sa-hint", current.trim() === "" ? t("settings.fallbackOff") : t("settings.fallbackOn"))
-          );
-          box.appendChild(head);
-          if (!fallbackSettingsOpen) return box;
-          const label = el("label", "sa-setting sa-setting-block");
-          label.appendChild(el("span", "sa-setting-label", t("settings.fallbackField")));
-          const input = document.createElement("input");
-          input.className = "sa-setting-input";
-          input.value = current;
-          input.addEventListener("input", () => {
-            persistFallbackText(input.value);
+          const area = document.createElement("textarea");
+          area.className = "sa-setting-textarea sa-setting-textarea-compact";
+          area.rows = 3;
+          area.value = fallbackTextOf();
+          area.setAttribute("aria-label", t("settings.fallbackLabel"));
+          area.addEventListener("input", () => {
+            persistFallbackText(area.value);
+            section.refreshStatus();
           });
-          label.appendChild(input);
-          box.appendChild(label);
-          const actions = el("div", "sa-settings-actions");
-          actions.appendChild(
-            button2("sa-link", t("settings.restore"), () => {
+          const section = settingsSection({
+            open: fallbackSettingsOpen,
+            toggleOpen: t("settings.fallbackOpen"),
+            toggleClosed: t("settings.fallbackClosed"),
+            getStatus: () => fallbackTextOf().trim() === "" ? t("settings.fallbackOff") : t("settings.fallbackOn"),
+            body: [area],
+            restoreTitle: t("settings.fallbackHint"),
+            onRestore: () => {
               persistFallbackText(DEFAULT_FALLBACK_TEXT);
-              refreshPanel();
-            })
-          );
-          actions.appendChild(el("span", "sa-hint", t("settings.fallbackHint")));
-          box.appendChild(actions);
-          return box;
+              area.value = fallbackTextOf();
+            },
+            onOpenChange: (open) => {
+              fallbackSettingsOpen = open;
+            }
+          });
+          return section.box;
         }
         function instructionSettingsRow() {
           const box = el("div", "sa-settings");
@@ -5000,9 +5065,10 @@
               "fallback",
               t("settings.fallbackLabel"),
               t("settings.fallbackHint"),
-              h("input", {
-                className: "sa-setting-input",
+              h("textarea", {
+                className: "sa-setting-textarea",
                 "aria-label": t("settings.fallbackLabel"),
+                rows: 3,
                 value: fallbackText,
                 onChange: (event) => {
                   setFallbackText(event.target.value);

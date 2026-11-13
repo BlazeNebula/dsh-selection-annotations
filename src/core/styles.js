@@ -209,6 +209,14 @@ export const CSS = `
 .sa-settings .sa-hint { font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.6; margin: 0;
   color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-settings-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+/* 面板设置块的折叠体：同一条 180ms 动画，避免展开/收起时视野瞬间跳动。*/
+.sa-settings-body { display: grid; grid-template-rows: 0fr; opacity: 0;
+  transition: grid-template-rows 180ms ease, opacity 180ms ease; }
+.sa-settings-body[data-open="1"] { grid-template-rows: 1fr; opacity: 1; }
+.sa-settings-inner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.sa-settings-inner > :first-child { margin-top: 6px; }
+.sa-settings-restore { margin-left: auto; }
+.sa-setting-textarea-compact { min-height: 0; resize: none; }
 .sa-settings-page { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 8px; max-width: 720px; }
 .sa-settings-page-head { display: flex; align-items: center; gap: 8px; }
 .sa-settings-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 10px;
