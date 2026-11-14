@@ -1096,18 +1096,30 @@ export function createPlugin(React, extras = {}) {
           // 下方即使还有插队消息，答复也不会被推远。
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)]
-            // 0.2.x 把过程内容收在 [data-turn-process-inline] 里，和正文同属一条助手消息。
-            // 答复卡插在这个容器的外面、正文前面，既在过程链下方，也不会被折叠收起。
-            const inlines = [...document.querySelectorAll(`[data-chat-turn="${turn}"] [data-turn-process-inline]`)]
-            if (inlines.length > 0) {
-              const lastInline = inlines[inlines.length - 1]
-              const flow = lastInline.closest('[data-chat-flow-kind="assistant"]')
-              if (flow !== null && flow.parentElement !== null) {
-                // 上溯到 flowItem 的直接子节点：过程容器外面还有包装层，
-                // 插在包装层之后才能与正文同级，不会落进收展容器。
-                let node = lastInline
-                while (node.parentElement !== null && node.parentElement !== flow) node = node.parentElement
-                moveSection(section, flow, node.nextSibling)
+            // 0.2.2 的结构：flow 容器直接挂着「过程组」和「最终正文」两类行。
+            // 答复卡要成为 flow 容器的直接子节点，插在最终正文行之前，
+            // 这样与过程链、正文同级，不在任何 hidden / 限高容器里。
+            const probe = document.querySelector(`[data-chat-turn="${turn}"][data-chat-flow-kind]`)
+            const flow = probe?.parentElement ?? null
+            if (flow !== null) {
+              const key = String(turn)
+              const rows = [...flow.children].filter(
+                (el) =>
+                  el.getAttribute?.('data-chat-turn') === key &&
+                  el.hasAttribute?.('data-chat-flow-kind'),
+              )
+              const isReply = (el) =>
+                el.getAttribute('data-chat-flow-kind') === 'assistant-step' &&
+                (el.getAttribute('data-chat-group-part') === 'response' ||
+                  el.getAttribute('data-chat-group-part') === null)
+              let ref = rows.filter(isReply).pop() ?? null
+              if (ref === null) ref = rows.find((el) => el.getAttribute('data-chat-flow-kind') === 'turn-tail') ?? null
+              if (
+                ref !== null &&
+                ref.parentElement === flow &&
+                ref.closest('[data-step-process-body],[data-turn-process-inline],.xMeOpW_body,[data-turn-process-member]') === null
+              ) {
+                moveSection(section, flow, ref)
                 return
               }
             }

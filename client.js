@@ -3092,14 +3092,18 @@
           }
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)];
-            const inlines = [...document.querySelectorAll(`[data-chat-turn="${turn}"] [data-turn-process-inline]`)];
-            if (inlines.length > 0) {
-              const lastInline = inlines[inlines.length - 1];
-              const flow = lastInline.closest('[data-chat-flow-kind="assistant"]');
-              if (flow !== null && flow.parentElement !== null) {
-                let node = lastInline;
-                while (node.parentElement !== null && node.parentElement !== flow) node = node.parentElement;
-                moveSection(section, flow, node.nextSibling);
+            const probe = document.querySelector(`[data-chat-turn="${turn}"][data-chat-flow-kind]`);
+            const flow = probe?.parentElement ?? null;
+            if (flow !== null) {
+              const key = String(turn);
+              const rows = [...flow.children].filter(
+                (el2) => el2.getAttribute?.("data-chat-turn") === key && el2.hasAttribute?.("data-chat-flow-kind")
+              );
+              const isReply = (el2) => el2.getAttribute("data-chat-flow-kind") === "assistant-step" && (el2.getAttribute("data-chat-group-part") === "response" || el2.getAttribute("data-chat-group-part") === null);
+              let ref = rows.filter(isReply).pop() ?? null;
+              if (ref === null) ref = rows.find((el2) => el2.getAttribute("data-chat-flow-kind") === "turn-tail") ?? null;
+              if (ref !== null && ref.parentElement === flow && ref.closest("[data-step-process-body],[data-turn-process-inline],.xMeOpW_body,[data-turn-process-member]") === null) {
+                moveSection(section, flow, ref);
                 return;
               }
             }
