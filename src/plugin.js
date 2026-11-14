@@ -2194,10 +2194,14 @@ export function createPlugin(React, extras = {}) {
             safe(() => popInput.focus({ preventScroll: true }))
             safe(() => caretToEnd())
           }
-          focusEditor()
-          safe(() => window.requestAnimationFrame(focusEditor))
-          safe(() => window.setTimeout(focusEditor, 60))
-          safe(() => window.setTimeout(focusEditor, 180))
+          // 悬停预览不抢焦点：鼠标只是经过划线区域，用户还在原处阅读或选择；
+          // 手动打开（点角标、改备注、新建批注）才把光标送进编辑器。
+          if (popoverSource !== 'hover') {
+            focusEditor()
+            safe(() => window.requestAnimationFrame(focusEditor))
+            safe(() => window.setTimeout(focusEditor, 60))
+            safe(() => window.setTimeout(focusEditor, 180))
+          }
         }
 
         function openCreatePopover(options = {}) {

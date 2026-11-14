@@ -4000,10 +4000,12 @@
             safe(() => popInput.focus({ preventScroll: true }));
             safe(() => caretToEnd());
           };
-          focusEditor();
-          safe(() => window.requestAnimationFrame(focusEditor));
-          safe(() => window.setTimeout(focusEditor, 60));
-          safe(() => window.setTimeout(focusEditor, 180));
+          if (popoverSource !== "hover") {
+            focusEditor();
+            safe(() => window.requestAnimationFrame(focusEditor));
+            safe(() => window.setTimeout(focusEditor, 60));
+            safe(() => window.setTimeout(focusEditor, 180));
+          }
         }
         function openCreatePopover(options = {}) {
           const selection = pendingSelection;
