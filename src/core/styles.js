@@ -161,7 +161,9 @@ export const CSS = `
   -webkit-line-clamp: 3; overflow: hidden; cursor: pointer; }
 .sa-item-quote.sa-q-open { display: block; -webkit-line-clamp: unset; }
 .sa-item-a { margin-top: 8px; }
-.sa-item-note { margin: 3px 0 0; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.sa-item-note { margin: 3px 0 0; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+  padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-bg-layer-1, ButtonFace); border: 1px solid transparent; cursor: pointer; }
+.sa-item-note:hover { background: var(--dsw-alias-interactive-bg-hover, ButtonFace); border-color: var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-link { font: inherit; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); padding: 2px 4px; cursor: pointer; background: none; border: none;
   color: var(--dsw-alias-label-secondary, GrayText); text-decoration: underline; }
 .sa-link:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }

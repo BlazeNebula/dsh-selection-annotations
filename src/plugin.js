@@ -1099,10 +1099,11 @@ export function createPlugin(React, extras = {}) {
             // 「已完成」是独立的过程节点；答复卡挂在最后一个过程节点之后，
             // 也就是过程工具链结束、后续正文开始的位置。
             let lastProcess = null
+            const processKinds = new Set(['turn-process', 'reasoning', 'tool-call', 'tool-result', 'process-evidence', 'process-groups'])
             for (const item of items) {
               const kind = item.getAttribute?.('data-chat-flow-kind') ?? ''
               if (
-                kind === 'turn-process' ||
+                processKinds.has(kind) ||
                 item.querySelector?.('[data-turn-process]') !== null ||
                 item.querySelector?.('[data-turn-process-inline]') !== null
               ) {
