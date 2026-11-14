@@ -3204,7 +3204,7 @@
             if (sentCard === void 0) continue;
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
-            const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}#replay4`;
+            const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}#replay4#img1`;
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`);
             if (existing !== null) {
               if (existing.dataset.signature === signature) {
