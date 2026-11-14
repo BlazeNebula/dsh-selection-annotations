@@ -3093,12 +3093,22 @@
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)];
             let lastMember = null;
+            let bodyItem = null;
             for (const item of items) {
-              if (item.hasAttribute?.("data-turn-process-member")) lastMember = item;
+              if (item.hasAttribute?.("data-turn-process-member")) {
+                lastMember = item;
+              } else if (item.getAttribute?.("data-chat-flow-kind") === "assistant") {
+                bodyItem = item;
+              }
             }
-            if (lastMember !== null && lastMember.parentElement !== null) {
-              moveSection(section, lastMember.parentElement, lastMember.nextSibling);
-              return;
+            const container = (bodyItem ?? lastMember ?? items[0])?.parentElement ?? null;
+            if (lastMember !== null && container !== null) {
+              let node = lastMember;
+              while (node.parentElement !== null && node.parentElement !== container) node = node.parentElement;
+              if (node.parentElement === container) {
+                moveSection(section, container, node.nextSibling);
+                return;
+              }
             }
           }
           const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, currentSessionId()) : null;

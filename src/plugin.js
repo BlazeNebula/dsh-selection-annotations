@@ -1096,15 +1096,25 @@ export function createPlugin(React, extras = {}) {
           // 下方即使还有插队消息，答复也不会被推远。
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)]
-            // DSH 给过程链成员（推理、工具调用等）标了 data-turn-process-member；
-            // 答复卡挂在最后一个成员之后，也就是整条过程链下方、正文之前。
+            // 答复卡要和「过程链」「正文」同级：过程成员可能嵌在过程容器里，
+            // 先上溯到对话列的直接子节点，再插在它后面，否则会被折进过程块。
             let lastMember = null
+            let bodyItem = null
             for (const item of items) {
-              if (item.hasAttribute?.('data-turn-process-member')) lastMember = item
+              if (item.hasAttribute?.('data-turn-process-member')) {
+                lastMember = item
+              } else if (item.getAttribute?.('data-chat-flow-kind') === 'assistant') {
+                bodyItem = item
+              }
             }
-            if (lastMember !== null && lastMember.parentElement !== null) {
-              moveSection(section, lastMember.parentElement, lastMember.nextSibling)
-              return
+            const container = (bodyItem ?? lastMember ?? items[0])?.parentElement ?? null
+            if (lastMember !== null && container !== null) {
+              let node = lastMember
+              while (node.parentElement !== null && node.parentElement !== container) node = node.parentElement
+              if (node.parentElement === container) {
+                moveSection(section, container, node.nextSibling)
+                return
+              }
             }
           }
           // 槽位锚点在轮次尾部：没有「已完成」时贴在它后面。
