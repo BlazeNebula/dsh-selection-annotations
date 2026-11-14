@@ -279,6 +279,27 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           q.appendChild(note)
         }
         content.appendChild(q)
+        // 原批注带的附图在答复里也照常显示，避免答复区只有文字。
+        const replyThumbs = Array.isArray(item.thumbs) ? item.thumbs : []
+        if (replyThumbs.length > 0) {
+          const gallery = document.createElement('div')
+          gallery.className = 'sa-sent-thumbs'
+          for (const thumb of replyThumbs) {
+            if (typeof thumb?.dataUrl !== 'string' || thumb.dataUrl === '') continue
+            const img = document.createElement('img')
+            img.className = 'sa-sent-thumb'
+            img.src = thumb.dataUrl
+            img.alt = typeof thumb.name === 'string' ? thumb.name : t('image.alt')
+            img.title = t('image.open')
+            img.addEventListener('click', (event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              openImageViewer(typeof thumb.preview === 'string' && thumb.preview !== '' ? thumb.preview : thumb.dataUrl, thumb.name)
+            })
+            gallery.appendChild(img)
+          }
+          if (gallery.childNodes.length > 0) content.appendChild(gallery)
+        }
       }
 
       const a = document.createElement('div')
