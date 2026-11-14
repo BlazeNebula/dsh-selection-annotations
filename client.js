@@ -3068,6 +3068,7 @@
         }
         function moveSection(section, container, before) {
           if (container === null || container === void 0) return;
+          if (before === section) return;
           if (section.parentElement === container && section.nextSibling === before) return;
           container.insertBefore(section, before);
         }
@@ -4959,11 +4960,8 @@
           document.addEventListener("selectionchange", onSelectionChange);
           const onSelectPointerDown = (event) => {
             const target = elementOf2(event.target);
-            if (target !== null && target.closest(
-              '[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"], [data-sa-ui="popover"], [data-sa-ui="panel"], [data-sa-ui="viewer"]'
-            ) !== null) {
-              return;
-            }
+            if (target !== null && target.closest("[data-sa-ui]") !== null) return;
+            if (popover.dataset.open === "1" && target !== null && target.closest('[data-sa-ui="popover"]') !== null) return;
             pointerSelecting = true;
             hideToolbar();
           };
