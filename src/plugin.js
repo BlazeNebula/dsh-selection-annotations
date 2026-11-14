@@ -1635,11 +1635,19 @@ export function createPlugin(React, extras = {}) {
         popClose.textContent = '×'
         popClose.setAttribute('aria-label', t('pop.cancel'))
         popHead.append(popTitle, popClose)
-        // 在弹层里移动光标、键入或删除时，把它抬到最前层，避免被页面里的浮层压住。
+        // 在弹层里移动光标、键入或删除时，把它抬到页面内容之上，避免被页面里的浮层压住。
+        // 抬升是临时状态：焦点离开或点到别处就降回基础层级，不压住 DSH 自己的菜单和图片灯箱。
         const raisePopover = () => popover.classList.add('sa-front')
         popover.addEventListener('pointerdown', raisePopover, true)
         popover.addEventListener('focusin', raisePopover, true)
         popover.addEventListener('keydown', raisePopover, true)
+        popover.addEventListener('focusout', (event) => {
+          const next = elementOf(event.relatedTarget)
+          if (next !== null && popover.contains(next)) return
+          window.setTimeout(() => {
+            if (!popover.contains(document.activeElement)) popover.classList.remove('sa-front')
+          }, 0)
+        })
         // 按住标题区可以挪动整个弹层，避免它挡住正在看的原文。
         let popDrag = null
         popHead.addEventListener('pointerdown', (event) => {
@@ -3273,6 +3281,8 @@ export function createPlugin(React, extras = {}) {
             const target = elementOf(event.target)
             if (target !== null && target.closest('[data-sa-ui="menu"]') !== null) return
             closeContextMenu()
+            if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return
+            popover.classList.remove('sa-front')
           }
           /** 发送动作发生前补正文：点击发送按钮或按 Enter 提交时都要经过这里。 */
           const fillFallbackIfSending = () => {

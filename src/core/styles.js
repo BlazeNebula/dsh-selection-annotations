@@ -56,8 +56,9 @@ export const CSS = `
   transition: opacity 180ms ease, transform 180ms ease, visibility 180ms; }
 .sa-popover[data-open="1"] { opacity: 1; visibility: visible; transform: none; }
 /* 进入编辑、移动光标或键入时抬到最前层；比 DSH 的普通浮层高，但仍低于图片查看器。*/
-.sa-popover.sa-front { z-index: 2147483000; }
-.sa-viewer { position: fixed; inset: 0; z-index: 80; display: none; align-items: center; justify-content: center;
+/* 抬升只在编辑时生效，层级夹在 DSH 菜单（1100）与图片灯箱（1000）之下。*/
+.sa-popover.sa-front { z-index: 950; }
+.sa-viewer { position: fixed; inset: 0; z-index: 960; display: none; align-items: center; justify-content: center;
   background: rgb(0 0 0 / 0.72); cursor: zoom-out; }
 .sa-viewer[data-open="1"] { display: flex; }
 .sa-viewer-img { max-width: 92vw; max-height: 88vh; box-sizing: border-box; border-radius: 6px;
