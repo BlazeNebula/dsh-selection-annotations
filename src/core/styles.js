@@ -47,6 +47,7 @@ export const CSS = `
   .sa-toolbar .sa-btn-adopt, .sa-toolbar .sa-btn-adopt:hover { color: var(--dsw-alias-brand-primary, #247bbf); }
   .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-popover { position: fixed; display: block; z-index: 70; width: 340px; max-width: calc(100vw - 24px);
+  overflow-y: auto; overscroll-behavior: contain;
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-layer-2, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
   box-shadow: var(--dsw-elevation-prominent, 0 10px 32px rgba(0,0,0,.24));

@@ -49,6 +49,7 @@
   .sa-toolbar .sa-btn-adopt, .sa-toolbar .sa-btn-adopt:hover { color: var(--dsw-alias-brand-primary, #247bbf); }
   .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-popover { position: fixed; display: block; z-index: 70; width: 340px; max-width: calc(100vw - 24px);
+  overflow-y: auto; overscroll-behavior: contain;
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-layer-2, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
   box-shadow: var(--dsw-elevation-prominent, 0 10px 32px rgba(0,0,0,.24));
@@ -3561,6 +3562,7 @@
         let popoverHovered = false;
         let popoverTouched = false;
         let popoverSource = "manual";
+        let popoverRect = null;
         function caretToEnd() {
           const selection = window.getSelection();
           if (selection === null || typeof document.createRange !== "function") return;
@@ -3816,14 +3818,24 @@
           return Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8));
         }
         function placePopover(rect) {
+          if (rect === void 0 || rect === null) return;
+          popoverRect = rect;
+          popover.style.maxHeight = "";
           const width = popover.offsetWidth || 340;
           const height = popover.offsetHeight || 240;
           const point = popoverSource === "hover" ? lastPointerMove : selectionPointer ?? lastPointerMove;
           const left = anchoredLeft(point, rect, width);
-          const above = rect.top - height - 10;
-          const top = above >= 8 ? above : Math.min(rect.bottom + 10, window.innerHeight - height - 8);
+          const margin = 8;
+          const gap = 10;
+          const spaceAbove = rect.top - gap - margin;
+          const spaceBelow = window.innerHeight - rect.bottom - gap - margin;
+          const preferAbove = spaceAbove >= Math.min(height, spaceBelow);
+          const available = Math.max(160, preferAbove ? spaceAbove : spaceBelow);
+          popover.style.maxHeight = `${Math.floor(available)}px`;
+          const effectiveHeight = Math.min(height, available);
+          const top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap;
           popover.style.left = `${left}px`;
-          popover.style.top = `${Math.max(8, top)}px`;
+          popover.style.top = `${Math.max(margin, top)}px`;
         }
         function placeToolbar(element, rect, point) {
           const width = element.offsetWidth || 80;
@@ -4937,6 +4949,7 @@
             scheduleRepaint();
             positionPanel();
             closeContextMenu();
+            if (popover.dataset.open === "1" && popoverRect !== null) placePopover(popoverRect);
           };
           window.addEventListener("scroll", onViewport, true);
           window.addEventListener("resize", onViewport);

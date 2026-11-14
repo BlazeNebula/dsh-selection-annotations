@@ -1701,6 +1701,7 @@ export function createPlugin(React, extras = {}) {
         let popoverTouched = false
         /** 弹层是谁打开的：主动点开，还是悬停预览。只有悬停的会被自动关。*/
         let popoverSource = 'manual'
+        let popoverRect = null
         /** 备注编辑器：采纳句是可整体删除的 token，其余仍是普通文本。*/
         function caretToEnd() {
           const selection = window.getSelection()
@@ -1987,14 +1988,25 @@ export function createPlugin(React, extras = {}) {
 
         /** 批注弹层：横向跟随鼠标/选区落点；编辑区在弹层下半部，所以优先放到选区上方。*/
         function placePopover(rect) {
+          if (rect === undefined || rect === null) return
+          popoverRect = rect
+          popover.style.maxHeight = ''
           const width = popover.offsetWidth || 340
           const height = popover.offsetHeight || 240
           const point = popoverSource === 'hover' ? lastPointerMove : (selectionPointer ?? lastPointerMove)
           const left = anchoredLeft(point, rect, width)
-          const above = rect.top - height - 10
-          const top = above >= 8 ? above : Math.min(rect.bottom + 10, window.innerHeight - height - 8)
+          const margin = 8
+          const gap = 10
+          const spaceAbove = rect.top - gap - margin
+          const spaceBelow = window.innerHeight - rect.bottom - gap - margin
+          // 上方放得下就放上方；否则下方；无论哪种，高度都夹进可用空间，超出时在面板内滚动。
+          const preferAbove = spaceAbove >= Math.min(height, spaceBelow)
+          const available = Math.max(160, preferAbove ? spaceAbove : spaceBelow)
+          popover.style.maxHeight = `${Math.floor(available)}px`
+          const effectiveHeight = Math.min(height, available)
+          const top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap
           popover.style.left = `${left}px`
-          popover.style.top = `${Math.max(8, top)}px`
+          popover.style.top = `${Math.max(margin, top)}px`
         }
 
         /** 工具条：横向跟随划线结束的位置，纵向仍贴着选区下沿，避免盖住刚划的那行字。*/
@@ -3276,6 +3288,7 @@ export function createPlugin(React, extras = {}) {
             scheduleRepaint()
             positionPanel()
             closeContextMenu()
+            if (popover.dataset.open === '1' && popoverRect !== null) placePopover(popoverRect)
           }
           window.addEventListener('scroll', onViewport, true)
           window.addEventListener('resize', onViewport)
