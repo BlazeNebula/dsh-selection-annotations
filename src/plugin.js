@@ -1096,22 +1096,14 @@ export function createPlugin(React, extras = {}) {
           // 下方即使还有插队消息，答复也不会被推远。
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)]
-            // 「已完成」是独立的过程节点；答复卡挂在最后一个过程节点之后，
-            // 也就是过程工具链结束、后续正文开始的位置。
-            let lastProcess = null
-            const processKinds = new Set(['turn-process', 'reasoning', 'tool-call', 'tool-result', 'process-evidence', 'process-groups'])
+            // DSH 给过程链成员（推理、工具调用等）标了 data-turn-process-member；
+            // 答复卡挂在最后一个成员之后，也就是整条过程链下方、正文之前。
+            let lastMember = null
             for (const item of items) {
-              const kind = item.getAttribute?.('data-chat-flow-kind') ?? ''
-              if (
-                processKinds.has(kind) ||
-                item.querySelector?.('[data-turn-process]') !== null ||
-                item.querySelector?.('[data-turn-process-inline]') !== null
-              ) {
-                lastProcess = item
-              }
+              if (item.hasAttribute?.('data-turn-process-member')) lastMember = item
             }
-            if (lastProcess !== null && lastProcess.parentElement !== null) {
-              moveSection(section, lastProcess.parentElement, lastProcess.nextSibling)
+            if (lastMember !== null && lastMember.parentElement !== null) {
+              moveSection(section, lastMember.parentElement, lastMember.nextSibling)
               return
             }
           }

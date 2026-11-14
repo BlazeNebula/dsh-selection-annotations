@@ -3092,16 +3092,12 @@
           }
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)];
-            let lastProcess = null;
-            const processKinds = /* @__PURE__ */ new Set(["turn-process", "reasoning", "tool-call", "tool-result", "process-evidence", "process-groups"]);
+            let lastMember = null;
             for (const item of items) {
-              const kind = item.getAttribute?.("data-chat-flow-kind") ?? "";
-              if (processKinds.has(kind) || item.querySelector?.("[data-turn-process]") !== null || item.querySelector?.("[data-turn-process-inline]") !== null) {
-                lastProcess = item;
-              }
+              if (item.hasAttribute?.("data-turn-process-member")) lastMember = item;
             }
-            if (lastProcess !== null && lastProcess.parentElement !== null) {
-              moveSection(section, lastProcess.parentElement, lastProcess.nextSibling);
+            if (lastMember !== null && lastMember.parentElement !== null) {
+              moveSection(section, lastMember.parentElement, lastMember.nextSibling);
               return;
             }
           }
