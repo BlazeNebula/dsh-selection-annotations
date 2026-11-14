@@ -343,6 +343,9 @@
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-note { margin-top: 4px; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .sa-sent-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+/* 已发送批注里的附图：边长跟内容字号走（5 倍），Ctrl +/- 放大缩小时一起变。*/
+.sa-sent-thumb { width: calc(var(--dsh-content-font-size, 14px) * 5); height: calc(var(--dsh-content-font-size, 14px) * 5);
+  object-fit: cover; border-radius: 6px; cursor: zoom-in; display: block; }
 /* 三处区域的文字亮度：除「答复」正文（.sa-a-reason）外统一压到 80%。
    用 color-mix 与黑色混合，亮度按比例下降；正文保持原色，作为唯一的第一层。*/
 .sa-panel, .sa-sent, .sa-replies {
@@ -3061,26 +3064,15 @@
           }
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)];
-            let lastProcessIndex = -1;
-            for (let i = 0; i < items.length; i += 1) {
-              if (items[i].querySelector?.("[data-turn-process-inline]") !== null) lastProcessIndex = i;
-            }
-            if (lastProcessIndex >= 0) {
-              for (let i = lastProcessIndex + 1; i < items.length; i += 1) {
-                const kind = items[i].getAttribute?.("data-chat-flow-kind") ?? "";
-                if (kind.startsWith("assistant") && items[i].parentElement !== null) {
-                  moveSection(section, items[i].parentElement, items[i]);
-                  return;
-                }
-              }
-            }
-            let lastAssistant = null;
+            let lastProcess = null;
             for (const item of items) {
               const kind = item.getAttribute?.("data-chat-flow-kind") ?? "";
-              if (kind.startsWith("assistant")) lastAssistant = item;
+              if (kind === "turn-process" || item.querySelector?.("[data-turn-process]") !== null || item.querySelector?.("[data-turn-process-inline]") !== null) {
+                lastProcess = item;
+              }
             }
-            if (lastAssistant !== null && lastAssistant.parentElement !== null) {
-              moveSection(section, lastAssistant.parentElement, lastAssistant);
+            if (lastProcess !== null && lastProcess.parentElement !== null) {
+              moveSection(section, lastProcess.parentElement, lastProcess.nextSibling);
               return;
             }
           }

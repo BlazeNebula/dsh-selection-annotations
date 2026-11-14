@@ -341,6 +341,9 @@ export const CSS = `
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-note { margin-top: 4px; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .sa-sent-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+/* 已发送批注里的附图：边长跟内容字号走（5 倍），Ctrl +/- 放大缩小时一起变。*/
+.sa-sent-thumb { width: calc(var(--dsh-content-font-size, 14px) * 5); height: calc(var(--dsh-content-font-size, 14px) * 5);
+  object-fit: cover; border-radius: 6px; cursor: zoom-in; display: block; }
 /* 三处区域的文字亮度：除「答复」正文（.sa-a-reason）外统一压到 80%。
    用 color-mix 与黑色混合，亮度按比例下降；正文保持原色，作为唯一的第一层。*/
 .sa-panel, .sa-sent, .sa-replies {

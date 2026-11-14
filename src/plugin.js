@@ -1094,28 +1094,21 @@ export function createPlugin(React, extras = {}) {
           // 下方即使还有插队消息，答复也不会被推远。
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)]
-            // 折叠块（过程链）结束之后、后续正文开始之前：答复卡落在这一段的上沿。
-            let lastProcessIndex = -1
-            for (let i = 0; i < items.length; i += 1) {
-              if (items[i].querySelector?.('[data-turn-process-inline]') !== null) lastProcessIndex = i
-            }
-            if (lastProcessIndex >= 0) {
-              for (let i = lastProcessIndex + 1; i < items.length; i += 1) {
-                const kind = items[i].getAttribute?.('data-chat-flow-kind') ?? ''
-                if (kind.startsWith('assistant') && items[i].parentElement !== null) {
-                  moveSection(section, items[i].parentElement, items[i])
-                  return
-                }
-              }
-            }
-            let lastAssistant = null
+            // 「已完成」是独立的过程节点；答复卡挂在最后一个过程节点之后，
+            // 也就是过程工具链结束、后续正文开始的位置。
+            let lastProcess = null
             for (const item of items) {
               const kind = item.getAttribute?.('data-chat-flow-kind') ?? ''
-              if (kind.startsWith('assistant')) lastAssistant = item
+              if (
+                kind === 'turn-process' ||
+                item.querySelector?.('[data-turn-process]') !== null ||
+                item.querySelector?.('[data-turn-process-inline]') !== null
+              ) {
+                lastProcess = item
+              }
             }
-            // 找不到过程链边界时退回旧规则：紧贴在最终输出之前。
-            if (lastAssistant !== null && lastAssistant.parentElement !== null) {
-              moveSection(section, lastAssistant.parentElement, lastAssistant)
+            if (lastProcess !== null && lastProcess.parentElement !== null) {
+              moveSection(section, lastProcess.parentElement, lastProcess.nextSibling)
               return
             }
           }
