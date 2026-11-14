@@ -4959,8 +4959,11 @@
           document.addEventListener("selectionchange", onSelectionChange);
           const onSelectPointerDown = (event) => {
             const target = elementOf2(event.target);
-            if (target !== null && target.closest("[data-sa-ui]") !== null) return;
-            if (popover.dataset.open === "1" && target !== null && target.closest('[data-sa-ui="popover"]') !== null) return;
+            if (target !== null && target.closest(
+              '[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"], [data-sa-ui="popover"], [data-sa-ui="panel"], [data-sa-ui="viewer"]'
+            ) !== null) {
+              return;
+            }
             pointerSelecting = true;
             hideToolbar();
           };

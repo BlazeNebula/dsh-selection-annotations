@@ -3279,8 +3279,16 @@ export function createPlugin(React, extras = {}) {
           // 拖动选区的过程中只记录指针，不渲染工具条；松手后再出现，避免频闪。
           const onSelectPointerDown = (event) => {
             const target = elementOf(event.target)
-            if (target !== null && target.closest('[data-sa-ui]') !== null) return
-            if (popover.dataset.open === '1' && target !== null && target.closest('[data-sa-ui="popover"]') !== null) return
+            // 只有工具条、菜单、弹层这类操作控件不算划线起点；
+            // 已发送/答复卡片里的正文可以划线，必须进入拖选状态，否则重绘会把选区拽跑。
+            if (
+              target !== null &&
+              target.closest(
+                '[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"], [data-sa-ui="popover"], [data-sa-ui="panel"], [data-sa-ui="viewer"]',
+              ) !== null
+            ) {
+              return
+            }
             pointerSelecting = true
             hideToolbar()
           }
