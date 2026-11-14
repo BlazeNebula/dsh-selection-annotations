@@ -2085,17 +2085,27 @@ export function createPlugin(React, extras = {}) {
           for (const image of popInputImages) {
             const box = document.createElement('div')
             box.className = 'sa-pop-image'
-            if (typeof image.url === 'string' && image.url !== '') {
+            const src =
+              typeof image.url === 'string' && image.url !== ''
+                ? image.url
+                : typeof image.preview === 'string' && image.preview !== ''
+                  ? image.preview
+                  : typeof image.thumb === 'string' && image.thumb !== ''
+                    ? image.thumb
+                    : typeof image.dataUrl === 'string' && image.dataUrl !== ''
+                      ? image.dataUrl
+                      : ''
+            if (src !== '') {
               const thumb = document.createElement('img')
               thumb.className = 'sa-pop-thumb'
-              thumb.src = image.url
+              thumb.src = src
               thumb.alt = image.name
               thumb.title = t('image.open')
               thumb.style.cursor = 'zoom-in'
               thumb.addEventListener('click', (event) => {
                 event.preventDefault()
                 event.stopPropagation()
-                openImageViewer(image.url, image.name)
+                openImageViewer(src, image.name)
               })
               box.appendChild(thumb)
             } else {

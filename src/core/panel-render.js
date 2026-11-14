@@ -105,17 +105,27 @@ export function createPanelRenderer({
       if (Array.isArray(item.images) && item.images.length > 0) {
         const gallery = el('div', 'sa-item-images')
         for (const image of item.images) {
-          if (typeof image?.url !== 'string' || image.url === '') continue
+          const src =
+            typeof image?.url === 'string' && image.url !== ''
+              ? image.url
+              : typeof image?.preview === 'string' && image.preview !== ''
+                ? image.preview
+                : typeof image?.thumb === 'string' && image.thumb !== ''
+                  ? image.thumb
+                  : typeof image?.dataUrl === 'string' && image.dataUrl !== ''
+                    ? image.dataUrl
+                    : ''
+          if (src === '') continue
           const thumb = document.createElement('img')
           thumb.className = 'sa-item-thumb'
-          thumb.src = image.url
+          thumb.src = src
           thumb.alt = typeof image.name === 'string' ? image.name : t('image.alt')
           thumb.title = t('image.open')
           thumb.style.cursor = 'zoom-in'
           thumb.addEventListener('click', (event) => {
             event.preventDefault()
             event.stopPropagation()
-            openImageViewer(image.url, image.name)
+            openImageViewer(src, image.name)
           })
           gallery.appendChild(thumb)
         }
