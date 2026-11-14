@@ -3092,6 +3092,14 @@
           }
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)];
+            const inlines = [...document.querySelectorAll(`[data-chat-turn="${turn}"] [data-turn-process-inline]`)];
+            if (inlines.length > 0) {
+              const lastInline = inlines[inlines.length - 1];
+              if (lastInline.parentElement !== null) {
+                moveSection(section, lastInline.parentElement, lastInline.nextSibling);
+                return;
+              }
+            }
             let lastMember = null;
             let bodyItem = null;
             for (const item of items) {

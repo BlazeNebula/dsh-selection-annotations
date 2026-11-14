@@ -1096,8 +1096,17 @@ export function createPlugin(React, extras = {}) {
           // 下方即使还有插队消息，答复也不会被推远。
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)]
-            // 答复卡要和「过程链」「正文」同级：过程成员可能嵌在过程容器里，
-            // 先上溯到对话列的直接子节点，再插在它后面，否则会被折进过程块。
+            // 0.2.x 把过程内容收在 [data-turn-process-inline] 里，和正文同属一条助手消息。
+            // 答复卡插在这个容器的外面、正文前面，既在过程链下方，也不会被折叠收起。
+            const inlines = [...document.querySelectorAll(`[data-chat-turn="${turn}"] [data-turn-process-inline]`)]
+            if (inlines.length > 0) {
+              const lastInline = inlines[inlines.length - 1]
+              if (lastInline.parentElement !== null) {
+                moveSection(section, lastInline.parentElement, lastInline.nextSibling)
+                return
+              }
+            }
+            // 旧结构：过程成员嵌在过程容器里，先上溯到对话列的直接子节点再插。
             let lastMember = null
             let bodyItem = null
             for (const item of items) {
