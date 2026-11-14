@@ -1645,7 +1645,6 @@
             note.textContent = item.note;
             q.appendChild(note);
           }
-          content.appendChild(q);
           const replyThumbs = Array.isArray(item.thumbs) ? item.thumbs : [];
           if (replyThumbs.length > 0) {
             const gallery = document.createElement("div");
@@ -1664,8 +1663,9 @@
               });
               gallery.appendChild(img);
             }
-            if (gallery.childNodes.length > 0) content.appendChild(gallery);
+            if (gallery.childNodes.length > 0) q.appendChild(gallery);
           }
+          content.appendChild(q);
         }
         const a = document.createElement("div");
         a.className = "sa-a";
@@ -1867,6 +1867,11 @@
           a.appendChild(el("div", "sa-item-label", t("panel.note")));
           const noteEl = el("div", "sa-item-note", item.note);
           if (isAdopt(item.note)) noteEl.dataset.adopt = "1";
+          noteEl.addEventListener("dblclick", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openEditPopover(item.id, head);
+          });
           a.appendChild(noteEl);
           row.appendChild(a);
         }

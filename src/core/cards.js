@@ -278,8 +278,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           note.textContent = item.note
           q.appendChild(note)
         }
-        content.appendChild(q)
-        // 原批注带的附图在答复里也照常显示，避免答复区只有文字。
+        // 原批注带的附图属于「批注」内容，跟在批注正文后面、同一层级里。
         const replyThumbs = Array.isArray(item.thumbs) ? item.thumbs : []
         if (replyThumbs.length > 0) {
           const gallery = document.createElement('div')
@@ -298,8 +297,9 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
             })
             gallery.appendChild(img)
           }
-          if (gallery.childNodes.length > 0) content.appendChild(gallery)
+          if (gallery.childNodes.length > 0) q.appendChild(gallery)
         }
+        content.appendChild(q)
       }
 
       const a = document.createElement('div')

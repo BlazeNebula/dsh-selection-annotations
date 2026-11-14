@@ -99,6 +99,12 @@ export function createPanelRenderer({
         a.appendChild(el('div', 'sa-item-label', t('panel.note')))
         const noteEl = el('div', 'sa-item-note', item.note)
         if (isAdopt(item.note)) noteEl.dataset.adopt = '1'
+        // 双击批注正文等同「编辑」按钮：打开同一条批注的编辑弹层。
+        noteEl.addEventListener('dblclick', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          openEditPopover(item.id, head)
+        })
         a.appendChild(noteEl)
         row.appendChild(a)
       }
