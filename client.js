@@ -3060,7 +3060,20 @@
             }
           }
           if (Number.isFinite(turn)) {
-            const items = document.querySelectorAll(`[data-chat-turn="${turn}"]`);
+            const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)];
+            let lastProcessIndex = -1;
+            for (let i = 0; i < items.length; i += 1) {
+              if (items[i].querySelector?.("[data-turn-process-inline]") !== null) lastProcessIndex = i;
+            }
+            if (lastProcessIndex >= 0) {
+              for (let i = lastProcessIndex + 1; i < items.length; i += 1) {
+                const kind = items[i].getAttribute?.("data-chat-flow-kind") ?? "";
+                if (kind.startsWith("assistant") && items[i].parentElement !== null) {
+                  moveSection(section, items[i].parentElement, items[i]);
+                  return;
+                }
+              }
+            }
             let lastAssistant = null;
             for (const item of items) {
               const kind = item.getAttribute?.("data-chat-flow-kind") ?? "";
@@ -3509,7 +3522,34 @@
         popClose.textContent = "×";
         popClose.setAttribute("aria-label", t("pop.cancel"));
         popHead.append(popTitle, popClose);
-        const raisePopover = () => popover.classList.add("sa-front");
+        const lowerPopover = () => {
+          popover.classList.remove("sa-front");
+          popover.style.zIndex = "";
+        };
+        const raisePopover = () => {
+          const rect = popover.getBoundingClientRect();
+          let max = 0;
+          if (rect.width > 0 && rect.height > 0) {
+            const points = [
+              [rect.left + 4, rect.top + 4],
+              [rect.right - 4, rect.top + 4],
+              [rect.left + 4, rect.bottom - 4],
+              [rect.right - 4, rect.bottom - 4],
+              [rect.left + rect.width / 2, rect.top + rect.height / 2]
+            ];
+            for (const [x, y] of points) {
+              const stack = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(x, y) : [];
+              for (const node of stack) {
+                if (node === popover || popover.contains(node)) continue;
+                if (node === document.body || node === document.documentElement) continue;
+                const z = Number(window.getComputedStyle(node).zIndex);
+                if (Number.isFinite(z) && z > max) max = z;
+              }
+            }
+          }
+          popover.style.zIndex = String(Math.min(950, Math.max(70, max + 1)));
+          popover.classList.add("sa-front");
+        };
         popover.addEventListener("pointerdown", raisePopover, true);
         popover.addEventListener("focusin", raisePopover, true);
         popover.addEventListener("keydown", raisePopover, true);
@@ -3517,7 +3557,7 @@
           const next = elementOf2(event.relatedTarget);
           if (next !== null && popover.contains(next)) return;
           window.setTimeout(() => {
-            if (!popover.contains(document.activeElement)) popover.classList.remove("sa-front");
+            if (!popover.contains(document.activeElement)) lowerPopover();
           }, 0);
         });
         let popDrag = null;
@@ -4085,7 +4125,7 @@
         }
         function closePopover() {
           popover.dataset.open = "0";
-          popover.classList.remove("sa-front");
+          lowerPopover();
           safe(() => popInput.blur());
           popoverAnchor = null;
           popoverTargetId = null;
@@ -4944,7 +4984,7 @@
             if (target !== null && target.closest('[data-sa-ui="menu"]') !== null) return;
             closeContextMenu();
             if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return;
-            popover.classList.remove("sa-front");
+            lowerPopover();
           };
           const fillFallbackIfSending = () => {
             if (annotations.length === 0) return;

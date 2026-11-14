@@ -1093,14 +1093,27 @@ export function createPlugin(React, extras = {}) {
           // 答复卡紧跟在最终输出之后：找到该轮最后一个助手内容块，插在它后面；
           // 下方即使还有插队消息，答复也不会被推远。
           if (Number.isFinite(turn)) {
-            const items = document.querySelectorAll(`[data-chat-turn="${turn}"]`)
+            const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)]
+            // 折叠块（过程链）结束之后、后续正文开始之前：答复卡落在这一段的上沿。
+            let lastProcessIndex = -1
+            for (let i = 0; i < items.length; i += 1) {
+              if (items[i].querySelector?.('[data-turn-process-inline]') !== null) lastProcessIndex = i
+            }
+            if (lastProcessIndex >= 0) {
+              for (let i = lastProcessIndex + 1; i < items.length; i += 1) {
+                const kind = items[i].getAttribute?.('data-chat-flow-kind') ?? ''
+                if (kind.startsWith('assistant') && items[i].parentElement !== null) {
+                  moveSection(section, items[i].parentElement, items[i])
+                  return
+                }
+              }
+            }
             let lastAssistant = null
             for (const item of items) {
               const kind = item.getAttribute?.('data-chat-flow-kind') ?? ''
               if (kind.startsWith('assistant')) lastAssistant = item
             }
-            // 「已完成」内联在助手消息体内；插队消息会排在最终输出之前，
-            // 用户要的是答复紧贴在最终输出之前，所以插在最后一个助手内容块前面。
+            // 找不到过程链边界时退回旧规则：紧贴在最终输出之前。
             if (lastAssistant !== null && lastAssistant.parentElement !== null) {
               moveSection(section, lastAssistant.parentElement, lastAssistant)
               return
@@ -1635,9 +1648,36 @@ export function createPlugin(React, extras = {}) {
         popClose.textContent = '×'
         popClose.setAttribute('aria-label', t('pop.cancel'))
         popHead.append(popTitle, popClose)
-        // 在弹层里移动光标、键入或删除时，把它抬到页面内容之上，避免被页面里的浮层压住。
-        // 抬升是临时状态：焦点离开或点到别处就降回基础层级，不压住 DSH 自己的菜单和图片灯箱。
-        const raisePopover = () => popover.classList.add('sa-front')
+        // 抬升只在编辑时生效：只跟与弹层实际重叠的浮层比层级，取它们的最大值加一，
+        // 但不越过 DSH 菜单与图片放大查看层（950 上限）。
+        const lowerPopover = () => {
+          popover.classList.remove('sa-front')
+          popover.style.zIndex = ''
+        }
+        const raisePopover = () => {
+          const rect = popover.getBoundingClientRect()
+          let max = 0
+          if (rect.width > 0 && rect.height > 0) {
+            const points = [
+              [rect.left + 4, rect.top + 4],
+              [rect.right - 4, rect.top + 4],
+              [rect.left + 4, rect.bottom - 4],
+              [rect.right - 4, rect.bottom - 4],
+              [rect.left + rect.width / 2, rect.top + rect.height / 2],
+            ]
+            for (const [x, y] of points) {
+              const stack = typeof document.elementsFromPoint === 'function' ? document.elementsFromPoint(x, y) : []
+              for (const node of stack) {
+                if (node === popover || popover.contains(node)) continue
+                if (node === document.body || node === document.documentElement) continue
+                const z = Number(window.getComputedStyle(node).zIndex)
+                if (Number.isFinite(z) && z > max) max = z
+              }
+            }
+          }
+          popover.style.zIndex = String(Math.min(950, Math.max(70, max + 1)))
+          popover.classList.add('sa-front')
+        }
         popover.addEventListener('pointerdown', raisePopover, true)
         popover.addEventListener('focusin', raisePopover, true)
         popover.addEventListener('keydown', raisePopover, true)
@@ -1645,7 +1685,7 @@ export function createPlugin(React, extras = {}) {
           const next = elementOf(event.relatedTarget)
           if (next !== null && popover.contains(next)) return
           window.setTimeout(() => {
-            if (!popover.contains(document.activeElement)) popover.classList.remove('sa-front')
+            if (!popover.contains(document.activeElement)) lowerPopover()
           }, 0)
         })
         // 按住标题区可以挪动整个弹层，避免它挡住正在看的原文。
@@ -2302,7 +2342,7 @@ export function createPlugin(React, extras = {}) {
 
         function closePopover() {
           popover.dataset.open = '0'
-          popover.classList.remove('sa-front')
+          lowerPopover()
           // 页面刷新、关闭或插件卸载前再存一次：只靠状态变更时保存会丢掉最后几秒的编辑。
           safe(() => popInput.blur())
           popoverAnchor = null
@@ -3292,7 +3332,7 @@ export function createPlugin(React, extras = {}) {
             if (target !== null && target.closest('[data-sa-ui="menu"]') !== null) return
             closeContextMenu()
             if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return
-            popover.classList.remove('sa-front')
+            lowerPopover()
           }
           /** 发送动作发生前补正文：点击发送按钮或按 Enter 提交时都要经过这里。 */
           const fillFallbackIfSending = () => {
