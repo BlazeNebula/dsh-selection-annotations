@@ -1987,6 +1987,22 @@ export function createPlugin(React, extras = {}) {
         }
 
         /** 批注弹层：横向跟随鼠标/选区落点；编辑区在弹层下半部，所以优先放到选区上方。*/
+        /** 把一条批注的多行高亮合成一个整体矩形，弹层按整段避让，而不是只避开第一行。 */
+        function unionRects(rects) {
+          if (rects.length === 0) return null
+          let top = rects[0].top
+          let left = rects[0].left
+          let bottom = rects[0].bottom
+          let right = rects[0].right
+          for (const rect of rects) {
+            if (rect.top < top) top = rect.top
+            if (rect.left < left) left = rect.left
+            if (rect.bottom > bottom) bottom = rect.bottom
+            if (rect.right > right) right = rect.right
+          }
+          return { top, left, bottom, right, width: right - left, height: bottom - top }
+        }
+
         function placePopover(rect) {
           if (rect === undefined || rect === null) return
           popoverRect = rect
@@ -2657,7 +2673,8 @@ export function createPlugin(React, extras = {}) {
             if (popover.dataset.open === '1') return
             const target = annotations.find((item) => item.id === hit.id)
             if (target === undefined) return
-            const rect = hit.rects[0]
+            const rect = unionRects(hit.rects)
+            if (rect === null) return
             openEditPopover(target.id, { getBoundingClientRect: () => rect }, 'hover')
           }, HOVER_OPEN_DELAY_MS)
         }
