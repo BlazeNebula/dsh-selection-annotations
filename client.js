@@ -3095,8 +3095,11 @@
             const inlines = [...document.querySelectorAll(`[data-chat-turn="${turn}"] [data-turn-process-inline]`)];
             if (inlines.length > 0) {
               const lastInline = inlines[inlines.length - 1];
-              if (lastInline.parentElement !== null) {
-                moveSection(section, lastInline.parentElement, lastInline.nextSibling);
+              const flow = lastInline.closest('[data-chat-flow-kind="assistant"]');
+              if (flow !== null && flow.parentElement !== null) {
+                let node = lastInline;
+                while (node.parentElement !== null && node.parentElement !== flow) node = node.parentElement;
+                moveSection(section, flow, node.nextSibling);
                 return;
               }
             }
