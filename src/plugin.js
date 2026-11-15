@@ -3160,40 +3160,23 @@ export function createPlugin(React, extras = {}) {
           }
         }
 
-        /** 右侧标签页的正文：随批注增删自动刷新，内容与总览一致（引用、批注、采纳色）。 */
+        /** 右侧标签页的正文：复用批注总览的渲染，保证结构、图片、拖动与设置区一致。 */
         function SideTabBody() {
-          const [, force] = React.useState(0)
+          const hostRef = React.useRef(null)
           React.useEffect(() => {
-            const timer = window.setInterval(() => force((value) => value + 1), 800)
+            const host = hostRef.current
+            if (host === null) return undefined
+            const paint = () => renderSideTabInto(host)
+            paint()
+            const timer = window.setInterval(paint, 800)
             return () => window.clearInterval(timer)
           }, [])
-          const list = annotations
-          if (list.length === 0) return h('div', { className: 'sa-side-empty' }, t('sideTab.empty'))
-          return h(
-            'div',
-            { className: 'sa-side' },
-            list.map((item) =>
-              h(
-                'div',
-                { key: item.id, className: 'sa-side-item' },
-                h('span', { className: 'sa-side-num' }, String(item.number)),
-                h(
-                  'div',
-                  { className: 'sa-side-content' },
-                  h('div', { className: 'sa-side-quote' }, item.quote),
-                  item.note === ''
-                    ? null
-                    : h(
-                        'div',
-                        {
-                          className: hasAdoptNote(item.note) ? 'sa-side-note sa-side-adopt' : 'sa-side-note',
-                        },
-                        item.note,
-                      ),
-                ),
-              ),
-            ),
-          )
+          return h('div', { className: 'sa-side-host', ref: hostRef })
+        }
+
+        /** 延迟到面板渲染器初始化之后再取；SideTabBody 真正挂载时一定已经初始化。 */
+        function renderSideTabInto(host) {
+          panelRenderer.renderSide(host)
         }
 
         function SideTabTitle() {

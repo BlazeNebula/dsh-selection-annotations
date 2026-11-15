@@ -122,6 +122,9 @@ export const CSS = `
   opacity: 0; visibility: hidden; transform: translateY(6px) scale(0.98); will-change: opacity, transform;
   transition: opacity 180ms ease, transform 180ms ease, visibility 180ms; }
 .sa-float[data-open="1"] .sa-panel { opacity: 1; visibility: visible; transform: none; }
+.sa-side-host { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+.sa-panel-side { width: 100%; max-height: none; height: 100%; border: 0; border-radius: 0; box-shadow: none;
+  background: transparent; opacity: 1; visibility: visible; transform: none; }
 .sa-panel-head { display: flex; align-items: center; flex-wrap: wrap; row-gap: 4px; gap: 8px; flex: none; padding: 12px 14px 10px;
   border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-panel-title { flex: none; min-width: 0; font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); font-weight: 600; letter-spacing: 0.01em; }

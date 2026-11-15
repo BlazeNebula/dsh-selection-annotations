@@ -124,6 +124,9 @@
   opacity: 0; visibility: hidden; transform: translateY(6px) scale(0.98); will-change: opacity, transform;
   transition: opacity 180ms ease, transform 180ms ease, visibility 180ms; }
 .sa-float[data-open="1"] .sa-panel { opacity: 1; visibility: visible; transform: none; }
+.sa-side-host { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+.sa-panel-side { width: 100%; max-height: none; height: 100%; border: 0; border-radius: 0; box-shadow: none;
+  background: transparent; opacity: 1; visibility: visible; transform: none; }
 .sa-panel-head { display: flex; align-items: center; flex-wrap: wrap; row-gap: 4px; gap: 8px; flex: none; padding: 12px 14px 10px;
   border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-panel-title { flex: none; min-width: 0; font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); font-weight: 600; letter-spacing: 0.01em; }
@@ -1872,6 +1875,14 @@
     isAdopt = () => false
   }) {
     function render(panelEl) {
+      paint(panelEl, { surface: "panel" });
+    }
+    function renderSide(host) {
+      paint(host, { surface: "side" });
+    }
+    function paint(panelEl, options) {
+      const side = options !== void 0 && options.surface === "side";
+      panelEl.className = side ? "sa-panel sa-panel-side" : "sa-panel";
       const annotations = getAnnotations();
       panelEl.textContent = "";
       const panelHead = el("div", "sa-panel-head");
@@ -1885,10 +1896,12 @@
         meta.appendChild(button("sa-foot-action", t("panel.clear"), () => clearAnnotations()));
       }
       panelHead.appendChild(meta);
-      const close = button("sa-panel-close", "×", () => closePanel());
-      close.setAttribute("aria-label", t("panel.close"));
-      close.title = t("panel.close");
-      panelHead.appendChild(close);
+      if (!side) {
+        const close = button("sa-panel-close", "×", () => closePanel());
+        close.setAttribute("aria-label", t("panel.close"));
+        close.title = t("panel.close");
+        panelHead.appendChild(close);
+      }
       panelEl.appendChild(panelHead);
       const panelBody = el("div", "sa-panel-body");
       if (annotations.length === 0) {
@@ -1999,26 +2012,28 @@
       const build = el("span", "sa-build", `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`);
       build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`;
       panelFoot.appendChild(build);
-      const side = button("sa-panel-side", "", openSideTab);
-      side.title = t("panel.sideTab");
-      side.setAttribute("aria-label", t("panel.sideTab"));
-      const sideIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      sideIcon.setAttribute("viewBox", "0 0 16 16");
-      sideIcon.setAttribute("width", "14");
-      sideIcon.setAttribute("height", "14");
-      sideIcon.setAttribute("fill", "none");
-      sideIcon.setAttribute("stroke", "currentColor");
-      sideIcon.setAttribute("stroke-width", "1.2");
-      for (const d of ["M2.2 3.2h11.6v9.6H2.2z", "M10.2 3.2v9.6"]) {
-        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        path.setAttribute("d", d);
-        sideIcon.appendChild(path);
+      if (!side) {
+        const sideTab = button("sa-panel-side", "", openSideTab);
+        sideTab.title = t("panel.sideTab");
+        sideTab.setAttribute("aria-label", t("panel.sideTab"));
+        const sideIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        sideIcon.setAttribute("viewBox", "0 0 16 16");
+        sideIcon.setAttribute("width", "14");
+        sideIcon.setAttribute("height", "14");
+        sideIcon.setAttribute("fill", "none");
+        sideIcon.setAttribute("stroke", "currentColor");
+        sideIcon.setAttribute("stroke-width", "1.2");
+        for (const d of ["M2.2 3.2h11.6v9.6H2.2z", "M10.2 3.2v9.6"]) {
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", d);
+          sideIcon.appendChild(path);
+        }
+        sideTab.appendChild(sideIcon);
+        panelFoot.appendChild(sideTab);
       }
-      side.appendChild(sideIcon);
-      panelFoot.appendChild(side);
       panelEl.appendChild(panelFoot);
     }
-    return { render };
+    return { render, renderSide };
   }
 
   // src/core/web-picker.js
@@ -5303,36 +5318,19 @@
           }
         }
         function SideTabBody() {
-          const [, force] = React.useState(0);
+          const hostRef = React.useRef(null);
           React.useEffect(() => {
-            const timer = window.setInterval(() => force((value) => value + 1), 800);
+            const host = hostRef.current;
+            if (host === null) return void 0;
+            const paint = () => renderSideTabInto(host);
+            paint();
+            const timer = window.setInterval(paint, 800);
             return () => window.clearInterval(timer);
           }, []);
-          const list = annotations;
-          if (list.length === 0) return h("div", { className: "sa-side-empty" }, t("sideTab.empty"));
-          return h(
-            "div",
-            { className: "sa-side" },
-            list.map(
-              (item) => h(
-                "div",
-                { key: item.id, className: "sa-side-item" },
-                h("span", { className: "sa-side-num" }, String(item.number)),
-                h(
-                  "div",
-                  { className: "sa-side-content" },
-                  h("div", { className: "sa-side-quote" }, item.quote),
-                  item.note === "" ? null : h(
-                    "div",
-                    {
-                      className: hasAdoptNote(item.note) ? "sa-side-note sa-side-adopt" : "sa-side-note"
-                    },
-                    item.note
-                  )
-                )
-              )
-            )
-          );
+          return h("div", { className: "sa-side-host", ref: hostRef });
+        }
+        function renderSideTabInto(host) {
+          panelRenderer.renderSide(host);
         }
         function SideTabTitle() {
           return h("span", null, t("sideTab.title"));
