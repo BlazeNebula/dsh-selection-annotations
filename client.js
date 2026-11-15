@@ -5330,9 +5330,12 @@
             const timer = window.setInterval(paint, 800);
             return () => window.clearInterval(timer);
           }, []);
-          return h("div", { className: "sa-side-host", ref: hostRef });
+          return h("div", { className: "sa-side-host", "data-sa-ui": "side", ref: hostRef });
         }
         function renderSideTabInto(host) {
+          const signature = annotations.map((item) => `${item.id}:${item.number}:${item.note}:${(item.images ?? []).length}`).join("|");
+          if (host.dataset.saSignature === signature && host.childNodes.length > 0) return;
+          host.dataset.saSignature = signature;
           try {
             panelRenderer.renderSide(host);
           } catch (error) {

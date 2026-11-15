@@ -3171,11 +3171,18 @@ export function createPlugin(React, extras = {}) {
             const timer = window.setInterval(paint, 800)
             return () => window.clearInterval(timer)
           }, [])
-          return h('div', { className: 'sa-side-host', ref: hostRef })
+          return h('div', { className: 'sa-side-host', 'data-sa-ui': 'side', ref: hostRef })
         }
 
         /** 延迟到面板渲染器初始化之后再取；SideTabBody 真正挂载时一定已经初始化。 */
         function renderSideTabInto(host) {
+          // 内容没变就不重建：侧栏每 0.8 秒重画一次会制造大量 DOM 变动，
+          // 既打断侧栏里的选择，也让会话页的观察器误以为有新消息。
+          const signature = annotations
+            .map((item) => `${item.id}:${item.number}:${item.note}:${(item.images ?? []).length}`)
+            .join('|')
+          if (host.dataset.saSignature === signature && host.childNodes.length > 0) return
+          host.dataset.saSignature = signature
           try {
             panelRenderer.renderSide(host)
           } catch (error) {
