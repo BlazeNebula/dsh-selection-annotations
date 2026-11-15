@@ -106,11 +106,14 @@
 .sa-pop-spacer { flex: 1; }
 .sa-pop-delete { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-float { position: fixed; z-index: 63; max-width: calc(100vw - 16px); }
-.sa-chip { font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1; padding: 5px 9px; cursor: pointer;
+.sa-chip { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1; padding: 5px 10px; cursor: pointer;
   color: var(--dsw-alias-brand-primary, #247bbf); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 38%, transparent); border-radius: 999px; }
-.sa-chip:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 22%, transparent); }
-.sa-chip-open { background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 30%, transparent); }
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 38%, transparent); border-radius: 999px;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
+.sa-chip:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 22%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 55%, transparent); }
+.sa-chip-open { background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 30%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 68%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 18%, transparent); }
+.sa-chip:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 2px; }
 .sa-panel { display: flex; flex-direction: column; width: min(560px, calc(100vw - 32px)); max-height: min(72vh, 600px);
   padding: 0; box-sizing: border-box; overflow: hidden; border-radius: 12px; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
@@ -3985,8 +3988,8 @@
           const panelEl2 = popoverSource === "manual" ? document.querySelector('[data-sa-ui="panel"]') : null;
           const panelRect = panelEl2 === null ? null : safe(() => panelEl2.getBoundingClientRect());
           if (panelRect !== void 0 && panelRect !== null && panelRect.width > 0) {
-            const leftOfPanel = panelRect.left - gap - width;
-            left = leftOfPanel >= margin ? leftOfPanel : Math.min(panelRect.right + gap, window.innerWidth - width - margin);
+            const rightOfPanel = panelRect.right + gap;
+            left = rightOfPanel + width <= window.innerWidth - margin ? rightOfPanel : Math.max(margin, panelRect.left - width - gap);
             const maxHeight = window.innerHeight - margin * 2;
             const shownHeight = Math.min(height, maxHeight);
             top = Math.max(margin, Math.min(rect.top, window.innerHeight - shownHeight - margin));
@@ -4649,6 +4652,43 @@
         let panelOpen = false;
         let panelAnchor = null;
         let panelHideTimer = 0;
+        let panelOpenedByHover = false;
+        let panelHovered = false;
+        let chipHoverTimer = 0;
+        let chipCloseTimer = 0;
+        function scheduleChipOpen(anchor) {
+          if (chipCloseTimer !== 0) {
+            window.clearTimeout(chipCloseTimer);
+            chipCloseTimer = 0;
+          }
+          if (panelOpen || chipHoverTimer !== 0) return;
+          chipHoverTimer = window.setTimeout(() => {
+            chipHoverTimer = 0;
+            if (panelOpen) return;
+            panelOpenedByHover = true;
+            openPanel(anchor);
+          }, 140);
+        }
+        function cancelChipOpen() {
+          if (chipHoverTimer !== 0) {
+            window.clearTimeout(chipHoverTimer);
+            chipHoverTimer = 0;
+          }
+        }
+        function scheduleChipClose() {
+          cancelChipOpen();
+          if (!panelOpen || !panelOpenedByHover || chipCloseTimer !== 0) return;
+          chipCloseTimer = window.setTimeout(() => {
+            chipCloseTimer = 0;
+            if (panelOpenedByHover && !panelHovered) closePanel();
+          }, 220);
+        }
+        function cancelChipClose() {
+          if (chipCloseTimer !== 0) {
+            window.clearTimeout(chipCloseTimer);
+            chipCloseTimer = 0;
+          }
+        }
         let imageSettingsOpen = false;
         let instructionSettingsOpen = false;
         let fallbackSettingsOpen = false;
@@ -4899,6 +4939,10 @@
           if (!panelOpen) return;
           panelOpen = false;
           panelAnchor = null;
+          panelOpenedByHover = false;
+          panelHovered = false;
+          cancelChipOpen();
+          cancelChipClose();
           panelRoot.dataset.open = "0";
           if (panelHideTimer !== 0) window.clearTimeout(panelHideTimer);
           panelHideTimer = window.setTimeout(() => {
@@ -4911,6 +4955,17 @@
           if (panelOpen) closePanel();
           else openPanel(anchor);
         }
+        panelRoot.addEventListener("pointerdown", () => {
+          panelOpenedByHover = false;
+        }, true);
+        panelRoot.addEventListener("mouseenter", () => {
+          panelHovered = true;
+          cancelChipClose();
+        });
+        panelRoot.addEventListener("mouseleave", () => {
+          panelHovered = false;
+          scheduleChipClose();
+        });
         const onPanelOutsidePointerDown = (event) => {
           if (!panelOpen) return;
           const target = elementOf2(event.target);
@@ -4948,7 +5003,14 @@
               className: local.open ? "sa-chip sa-chip-open" : "sa-chip",
               type: "button",
               title: count === 0 ? t("chip.emptyTitle") : t("chip.title"),
-              onClick: (event) => togglePanel(event.currentTarget)
+              onMouseEnter: (event) => scheduleChipOpen(event.currentTarget),
+              onMouseLeave: () => scheduleChipClose(),
+              onClick: (event) => {
+                cancelChipOpen();
+                cancelChipClose();
+                panelOpenedByHover = false;
+                togglePanel(event.currentTarget);
+              }
             },
             count === 0 ? t("chip.label") : t("chip.count", { n: count })
           );

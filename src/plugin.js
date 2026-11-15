@@ -2116,8 +2116,12 @@ export function createPlugin(React, extras = {}) {
           const panelEl = popoverSource === 'manual' ? document.querySelector('[data-sa-ui="panel"]') : null
           const panelRect = panelEl === null ? null : safe(() => panelEl.getBoundingClientRect())
           if (panelRect !== undefined && panelRect !== null && panelRect.width > 0) {
-            const leftOfPanel = panelRect.left - gap - width
-            left = leftOfPanel >= margin ? leftOfPanel : Math.min(panelRect.right + gap, window.innerWidth - width - margin)
+            // 先放面板右侧；右边放不下再放左侧。
+            const rightOfPanel = panelRect.right + gap
+            left =
+              rightOfPanel + width <= window.innerWidth - margin
+                ? rightOfPanel
+                : Math.max(margin, panelRect.left - width - gap)
             const maxHeight = window.innerHeight - margin * 2
             const shownHeight = Math.min(height, maxHeight)
             top = Math.max(margin, Math.min(rect.top, window.innerHeight - shownHeight - margin))
@@ -2903,6 +2907,50 @@ export function createPlugin(React, extras = {}) {
         let panelAnchor = null
         /** 关闭动画结束后再隐藏面板，避免过渡被 display:none 打断。*/
         let panelHideTimer = 0
+        /** 悬停入口打开的面板：只有这种来源才在移开鼠标后自动收起。*/
+        let panelOpenedByHover = false
+        let panelHovered = false
+        let chipHoverTimer = 0
+        let chipCloseTimer = 0
+
+        /** 鼠标停在入口上一小会儿再展开，避免掠过时闪一下。*/
+        function scheduleChipOpen(anchor) {
+          if (chipCloseTimer !== 0) {
+            window.clearTimeout(chipCloseTimer)
+            chipCloseTimer = 0
+          }
+          if (panelOpen || chipHoverTimer !== 0) return
+          chipHoverTimer = window.setTimeout(() => {
+            chipHoverTimer = 0
+            if (panelOpen) return
+            panelOpenedByHover = true
+            openPanel(anchor)
+          }, 140)
+        }
+
+        function cancelChipOpen() {
+          if (chipHoverTimer !== 0) {
+            window.clearTimeout(chipHoverTimer)
+            chipHoverTimer = 0
+          }
+        }
+
+        /** 离开入口或面板后留一点时间，让鼠标能跨过间隙落到面板里。*/
+        function scheduleChipClose() {
+          cancelChipOpen()
+          if (!panelOpen || !panelOpenedByHover || chipCloseTimer !== 0) return
+          chipCloseTimer = window.setTimeout(() => {
+            chipCloseTimer = 0
+            if (panelOpenedByHover && !panelHovered) closePanel()
+          }, 220)
+        }
+
+        function cancelChipClose() {
+          if (chipCloseTimer !== 0) {
+            window.clearTimeout(chipCloseTimer)
+            chipCloseTimer = 0
+          }
+        }
         /** 面板底部的图片设置是否展开。*/
         let imageSettingsOpen = false
         /** 面板底部的批注指令设置是否展开。*/
@@ -3187,6 +3235,10 @@ export function createPlugin(React, extras = {}) {
           if (!panelOpen) return
           panelOpen = false
           panelAnchor = null
+          panelOpenedByHover = false
+          panelHovered = false
+          cancelChipOpen()
+          cancelChipClose()
           panelRoot.dataset.open = '0'
           if (panelHideTimer !== 0) window.clearTimeout(panelHideTimer)
           panelHideTimer = window.setTimeout(() => {
@@ -3200,6 +3252,19 @@ export function createPlugin(React, extras = {}) {
           if (panelOpen) closePanel()
           else openPanel(anchor)
         }
+
+        panelRoot.addEventListener('pointerdown', () => {
+          // 一旦在面板里动手，就不再按「悬停预览」处理，免得移开鼠标把正在编辑的面板收走。
+          panelOpenedByHover = false
+        }, true)
+        panelRoot.addEventListener('mouseenter', () => {
+          panelHovered = true
+          cancelChipClose()
+        })
+        panelRoot.addEventListener('mouseleave', () => {
+          panelHovered = false
+          scheduleChipClose()
+        })
 
         const onPanelOutsidePointerDown = (event) => {
           if (!panelOpen) return
@@ -3244,7 +3309,14 @@ export function createPlugin(React, extras = {}) {
               className: local.open ? 'sa-chip sa-chip-open' : 'sa-chip',
               type: 'button',
               title: count === 0 ? t('chip.emptyTitle') : t('chip.title'),
-              onClick: (event) => togglePanel(event.currentTarget),
+              onMouseEnter: (event) => scheduleChipOpen(event.currentTarget),
+              onMouseLeave: () => scheduleChipClose(),
+              onClick: (event) => {
+                cancelChipOpen()
+                cancelChipClose()
+                panelOpenedByHover = false
+                togglePanel(event.currentTarget)
+              },
             },
             count === 0 ? t('chip.label') : t('chip.count', { n: count }),
           )
