@@ -1878,11 +1878,14 @@
       paint(panelEl, { surface: "panel" });
     }
     function renderSide(host) {
-      paint(host, { surface: "side" });
+      host.textContent = "";
+      const panel = document.createElement("div");
+      host.appendChild(panel);
+      paint(panel, { surface: "side" });
     }
     function paint(panelEl, options) {
       const side = options !== void 0 && options.surface === "side";
-      panelEl.className = side ? "sa-panel sa-panel-side" : "sa-panel";
+      if (!side) panelEl.className = "sa-panel";
       const annotations = getAnnotations();
       panelEl.textContent = "";
       const panelHead = el("div", "sa-panel-head");
@@ -5330,7 +5333,15 @@
           return h("div", { className: "sa-side-host", ref: hostRef });
         }
         function renderSideTabInto(host) {
-          panelRenderer.renderSide(host);
+          try {
+            panelRenderer.renderSide(host);
+          } catch (error) {
+            host.textContent = `批注面板渲染失败：${error !== null && error !== void 0 && error.stack !== void 0 ? error.stack : String(error)}`;
+            host.style.whiteSpace = "pre-wrap";
+            host.style.padding = "10px 12px";
+            host.style.color = "#ffb3b3";
+            host.style.font = "12px/1.5 ui-monospace,monospace";
+          }
         }
         function SideTabTitle() {
           return h("span", null, t("sideTab.title"));

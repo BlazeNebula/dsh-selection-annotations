@@ -28,14 +28,18 @@ export function createPanelRenderer({
   /**
    * 右侧标签页的渲染：与总览面板共用同一套 DOM 与事件，只去掉浮层的关闭按钮与
    * 「在侧栏打开」按钮（它自己就在侧栏里），宽度与高度交给侧栏容器。
+   * host 是 React 渲染的容器，不能再被 paint 覆盖 className，所以面板另建一层。
    */
   function renderSide(host) {
-    paint(host, { surface: 'side' })
+    host.textContent = ''
+    const panel = document.createElement('div')
+    host.appendChild(panel)
+    paint(panel, { surface: 'side' })
   }
 
   function paint(panelEl, options) {
     const side = options !== undefined && options.surface === 'side'
-    panelEl.className = side ? 'sa-panel sa-panel-side' : 'sa-panel'
+    if (!side) panelEl.className = 'sa-panel'
     const annotations = getAnnotations()
     panelEl.textContent = ''
 

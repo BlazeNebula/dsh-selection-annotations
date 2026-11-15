@@ -3176,7 +3176,15 @@ export function createPlugin(React, extras = {}) {
 
         /** 延迟到面板渲染器初始化之后再取；SideTabBody 真正挂载时一定已经初始化。 */
         function renderSideTabInto(host) {
-          panelRenderer.renderSide(host)
+          try {
+            panelRenderer.renderSide(host)
+          } catch (error) {
+            host.textContent = `批注面板渲染失败：${error !== null && error !== undefined && error.stack !== undefined ? error.stack : String(error)}`
+            host.style.whiteSpace = 'pre-wrap'
+            host.style.padding = '10px 12px'
+            host.style.color = '#ffb3b3'
+            host.style.font = '12px/1.5 ui-monospace,monospace'
+          }
         }
 
         function SideTabTitle() {
