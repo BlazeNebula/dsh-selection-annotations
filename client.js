@@ -1976,14 +1976,14 @@
   // src/core/web-picker.js
   var PICK_SCRIPT = String.raw`(function () {
   if (window.__saPicker) { try { window.__saWebRender && window.__saWebRender() } catch (e) {} return 'already' }
-  var state = { el: null, note: null }
+  var state = { el: null, note: null, fitsInside: false }
   var host = document.createElement('div')
   host.setAttribute('data-sa-web-picker', '')
-  host.style.cssText = 'position:fixed;inset:0;z-index:2147483000;pointer-events:none;contains:layout style;'
+  host.style.cssText = 'position:fixed;inset:0;z-index:2147483000;pointer-events:none;contain:layout style;'
   var box = document.createElement('div')
   box.style.cssText = 'position:fixed;border:2px solid rgba(36,123,191,.95);border-radius:0;background:transparent;display:none;pointer-events:none;box-sizing:border-box;'
   var actions = document.createElement('div')
-  actions.style.cssText = 'position:fixed;display:none;pointer-events:auto;z-index:2147483001;gap:2px;'
+  actions.style.cssText = 'position:fixed;display:none;pointer-events:auto;z-index:2147483001;align-items:center;gap:0;padding:0 6px;border-radius:6px;background:rgba(0,0,0,.1);-webkit-mask-image:linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent);mask-image:linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent);'
   var layers = document.createElement('div')
   layers.setAttribute('data-sa-web-notes', '')
   host.appendChild(layers)
@@ -1992,41 +1992,57 @@
   document.documentElement.appendChild(host)
 
   var ICONS = {
-    adopt: 'M2.5 6.2 5 8.7 9.5 3.6',
-    feedback: 'M2.2 9.8 1.6 11.4l1.7-.5 4.5-4.5-1.1-1.1zM7.6 4.4l1.1 1.1',
-    modify: 'M2.2 9.8 1.6 11.4l1.7-.5 4.5-4.5-1.1-1.1zM7.6 4.4l1.1 1.1',
-    delete: 'M2.5 3.5h7M4.5 3.5V2.2h3v1.3M3.4 3.5l.4 7h4.4l.4-7',
+    adopt: ['M2.25 8.5L5.49732 11.7473C5.90519 12.1552 6.57263 12.1344 6.95426 11.7018L13.75 4'],
+    feedback: [
+      'M8.85596 2.69971H4.19971C3.37141 2.69971 2.69992 3.37146 2.69971 4.19971V11.8003C2.69992 12.6285 3.37141 13.3003 4.19971 13.3003H11.8003C12.6283 13.2999 13.3001 12.6283 13.3003 11.8003V7.89893H14.3003V11.8003C14.3001 13.1806 13.1806 14.2999 11.8003 14.3003H4.19971C2.81913 14.3003 1.69992 13.1808 1.69971 11.8003V4.19971C1.69992 2.81918 2.81913 1.69971 4.19971 1.69971H8.85596V2.69971Z|fill',
+      'M7.7849 8.23878L13.888 2.13574',
+    ],
   }
 
   function setGroupTone(inside) {
+    actions.style.background = inside ? 'rgba(0,0,0,.5)' : 'rgba(0,0,0,.1)'
     var buttons = actions.querySelectorAll('button')
     for (var i = 0; i < buttons.length; i += 1) {
-      buttons[i].style.background = inside ? 'rgba(0,0,0,.5)' : 'rgba(0,0,0,.25)'
       buttons[i].style.color = inside ? 'rgba(255,255,255,.8)' : 'transparent'
+      buttons[i].style.textShadow = inside ? '0 1px 3px rgba(0,0,0,.85)' : 'none'
     }
   }
   actions.addEventListener('pointerenter', function () { setGroupTone(true) })
   actions.addEventListener('pointerleave', function () { setGroupTone(false) })
 
-  function makeButton(action, label, id) {
+  function iconFor(action) {
+    var svgNS = 'http://www.w3.org/2000/svg'
+    var svg = document.createElementNS(svgNS, 'svg')
+    svg.setAttribute('viewBox', '0 0 16 16')
+    svg.setAttribute('width', '14')
+    svg.setAttribute('height', '14')
+    svg.setAttribute('fill', 'none')
+    svg.setAttribute('stroke-width', '1')
+    var paths = action === 'delete'
+      ? ['M3 4.2h10', 'M6 4.2V2.8h4v1.4', 'M4.4 4.2l.5 8h6.2l.5-8']
+      : (ICONS[action] || ICONS.feedback)
+    for (var i = 0; i < paths.length; i += 1) {
+      var spec = paths[i]
+      var fill = spec.indexOf('|fill') > -1
+      var path = document.createElementNS(svgNS, 'path')
+      path.setAttribute('d', fill ? spec.slice(0, -5) : spec)
+      if (fill) {
+        path.setAttribute('fill', 'currentColor')
+        path.setAttribute('stroke', 'none')
+      } else {
+        path.setAttribute('stroke', 'currentColor')
+      }
+      svg.appendChild(path)
+    }
+    return svg
+  }
+
+  function makeButton(action, label, id, last) {
     var button = document.createElement('button')
     button.type = 'button'
     button.dataset.action = action
-    button.style.cssText = 'pointer-events:auto;display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border:0;border-radius:4px;background:rgba(0,0,0,.25);color:transparent;font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.85);'
-    var svgNS = 'http://www.w3.org/2000/svg'
-    var svg = document.createElementNS(svgNS, 'svg')
-    svg.setAttribute('viewBox', '0 0 14 14')
-    svg.setAttribute('width', '12')
-    svg.setAttribute('height', '12')
-    svg.setAttribute('fill', 'none')
-    svg.setAttribute('stroke', 'currentColor')
-    svg.setAttribute('stroke-width', '1.4')
-    svg.setAttribute('stroke-linecap', 'round')
-    svg.setAttribute('stroke-linejoin', 'round')
-    var path = document.createElementNS(svgNS, 'path')
-    path.setAttribute('d', ICONS[action] || ICONS.feedback)
-    svg.appendChild(path)
-    button.appendChild(svg)
+    button.style.cssText = 'pointer-events:auto;display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:0;border-right:' + (last ? '0' : '1px solid rgba(255,255,255,.16)') + ';background:transparent;color:transparent;font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:none;transition:background .12s,color .12s;'
+    button.appendChild(iconFor(action))
     button.appendChild(document.createTextNode(label))
     button.addEventListener('click', function (event) { onClick(event, action, id) })
     return button
@@ -2036,17 +2052,18 @@
     var note = findNote(el)
     state.note = note
     var signature = note ? 'note:' + note.id : 'empty'
-    if (actions.dataset.signature === signature) return note
-    actions.dataset.signature = signature
-    actions.textContent = ''
-    if (note) {
-      actions.appendChild(makeButton('modify', '修改批注', note.id))
-      actions.appendChild(makeButton('delete', '删除批注', note.id))
-    } else {
-      actions.appendChild(makeButton('adopt', '批注采纳', ''))
-      actions.appendChild(makeButton('feedback', '批注反馈', ''))
+    if (actions.dataset.signature !== signature) {
+      actions.dataset.signature = signature
+      actions.textContent = ''
+      if (note) {
+        actions.appendChild(makeButton('modify', '修改批注', note.id, false))
+        actions.appendChild(makeButton('delete', '删除批注', note.id, true))
+      } else {
+        actions.appendChild(makeButton('feedback', '批注反馈', '', false))
+        actions.appendChild(makeButton('adopt', '批注采纳', '', true))
+      }
+      setGroupTone(false)
     }
-    setGroupTone(false)
     return note
   }
 
@@ -2064,9 +2081,10 @@
   function selectorOf(el) {
     if (!el || el.nodeType !== 1) return ''
     if (el.id) return '#' + CSS.escape(el.id)
-    for (var attr of ['data-testid', 'data-test', 'name', 'aria-label']) {
-      var value = el.getAttribute(attr)
-      if (value) return el.tagName.toLowerCase() + '[' + attr + '="' + value.replace(/"/g, '\\"') + '"]'
+    var attrs = ['data-testid', 'data-test', 'name', 'aria-label']
+    for (var i = 0; i < attrs.length; i += 1) {
+      var value = el.getAttribute(attrs[i])
+      if (value) return el.tagName.toLowerCase() + '[' + attrs[i] + '="' + value.replace(/"/g, '\\"') + '"]'
     }
     var parts = []
     var node = el
@@ -2092,33 +2110,38 @@
     return { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
   }
 
-  function place(el) {
+  function place(el, mouseX) {
     if (!el || el.closest('[data-sa-web-picker]')) return
     var rect = el.getBoundingClientRect()
     if (rect.width < 2 || rect.height < 2) return
     state.el = el
-    setActionsFor(el)
-    box.style.display = 'block'
-    box.style.left = rect.left + 'px'
-    box.style.top = rect.top + 'px'
-    box.style.width = rect.width + 'px'
-    box.style.height = rect.height + 'px'
+    var note = setActionsFor(el)
+    // 已经有批注的元素不再叠拾取框，只保留常驻框与按钮组。
+    box.style.display = note ? 'none' : 'block'
+    if (!note) {
+      box.style.left = rect.left + 'px'
+      box.style.top = rect.top + 'px'
+      box.style.width = rect.width + 'px'
+      box.style.height = rect.height + 'px'
+    }
     actions.style.display = 'flex'
     var width = actions.offsetWidth || 180
     var height = actions.offsetHeight || 24
     var fitsInside = rect.width >= width + 16 && rect.height >= height + 12
+    state.fitsInside = fitsInside
     var top
     var left
     if (fitsInside) {
       top = rect.top + 4
-      left = rect.right - width - 4
+      // 框内：中心跟着鼠标，但不超出框的左右边缘。
+      left = Math.max(rect.left + 2, Math.min((mouseX || rect.right - width / 2) - width / 2, rect.right - width - 2))
     } else {
       // 框太小：贴到框外侧，上方优先，其次下方，中间不留空隙。
       top = rect.top - height
       if (top < 4) top = rect.bottom
-      left = rect.left
+      // 框外：中心跟着鼠标，但不超出视窗。
+      left = Math.max(4, Math.min((mouseX || rect.left + width / 2) - width / 2, window.innerWidth - width - 4))
     }
-    left = Math.max(4, Math.min(left, window.innerWidth - width - 4))
     actions.style.left = left + 'px'
     actions.style.top = Math.max(4, top) + 'px'
   }
@@ -2132,7 +2155,7 @@
     if (actions.style.display !== 'none' && inActions(event.clientX, event.clientY)) return
     var el = document.elementFromPoint(event.clientX, event.clientY)
     if (el && el.closest && el.closest('[data-sa-web-picker]')) return
-    place(el)
+    place(el, event.clientX)
   }
 
   function onClick(event, action, id) {
@@ -2194,6 +2217,9 @@
       })
       layers.appendChild(handle)
     })
+    // 刚新增/删除批注时，正悬停的元素要立刻换成对应的按钮组。
+    if (state.el) setActionsFor(state.el)
+    if (state.el && state.note) box.style.display = 'none'
   }
   window.__saWebRender = renderNotes
   renderNotes()
@@ -3477,11 +3503,7 @@
           if (parent === null) return;
           if (pointerSelecting === true) return;
           if (Number.isFinite(turn)) section.dataset.saTurn = String(turn);
-          if (document.querySelector(`[data-turn-process="${turn}"]`) !== null) delete section.dataset.saPlacementAt;
           if (Number.isFinite(turn) && document.querySelector(`[data-turn-process="${turn}"]`) === null) {
-            const now = Date.now();
-            const last = Number(section.dataset.saPlacementAt ?? 0);
-            if (Number.isFinite(last) && now - last < 400) return;
             const sent = document.querySelector(`[data-sa-ui="sent"][data-sa-turn="${turn}"]`);
             if (sent !== null && sent.parentElement !== null) {
               let cursor2 = sent;
@@ -3489,7 +3511,6 @@
                 cursor2 = cursor2.nextElementSibling;
               }
               moveSection(section, sent.parentElement, cursor2.nextSibling);
-              section.dataset.saPlacementAt = String(now);
               return;
             }
           }
@@ -4008,6 +4029,13 @@
             if (!popover.contains(document.activeElement)) lowerPopover();
           }, 0);
         });
+        popover.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            event.stopPropagation();
+            commitPopover();
+          }
+        }, true);
         let popDrag = null;
         popHead.addEventListener("pointerdown", (event) => {
           if (event.button !== 0) return;
@@ -4809,7 +4837,6 @@
             return;
           }
           if (event.key === "Escape") closePopover();
-          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) commitPopover();
         });
         popInput.addEventListener("input", () => {
           const phrase = adoptTextOf();

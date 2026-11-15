@@ -1102,16 +1102,11 @@ export function createPlugin(React, extras = {}) {
           // 正在拖选时不挪卡片：节点一摘一挂，选区起点就会被重置。
           if (pointerSelecting === true) return
           if (Number.isFinite(turn)) section.dataset.saTurn = String(turn)
-          if (document.querySelector(`[data-turn-process="${turn}"]`) !== null) delete section.dataset.saPlacementAt
           // 回合还在跑（还没有「已完成」）：此时最后一个助手内容块其实是工具链，
           // 插在它前面就会被折进过程区。先跟着「已发送」卡放在过程区外面，
           // 等 final output 出现后，再按正常规则挪到最终输出之前。
           if (Number.isFinite(turn) && document.querySelector(`[data-turn-process="${turn}"]`) === null) {
-            // 回合还在跑：位置照旧要跟着最新内容，但不能每帧都移动节点，
-            // 否则会话的滚动位置会被反复重置。这里按 400ms 节流。
-            const now = Date.now()
-            const last = Number(section.dataset.saPlacementAt ?? 0)
-            if (Number.isFinite(last) && now - last < 400) return
+            // 回合还在跑：跟着「已发送」卡放在过程区外面；moveSection 在位置未变时不移动节点。
             const sent = document.querySelector(`[data-sa-ui="sent"][data-sa-turn="${turn}"]`)
             if (sent !== null && sent.parentElement !== null) {
               let cursor = sent
@@ -1120,7 +1115,6 @@ export function createPlugin(React, extras = {}) {
                 cursor = cursor.nextElementSibling
               }
               moveSection(section, sent.parentElement, cursor.nextSibling)
-              section.dataset.saPlacementAt = String(now)
               return
             }
           }
@@ -1747,6 +1741,13 @@ export function createPlugin(React, extras = {}) {
             if (!popover.contains(document.activeElement)) lowerPopover()
           }, 0)
         })
+        popover.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault()
+            event.stopPropagation()
+            commitPopover()
+          }
+        }, true)
         // 按住标题区可以挪动整个弹层，避免它挡住正在看的原文。
         let popDrag = null
         popHead.addEventListener('pointerdown', (event) => {
@@ -2704,7 +2705,6 @@ export function createPlugin(React, extras = {}) {
             return
           }
           if (event.key === 'Escape') closePopover()
-          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) commitPopover()
         })
         popInput.addEventListener('input', () => {
           const phrase = adoptTextOf()
