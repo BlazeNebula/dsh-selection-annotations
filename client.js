@@ -3971,7 +3971,8 @@
           const width = popover.offsetWidth || 340;
           const height = popover.offsetHeight || 240;
           const point = popoverSource === "hover" ? lastPointerMove : popoverSource === "manual" ? null : selectionPointer ?? lastPointerMove;
-          const left = anchoredLeft(point, rect, width);
+          let left = anchoredLeft(point, rect, width);
+          let top = 0;
           const margin = 8;
           const gap = 10;
           const spaceAbove = rect.top - gap - margin;
@@ -3980,8 +3981,18 @@
           const available = Math.max(160, preferAbove ? spaceAbove : spaceBelow);
           popover.style.maxHeight = `${Math.floor(available)}px`;
           const effectiveHeight = Math.min(height, available);
-          const top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap;
-          popover.style.left = `${left}px`;
+          top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap;
+          const panelEl2 = popoverSource === "manual" ? document.querySelector('[data-sa-ui="panel"]') : null;
+          const panelRect = panelEl2 === null ? null : safe(() => panelEl2.getBoundingClientRect());
+          if (panelRect !== void 0 && panelRect !== null && panelRect.width > 0) {
+            const leftOfPanel = panelRect.left - gap - width;
+            left = leftOfPanel >= margin ? leftOfPanel : Math.min(panelRect.right + gap, window.innerWidth - width - margin);
+            const maxHeight = window.innerHeight - margin * 2;
+            const shownHeight = Math.min(height, maxHeight);
+            top = Math.max(margin, Math.min(rect.top, window.innerHeight - shownHeight - margin));
+            popover.style.maxHeight = `${Math.floor(maxHeight)}px`;
+          }
+          popover.style.left = `${Math.max(margin, left)}px`;
           popover.style.top = `${Math.max(margin, top)}px`;
         }
         function placeToolbar(element, rect, point) {

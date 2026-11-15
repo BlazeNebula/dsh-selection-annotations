@@ -2100,7 +2100,8 @@ export function createPlugin(React, extras = {}) {
               : popoverSource === 'manual'
                 ? null
                 : (selectionPointer ?? lastPointerMove)
-          const left = anchoredLeft(point, rect, width)
+          let left = anchoredLeft(point, rect, width)
+          let top = 0
           const margin = 8
           const gap = 10
           const spaceAbove = rect.top - gap - margin
@@ -2110,8 +2111,19 @@ export function createPlugin(React, extras = {}) {
           const available = Math.max(160, preferAbove ? spaceAbove : spaceBelow)
           popover.style.maxHeight = `${Math.floor(available)}px`
           const effectiveHeight = Math.min(height, available)
-          const top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap
-          popover.style.left = `${left}px`
+          top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap
+          // 从总览里点开时，弹层不能压住总览：放到面板左侧，放不下再放右侧，纵向与条目同高。
+          const panelEl = popoverSource === 'manual' ? document.querySelector('[data-sa-ui="panel"]') : null
+          const panelRect = panelEl === null ? null : safe(() => panelEl.getBoundingClientRect())
+          if (panelRect !== undefined && panelRect !== null && panelRect.width > 0) {
+            const leftOfPanel = panelRect.left - gap - width
+            left = leftOfPanel >= margin ? leftOfPanel : Math.min(panelRect.right + gap, window.innerWidth - width - margin)
+            const maxHeight = window.innerHeight - margin * 2
+            const shownHeight = Math.min(height, maxHeight)
+            top = Math.max(margin, Math.min(rect.top, window.innerHeight - shownHeight - margin))
+            popover.style.maxHeight = `${Math.floor(maxHeight)}px`
+          }
+          popover.style.left = `${Math.max(margin, left)}px`
           popover.style.top = `${Math.max(margin, top)}px`
         }
 
