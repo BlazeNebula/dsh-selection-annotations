@@ -3161,32 +3161,48 @@ export function createPlugin(React, extras = {}) {
 
         ctx.effect(() => {
           if (ctx.sidebarRightTabs === undefined || typeof ctx.sidebarRightTabs.register !== 'function') return
-          return ctx.sidebarRightTabs.register({
-            id: SIDE_TAB_ID,
-            kind: SIDE_TAB_KIND,
-            multiple: false,
-            priority: 'builtin',
-            title: () => t('sideTab.title'),
-            guide: [],
-          })
+          try {
+            return ctx.sidebarRightTabs.register({
+              id: SIDE_TAB_ID,
+              kind: SIDE_TAB_KIND,
+              multiple: false,
+              priority: 'builtin',
+              title: () => t('sideTab.title'),
+              guide: [],
+            })
+          } catch (error) {
+            // 热加载时旧实例可能尚未释放，重复注册同一 id 会抛错；不能让它带崩整个插件。
+            warn('[selection-annotations] 右侧批注标签页注册失败：', error)
+            return undefined
+          }
         }, 'selection-annotations: side tab type')
         ctx.effect(() => {
           if (ctx.slots === undefined) return
-          return ctx.slots.inject('sidebar.right.pane.tab', () =>
-            ctx.slots.register(
-              { name: 'sidebar.right.pane.tab', key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
-              SideTabBody,
-            ),
-          )
+          try {
+            return ctx.slots.inject('sidebar.right.pane.tab', () =>
+              ctx.slots.register(
+                { name: 'sidebar.right.pane.tab', key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
+                SideTabBody,
+              ),
+            )
+          } catch (error) {
+            warn('[selection-annotations] 右侧批注标签页正文注册失败：', error)
+            return undefined
+          }
         }, 'selection-annotations: side tab body')
         ctx.effect(() => {
           if (ctx.slots === undefined) return
-          return ctx.slots.inject('sidebar.right.pane.tab.title', () =>
-            ctx.slots.register(
-              { name: 'sidebar.right.pane.tab.title', key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
-              SideTabTitle,
-            ),
-          )
+          try {
+            return ctx.slots.inject('sidebar.right.pane.tab.title', () =>
+              ctx.slots.register(
+                { name: 'sidebar.right.pane.tab.title', key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
+                SideTabTitle,
+              ),
+            )
+          } catch (error) {
+            warn('[selection-annotations] 右侧批注标签页标题注册失败：', error)
+            return undefined
+          }
         }, 'selection-annotations: side tab title')
 
         /**

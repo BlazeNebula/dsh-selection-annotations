@@ -5302,34 +5302,49 @@
         }
         ctx.effect(() => {
           if (ctx.sidebarRightTabs === void 0 || typeof ctx.sidebarRightTabs.register !== "function") return;
-          return ctx.sidebarRightTabs.register({
-            id: SIDE_TAB_ID,
-            kind: SIDE_TAB_KIND,
-            multiple: false,
-            priority: "builtin",
-            title: () => t("sideTab.title"),
-            guide: []
-          });
+          try {
+            return ctx.sidebarRightTabs.register({
+              id: SIDE_TAB_ID,
+              kind: SIDE_TAB_KIND,
+              multiple: false,
+              priority: "builtin",
+              title: () => t("sideTab.title"),
+              guide: []
+            });
+          } catch (error) {
+            warn("[selection-annotations] 右侧批注标签页注册失败：", error);
+            return void 0;
+          }
         }, "selection-annotations: side tab type");
         ctx.effect(() => {
           if (ctx.slots === void 0) return;
-          return ctx.slots.inject(
-            "sidebar.right.pane.tab",
-            () => ctx.slots.register(
-              { name: "sidebar.right.pane.tab", key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
-              SideTabBody
-            )
-          );
+          try {
+            return ctx.slots.inject(
+              "sidebar.right.pane.tab",
+              () => ctx.slots.register(
+                { name: "sidebar.right.pane.tab", key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
+                SideTabBody
+              )
+            );
+          } catch (error) {
+            warn("[selection-annotations] 右侧批注标签页正文注册失败：", error);
+            return void 0;
+          }
         }, "selection-annotations: side tab body");
         ctx.effect(() => {
           if (ctx.slots === void 0) return;
-          return ctx.slots.inject(
-            "sidebar.right.pane.tab.title",
-            () => ctx.slots.register(
-              { name: "sidebar.right.pane.tab.title", key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
-              SideTabTitle
-            )
-          );
+          try {
+            return ctx.slots.inject(
+              "sidebar.right.pane.tab.title",
+              () => ctx.slots.register(
+                { name: "sidebar.right.pane.tab.title", key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
+                SideTabTitle
+              )
+            );
+          } catch (error) {
+            warn("[selection-annotations] 右侧批注标签页标题注册失败：", error);
+            return void 0;
+          }
         }, "selection-annotations: side tab title");
         function webAnchor(rect) {
           if (rect === null || rect === void 0) return null;
