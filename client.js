@@ -2788,12 +2788,31 @@
   }
 
   // src/plugin.js
+  function reportLoadError(error) {
+    try {
+      if (document.getElementById("sa-load-error") !== null) return;
+      const box = document.createElement("pre");
+      box.id = "sa-load-error";
+      box.textContent = `批注插件加载失败：${error !== null && error !== void 0 && error.stack !== void 0 ? error.stack : String(error)}`;
+      box.style.cssText = "position:fixed;left:12px;top:12px;right:12px;max-height:50vh;overflow:auto;z-index:2147483647;margin:0;padding:10px 12px;border:1px solid #f85149;border-radius:8px;background:rgba(30,10,10,.96);color:#ffb3b3;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;";
+      document.body.appendChild(box);
+    } catch {
+    }
+  }
   function createPlugin(React, extras = {}) {
     const h = React.createElement;
-    return {
+    const plugin = {
       name: "@u2a5f/dsh-selection-annotations",
       inject: ["slots", "sessions", "conversation", "remote", "remote.workspaceFiles", "locale"],
       apply(ctx) {
+        try {
+          return plugin.activate(ctx);
+        } catch (error) {
+          reportLoadError(error);
+          throw error;
+        }
+      },
+      activate(ctx) {
         const locale = createLocale(ctx);
         const t = (key, params) => locale.t(key, params);
         const defaultInstruction = () => locale.defaultInstruction();
@@ -6115,6 +6134,7 @@
         };
       }
     };
+    return plugin;
   }
 
   // src/entry.js
