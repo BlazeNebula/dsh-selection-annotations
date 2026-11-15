@@ -17,7 +17,6 @@ export function createPanelRenderer({
   imageSettingsRow,
   instructionSettingsRow,
   fallbackSettingsRow,
-  pickWebElement = () => false,
   closePanel = () => {},
   collapsed = () => false,
   toggleCollapsed = () => {},
@@ -55,9 +54,6 @@ export function createPanelRenderer({
     hint.title = t('panel.foot')
     meta.appendChild(hint)
     meta.appendChild(el('span', 'sa-panel-count', t('panel.count', { n: annotations.length })))
-    meta.appendChild(button('sa-foot-action', t('panel.webPick'), () => {
-      if (!pickWebElement()) alert(t('webPick.missing'))
-    }))
     if (annotations.length > 0) {
       meta.appendChild(button('sa-foot-action', t('panel.clear'), () => clearAnnotations()))
     }

@@ -2915,10 +2915,12 @@ export function createPlugin(React, extras = {}) {
         let panelAnchor = null
         const PANEL_COLLAPSED_KEY = 'dsh-selection-annotations:panel-collapsed'
         let panelCollapsed = false
+        let panelHoverExpanded = false
         try {
           panelCollapsed = window.localStorage.getItem(PANEL_COLLAPSED_KEY) === '1'
         } catch {}
         function togglePanelCollapsed() {
+          panelHoverExpanded = false
           panelCollapsed = !panelCollapsed
           try {
             window.localStorage.setItem(PANEL_COLLAPSED_KEY, panelCollapsed ? '1' : '0')
@@ -3023,11 +3025,12 @@ export function createPlugin(React, extras = {}) {
           },
         })
 
+        webPicker.start()
+
         const panelRenderer = createPanelRenderer({
           t,
-          pickWebElement: () => webPicker.pick(),
           closePanel: () => closePanel(),
-          collapsed: () => panelCollapsed,
+          collapsed: () => panelCollapsed && !panelHoverExpanded,
           toggleCollapsed: () => togglePanelCollapsed(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
@@ -3297,10 +3300,19 @@ export function createPlugin(React, extras = {}) {
         panelRoot.addEventListener('mouseenter', () => {
           panelHovered = true
           cancelChipClose()
+          // 与便签主面板一致：折叠成标题条时，鼠标移上去临时展开内容，移开恢复折叠。
+          if (panelCollapsed && !panelHoverExpanded) {
+            panelHoverExpanded = true
+            renderPanel()
+          }
         })
         panelRoot.addEventListener('mouseleave', () => {
           panelHovered = false
           scheduleChipClose()
+          if (panelHoverExpanded) {
+            panelHoverExpanded = false
+            renderPanel()
+          }
         })
 
         const onPanelOutsidePointerDown = (event) => {
@@ -3346,8 +3358,6 @@ export function createPlugin(React, extras = {}) {
               className: `sa-chip${count > 0 ? ' sa-chip-has' : ''}${local.open ? ' sa-chip-open' : ''}`,
               type: 'button',
               title: count === 0 ? t('chip.emptyTitle') : t('chip.title'),
-              onMouseEnter: (event) => scheduleChipOpen(event.currentTarget),
-              onMouseLeave: () => scheduleChipClose(),
               onClick: (event) => {
                 cancelChipOpen()
                 cancelChipClose()

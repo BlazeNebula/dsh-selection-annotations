@@ -1834,7 +1834,6 @@
     imageSettingsRow,
     instructionSettingsRow,
     fallbackSettingsRow,
-    pickWebElement = () => false,
     closePanel = () => {
     },
     collapsed = () => false,
@@ -1873,9 +1872,6 @@
       hint.title = t("panel.foot");
       meta.appendChild(hint);
       meta.appendChild(el("span", "sa-panel-count", t("panel.count", { n: annotations.length })));
-      meta.appendChild(button("sa-foot-action", t("panel.webPick"), () => {
-        if (!pickWebElement()) alert(t("webPick.missing"));
-      }));
       if (annotations.length > 0) {
         meta.appendChild(button("sa-foot-action", t("panel.clear"), () => clearAnnotations()));
       }
@@ -2052,14 +2048,21 @@
     box.style.top = rect.top + 'px'
     box.style.width = rect.width + 'px'
     box.style.height = rect.height + 'px'
-    var top = rect.top - 32
-    if (top < 4) top = Math.min(rect.bottom + 6, window.innerHeight - 30)
+    var top = rect.top + 6
     action.style.display = 'block'
-    action.style.left = Math.max(4, Math.min(rect.left, window.innerWidth - 72)) + 'px'
-    action.style.top = top + 'px'
+    action.style.left = Math.max(4, Math.min(rect.right - 64, window.innerWidth - 72)) + 'px'
+    action.style.top = Math.max(4, top) + 'px'
   }
 
   function onMove(event) {
+    var buttonRect = action.getBoundingClientRect()
+    if (
+      action.style.display !== 'none' &&
+      event.clientX >= buttonRect.left - 12 && event.clientX <= buttonRect.right + 12 &&
+      event.clientY >= buttonRect.top - 12 && event.clientY <= buttonRect.bottom + 12
+    ) {
+      return
+    }
     var el = document.elementFromPoint(event.clientX, event.clientY)
     if (el && el.closest && el.closest('[data-sa-web-picker]')) return
     place(el)
@@ -2111,39 +2114,42 @@
         timer = 0;
       }
     }
-    function pick() {
-      const webview = view();
-      if (webview === null || typeof webview.executeJavaScript !== "function") {
-        return false;
-      }
-      safeCall(() => webview.executeJavaScript("window.__saPicked = null"));
-      safeCall(() => webview.executeJavaScript(PICK_SCRIPT));
-      stop();
+    function start() {
+      if (timer !== 0) return;
       timer = window.setInterval(() => {
+        const webview = view();
+        if (webview === null || typeof webview.executeJavaScript !== "function") return;
         let raw;
         try {
-          raw = webview.executeJavaScript("window.__saPicked || null");
+          raw = webview.executeJavaScript("({ live: !!window.__saPicker, picked: window.__saPicked || null })");
         } catch {
-          stop();
           return;
         }
-        Promise.resolve(raw).then((picked) => {
-          if (picked === null || typeof picked !== "object") return;
-          stop();
-          safeCall(() => webview.executeJavaScript("window.__saPicked = null"));
-          onPick({
-            quote: typeof picked.label === "string" ? picked.label : "",
-            selector: typeof picked.selector === "string" ? picked.selector : "",
-            url: typeof picked.url === "string" ? picked.url : ""
-          });
-        }).catch(() => stop());
+        Promise.resolve(raw).then((state) => {
+          if (state === null || typeof state !== "object") return;
+          if (state.picked !== null && typeof state.picked === "object") {
+            safeCall(() => webview.executeJavaScript("window.__saPicked = null"));
+            onPick({
+              quote: typeof state.picked.label === "string" ? state.picked.label : "",
+              selector: typeof state.picked.selector === "string" ? state.picked.selector : "",
+              url: typeof state.picked.url === "string" ? state.picked.url : ""
+            });
+            safeCall(() => webview.executeJavaScript(PICK_SCRIPT));
+            return;
+          }
+          if (state.live !== true) safeCall(() => webview.executeJavaScript(PICK_SCRIPT));
+        }).catch(() => {
+        });
       }, POLL_MS);
-      return true;
     }
     function dispose() {
+      const webview = view();
+      if (webview !== null && typeof webview.executeJavaScript === "function") {
+        safeCall(() => webview.executeJavaScript("window.__saPicker && window.__saPicker.stop()"));
+      }
       stop();
     }
-    return { pick, dispose, available: () => view() !== null };
+    return { start, dispose, available: () => view() !== null };
   }
   function safeCall(fn) {
     try {
@@ -4879,11 +4885,13 @@
         let panelAnchor = null;
         const PANEL_COLLAPSED_KEY = "dsh-selection-annotations:panel-collapsed";
         let panelCollapsed = false;
+        let panelHoverExpanded = false;
         try {
           panelCollapsed = window.localStorage.getItem(PANEL_COLLAPSED_KEY) === "1";
         } catch {
         }
         function togglePanelCollapsed() {
+          panelHoverExpanded = false;
           panelCollapsed = !panelCollapsed;
           try {
             window.localStorage.setItem(PANEL_COLLAPSED_KEY, panelCollapsed ? "1" : "0");
@@ -4973,11 +4981,11 @@
             if (item !== void 0) renderPanel();
           }
         });
+        webPicker.start();
         const panelRenderer = createPanelRenderer({
           t,
-          pickWebElement: () => webPicker.pick(),
           closePanel: () => closePanel(),
-          collapsed: () => panelCollapsed,
+          collapsed: () => panelCollapsed && !panelHoverExpanded,
           toggleCollapsed: () => togglePanelCollapsed(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
@@ -5218,10 +5226,18 @@
         panelRoot.addEventListener("mouseenter", () => {
           panelHovered = true;
           cancelChipClose();
+          if (panelCollapsed && !panelHoverExpanded) {
+            panelHoverExpanded = true;
+            renderPanel();
+          }
         });
         panelRoot.addEventListener("mouseleave", () => {
           panelHovered = false;
           scheduleChipClose();
+          if (panelHoverExpanded) {
+            panelHoverExpanded = false;
+            renderPanel();
+          }
         });
         const onPanelOutsidePointerDown = (event) => {
           if (!panelOpen) return;
@@ -5260,8 +5276,6 @@
               className: `sa-chip${count > 0 ? " sa-chip-has" : ""}${local.open ? " sa-chip-open" : ""}`,
               type: "button",
               title: count === 0 ? t("chip.emptyTitle") : t("chip.title"),
-              onMouseEnter: (event) => scheduleChipOpen(event.currentTarget),
-              onMouseLeave: () => scheduleChipClose(),
               onClick: (event) => {
                 cancelChipOpen();
                 cancelChipClose();
