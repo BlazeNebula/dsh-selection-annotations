@@ -18,36 +18,13 @@ export function createPanelRenderer({
   instructionSettingsRow,
   fallbackSettingsRow,
   closePanel = () => {},
-  collapsed = () => false,
-  toggleCollapsed = () => {},
   isAdopt = () => false,
 }) {
   function render(panelEl) {
     const annotations = getAnnotations()
     panelEl.textContent = ''
 
-    const isCollapsed = collapsed() === true
-    panelEl.classList.toggle('sa-panel-collapsed', isCollapsed)
     const panelHead = el('div', 'sa-panel-head')
-    const collapse = button('sa-panel-collapse', '', () => toggleCollapsed())
-    const collapseIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    collapseIcon.setAttribute('viewBox', '0 0 16 16')
-    collapseIcon.setAttribute('width', '12')
-    collapseIcon.setAttribute('height', '12')
-    collapseIcon.setAttribute('aria-hidden', 'true')
-    collapseIcon.setAttribute('fill', 'none')
-    collapseIcon.setAttribute('stroke', 'currentColor')
-    collapseIcon.setAttribute('stroke-width', '1.8')
-    collapseIcon.setAttribute('stroke-linecap', 'round')
-    collapseIcon.setAttribute('stroke-linejoin', 'round')
-    const collapsePath = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    collapsePath.setAttribute('d', 'M6.2 3.6 10.7 8l-4.5 4.4')
-    collapseIcon.appendChild(collapsePath)
-    collapse.appendChild(collapseIcon)
-    collapse.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true')
-    collapse.setAttribute('aria-label', t('panel.collapse'))
-    collapse.title = t('panel.collapse')
-    panelHead.appendChild(collapse)
     panelHead.appendChild(el('span', 'sa-panel-title', t('panel.title')))
     const meta = el('div', 'sa-panel-meta')
     const hint = el('span', 'sa-panel-hint', t('panel.foot'))

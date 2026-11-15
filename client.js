@@ -1836,36 +1836,12 @@
     fallbackSettingsRow,
     closePanel = () => {
     },
-    collapsed = () => false,
-    toggleCollapsed = () => {
-    },
     isAdopt = () => false
   }) {
     function render(panelEl) {
       const annotations = getAnnotations();
       panelEl.textContent = "";
-      const isCollapsed = collapsed() === true;
-      panelEl.classList.toggle("sa-panel-collapsed", isCollapsed);
       const panelHead = el("div", "sa-panel-head");
-      const collapse = button("sa-panel-collapse", "", () => toggleCollapsed());
-      const collapseIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      collapseIcon.setAttribute("viewBox", "0 0 16 16");
-      collapseIcon.setAttribute("width", "12");
-      collapseIcon.setAttribute("height", "12");
-      collapseIcon.setAttribute("aria-hidden", "true");
-      collapseIcon.setAttribute("fill", "none");
-      collapseIcon.setAttribute("stroke", "currentColor");
-      collapseIcon.setAttribute("stroke-width", "1.8");
-      collapseIcon.setAttribute("stroke-linecap", "round");
-      collapseIcon.setAttribute("stroke-linejoin", "round");
-      const collapsePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      collapsePath.setAttribute("d", "M6.2 3.6 10.7 8l-4.5 4.4");
-      collapseIcon.appendChild(collapsePath);
-      collapse.appendChild(collapseIcon);
-      collapse.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
-      collapse.setAttribute("aria-label", t("panel.collapse"));
-      collapse.title = t("panel.collapse");
-      panelHead.appendChild(collapse);
       panelHead.appendChild(el("span", "sa-panel-title", t("panel.title")));
       const meta = el("div", "sa-panel-meta");
       const hint = el("span", "sa-panel-hint", t("panel.foot"));
@@ -1997,7 +1973,7 @@
 
   // src/core/web-picker.js
   var PICK_SCRIPT = String.raw`(function () {
-  if (window.__saPicker) return 'already'
+  if (window.__saPicker) { try { window.__saWebRender && window.__saWebRender() } catch (e) {} return 'already' }
   var state = { el: null }
   var host = document.createElement('div')
   host.setAttribute('data-sa-web-picker', '')
@@ -2005,27 +1981,36 @@
   var box = document.createElement('div')
   box.style.cssText = 'position:fixed;border:2px solid rgba(36,123,191,.95);border-radius:0;background:transparent;display:none;pointer-events:none;box-sizing:border-box;'
   var actions = document.createElement('div')
-  actions.style.cssText = 'position:fixed;display:none;pointer-events:auto;z-index:2147483001;display:none;gap:2px;'
+  actions.style.cssText = 'position:fixed;display:none;pointer-events:auto;z-index:2147483001;gap:2px;'
+  var layers = document.createElement('div')
+  layers.setAttribute('data-sa-web-notes', '')
+  host.appendChild(layers)
+  host.appendChild(box)
+  host.appendChild(actions)
+  document.documentElement.appendChild(host)
+
   var labels = [
     ['adopt', '批注采纳'],
     ['feedback', '批注反馈'],
     ['copy', '复制'],
   ]
-  var buttons = labels.map(function (entry) {
+  labels.forEach(function (entry) {
     var button = document.createElement('button')
     button.type = 'button'
     button.textContent = entry[1]
     button.dataset.action = entry[0]
-    button.style.cssText = 'pointer-events:auto;padding:3px 7px;border:0;border-radius:4px;background:transparent;color:#fff;font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.85);'
-    button.addEventListener('pointerenter', function () { button.style.background = 'rgba(36,123,191,.75)' })
-    button.addEventListener('pointerleave', function () { button.style.background = 'transparent' })
+    button.style.cssText = 'pointer-events:auto;padding:3px 7px;border:0;border-radius:4px;background:rgba(0,0,0,.3);color:rgba(255,255,255,.5);font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.85);'
+    button.addEventListener('pointerenter', function () {
+      button.style.background = 'rgba(36,123,191,.5)'
+      button.style.color = 'rgba(255,255,255,.9)'
+    })
+    button.addEventListener('pointerleave', function () {
+      button.style.background = 'rgba(0,0,0,.3)'
+      button.style.color = 'rgba(255,255,255,.5)'
+    })
     button.addEventListener('click', function (event) { onClick(event, entry[0]) })
     actions.appendChild(button)
-    return button
   })
-  host.appendChild(box)
-  host.appendChild(actions)
-  document.documentElement.appendChild(host)
 
   function selectorOf(el) {
     if (!el || el.nodeType !== 1) return ''
@@ -2051,6 +2036,11 @@
   function labelOf(el) {
     var text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60)
     return el.tagName.toLowerCase() + (text ? ' · ' + text : '')
+  }
+
+  function rectOf(el) {
+    var rect = el.getBoundingClientRect()
+    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
   }
 
   function place(el) {
@@ -2081,13 +2071,6 @@
     place(el)
   }
 
-  function cleanup() {
-    window.removeEventListener('mousemove', onMove, true)
-    window.removeEventListener('keydown', onKey, true)
-    host.remove()
-    window.__saPicker = null
-  }
-
   function onClick(event, action) {
     event.preventDefault()
     event.stopPropagation()
@@ -2100,17 +2083,54 @@
       url: location.href,
       title: document.title,
       text: (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+      rect: rectOf(el),
     }
-    cleanup()
   }
 
   function onKey(event) {
-    if (event.key === 'Escape') { event.preventDefault(); cleanup() }
+    if (event.key === 'Escape') { event.preventDefault(); actions.style.display = 'none'; box.style.display = 'none'; state.el = null }
   }
+
+  function renderNotes() {
+    var notes = Array.isArray(window.__saWebNotes) ? window.__saWebNotes : []
+    layers.textContent = ''
+    notes.forEach(function (note) {
+      if (!note || !note.selector) return
+      var el = null
+      try { el = document.querySelector(note.selector) } catch (e) { el = null }
+      if (!el) return
+      var rect = el.getBoundingClientRect()
+      if (rect.width < 2 || rect.height < 2) return
+      var color = note.adopt ? 'rgba(52,199,89,.95)' : 'rgba(245,158,11,.95)'
+      var frame = document.createElement('div')
+      frame.style.cssText = 'position:fixed;border:3px solid ' + color + ';border-radius:0;background:transparent;pointer-events:none;box-sizing:border-box;'
+      frame.style.left = rect.left + 'px'
+      frame.style.top = rect.top + 'px'
+      frame.style.width = rect.width + 'px'
+      frame.style.height = rect.height + 'px'
+      layers.appendChild(frame)
+      var handle = document.createElement('button')
+      handle.type = 'button'
+      handle.setAttribute('aria-label', '修改这条网页批注')
+      handle.style.cssText = 'position:fixed;width:14px;height:14px;padding:0;border-radius:50%;border:1px solid rgba(0,0,0,.35);background:#fff;pointer-events:auto;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.4);'
+      handle.style.left = (rect.left - 5) + 'px'
+      handle.style.top = (rect.top - 5) + 'px'
+      handle.addEventListener('click', function (event) {
+        event.preventDefault()
+        event.stopPropagation()
+        window.__saPicked = { action: 'open', id: note.id, selector: note.selector, rect: rectOf(el) }
+      })
+      layers.appendChild(handle)
+    })
+  }
+  window.__saWebRender = renderNotes
+  renderNotes()
+  window.addEventListener('scroll', renderNotes, true)
+  window.addEventListener('resize', renderNotes)
 
   window.addEventListener('mousemove', onMove, true)
   window.addEventListener('keydown', onKey, true)
-  window.__saPicker = { stop: cleanup }
+  window.__saPicker = { stop: function () { window.removeEventListener('mousemove', onMove, true) } }
   return 'ok'
 })()`;
   var POLL_MS = 400;
@@ -2124,6 +2144,12 @@
         window.clearInterval(timer);
         timer = 0;
       }
+    }
+    function sync(notes) {
+      const webview = view();
+      if (webview === null || typeof webview.executeJavaScript !== "function") return;
+      const json = JSON.stringify(Array.isArray(notes) ? notes : []);
+      safeCall(() => webview.executeJavaScript(`window.__saWebNotes = ${json}; window.__saWebRender && window.__saWebRender()`));
     }
     function start() {
       if (timer !== 0) return;
@@ -2142,12 +2168,13 @@
             safeCall(() => webview.executeJavaScript("window.__saPicked = null"));
             onPick({
               action: typeof state.picked.action === "string" ? state.picked.action : "feedback",
+              id: typeof state.picked.id === "string" ? state.picked.id : "",
               quote: typeof state.picked.label === "string" ? state.picked.label : "",
               selector: typeof state.picked.selector === "string" ? state.picked.selector : "",
               url: typeof state.picked.url === "string" ? state.picked.url : "",
-              text: typeof state.picked.text === "string" ? state.picked.text : ""
+              text: typeof state.picked.text === "string" ? state.picked.text : "",
+              rect: state.picked.rect ?? null
             });
-            safeCall(() => webview.executeJavaScript(PICK_SCRIPT));
             return;
           }
           if (state.live !== true) safeCall(() => webview.executeJavaScript(PICK_SCRIPT));
@@ -2162,7 +2189,7 @@
       }
       stop();
     }
-    return { start, dispose, available: () => view() !== null };
+    return { start, sync, dispose, available: () => view() !== null };
   }
   function safeCall(fn) {
     try {
@@ -2627,6 +2654,7 @@
           };
         };
         const snapshot = () => annotations;
+        let webPickerHandle = null;
         function emit() {
           for (const fn of [...listeners]) {
             try {
@@ -2635,6 +2663,16 @@
               warn("[selection-annotations] 订阅回调失败：", err);
             }
           }
+          syncWebAnnotations();
+        }
+        function syncWebAnnotations() {
+          if (webPickerHandle === null) return;
+          const notes = annotations.filter((item) => item.source !== null && item.source !== void 0 && item.source.kind === "web").map((item) => ({
+            id: item.id,
+            selector: item.source.anchorKey ?? "",
+            adopt: hasAdoptNote(item)
+          }));
+          webPickerHandle.sync(notes);
         }
         function elementOf2(node) {
           if (node === null || node === void 0) return null;
@@ -4896,30 +4934,6 @@
         }
         let panelOpen = false;
         let panelAnchor = null;
-        const PANEL_COLLAPSED_KEY = "dsh-selection-annotations:panel-collapsed";
-        let panelCollapsed = false;
-        let panelHoverExpanded = false;
-        try {
-          panelCollapsed = window.localStorage.getItem(PANEL_COLLAPSED_KEY) === "1";
-        } catch {
-        }
-        function togglePanelCollapsed() {
-          const foldedNow = panelCollapsed && !panelHoverExpanded;
-          panelCollapsed = !foldedNow;
-          panelHoverExpanded = false;
-          try {
-            window.localStorage.setItem(PANEL_COLLAPSED_KEY, panelCollapsed ? "1" : "0");
-          } catch {
-          }
-          applyPanelCollapsedVisual();
-        }
-        function applyPanelCollapsedVisual() {
-          const folded = panelCollapsed && !panelHoverExpanded;
-          panelEl.classList.toggle("sa-panel-collapsed", folded);
-          const toggle = panelEl.querySelector(".sa-panel-collapse");
-          if (toggle !== null) toggle.setAttribute("aria-expanded", folded ? "false" : "true");
-          if (panelOpen) positionPanel();
-        }
         let panelHideTimer = 0;
         let imageSettingsOpen = false;
         let instructionSettingsOpen = false;
@@ -4954,6 +4968,12 @@
               copyPlainText(picked.text);
               return;
             }
+            if (picked.action === "open") {
+              const target = annotations.find((candidate) => candidate.id === picked.id);
+              if (target === void 0) return;
+              openEditPopover(target.id, webAnchor(picked.rect), "manual");
+              return;
+            }
             const adopt = picked.action === "adopt";
             const item = addAnnotation({
               quote: picked.quote !== "" ? picked.quote : picked.selector,
@@ -4967,15 +4987,33 @@
               }
             });
             if (item === void 0) return;
-            if (!adopt) openEditPopover(item.id, null, "manual");
+            if (!adopt) openEditPopover(item.id, webAnchor(picked.rect), "manual");
           }
         });
+        webPickerHandle = webPicker;
         webPicker.start();
+        function webAnchor(rect) {
+          if (rect === null || rect === void 0) return null;
+          const webview = document.querySelector('webview[data-sidebar-browser-frame="webview"]') ?? document.querySelector("webview");
+          const offset = safe(() => webview?.getBoundingClientRect()) ?? { left: 0, top: 0 };
+          const left = offset.left + Number(rect.left ?? 0);
+          const top = offset.top + Number(rect.top ?? 0);
+          const width = Number(rect.width ?? 0);
+          const height = Number(rect.height ?? 0);
+          return {
+            getBoundingClientRect: () => ({
+              left,
+              top,
+              width,
+              height,
+              right: left + width,
+              bottom: top + height
+            })
+          };
+        }
         const panelRenderer = createPanelRenderer({
           t,
           closePanel: () => closePanel(),
-          collapsed: () => panelCollapsed && !panelHoverExpanded,
-          toggleCollapsed: () => togglePanelCollapsed(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
@@ -5181,7 +5219,6 @@
         function openPanel(anchor) {
           panelOpen = true;
           panelAnchor = anchor;
-          panelHoverExpanded = false;
           if (panelHideTimer !== 0) {
             window.clearTimeout(panelHideTimer);
             panelHideTimer = 0;
@@ -5198,7 +5235,6 @@
           if (!panelOpen) return;
           panelOpen = false;
           panelAnchor = null;
-          panelHoverExpanded = false;
           panelRoot.dataset.open = "0";
           if (panelHideTimer !== 0) window.clearTimeout(panelHideTimer);
           panelHideTimer = window.setTimeout(() => {
@@ -5207,18 +5243,6 @@
           }, 180);
           emit();
         }
-        panelRoot.addEventListener("mouseenter", () => {
-          if (panelCollapsed && !panelHoverExpanded) {
-            panelHoverExpanded = true;
-            applyPanelCollapsedVisual();
-          }
-        });
-        panelRoot.addEventListener("mouseleave", () => {
-          if (panelHoverExpanded) {
-            panelHoverExpanded = false;
-            applyPanelCollapsedVisual();
-          }
-        });
         const onPanelOutsidePointerDown = (event) => {
           if (!panelOpen) return;
           const target = elementOf2(event.target);
@@ -5257,7 +5281,10 @@
               type: "button",
               title: count === 0 ? t("chip.emptyTitle") : t("chip.title"),
               onClick: (event) => {
-                if (panelOpen) return;
+                if (panelOpen) {
+                  closePanel();
+                  return;
+                }
                 openPanel(event.currentTarget);
               }
             },

@@ -142,6 +142,7 @@ export function createPlugin(React, extras = {}) {
           }
         }
         const snapshot = () => annotations
+        let webPickerHandle = null
         function emit() {
           for (const fn of [...listeners]) {
             try {
@@ -150,6 +151,20 @@ export function createPlugin(React, extras = {}) {
               warn('[selection-annotations] 订阅回调失败：', err)
             }
           }
+          syncWebAnnotations()
+        }
+
+        /** 把网页来源的批注同步给页面，用来在元素上保留常驻框与控制柄。 */
+        function syncWebAnnotations() {
+          if (webPickerHandle === null) return
+          const notes = annotations
+            .filter((item) => item.source !== null && item.source !== undefined && item.source.kind === 'web')
+            .map((item) => ({
+              id: item.id,
+              selector: item.source.anchorKey ?? '',
+              adopt: hasAdoptNote(item),
+            }))
+          webPickerHandle.sync(notes)
         }
 
         /* ------------------------------------------------------------------ 基础工具 */
@@ -2913,35 +2928,6 @@ export function createPlugin(React, extras = {}) {
 
         let panelOpen = false
         let panelAnchor = null
-        const PANEL_COLLAPSED_KEY = 'dsh-selection-annotations:panel-collapsed'
-        let panelCollapsed = false
-        let panelHoverExpanded = false
-        try {
-          panelCollapsed = window.localStorage.getItem(PANEL_COLLAPSED_KEY) === '1'
-        } catch {}
-        function togglePanelCollapsed() {
-          // 动作对准「当前看得见的状态」：悬停临展时点一下就是收起，不用点两次。
-          const foldedNow = panelCollapsed && !panelHoverExpanded
-          panelCollapsed = !foldedNow
-          panelHoverExpanded = false
-          try {
-            window.localStorage.setItem(PANEL_COLLAPSED_KEY, panelCollapsed ? '1' : '0')
-          } catch {}
-          applyPanelCollapsedVisual()
-        }
-
-        /**
-         * 只切换折叠样式，不重建面板内容：重建会把鼠标下的节点换掉，
-         * 让 hover 的进出事件错位，表现就是「点开后再点收不起」。
-         */
-        function applyPanelCollapsedVisual() {
-          const folded = panelCollapsed && !panelHoverExpanded
-          panelEl.classList.toggle('sa-panel-collapsed', folded)
-          const toggle = panelEl.querySelector('.sa-panel-collapse')
-          if (toggle !== null) toggle.setAttribute('aria-expanded', folded ? 'false' : 'true')
-          // 高度变了要重新贴住入口，否则展开后会向下长、压住输入区。
-          if (panelOpen) positionPanel()
-        }
         /** 关闭动画结束后再隐藏面板，避免过渡被 display:none 打断。*/
         let panelHideTimer = 0
 
@@ -2985,6 +2971,12 @@ export function createPlugin(React, extras = {}) {
               copyPlainText(picked.text)
               return
             }
+            if (picked.action === 'open') {
+              const target = annotations.find((candidate) => candidate.id === picked.id)
+              if (target === undefined) return
+              openEditPopover(target.id, webAnchor(picked.rect), 'manual')
+              return
+            }
             const adopt = picked.action === 'adopt'
             const item = addAnnotation({
               quote: picked.quote !== '' ? picked.quote : picked.selector,
@@ -2998,17 +2990,41 @@ export function createPlugin(React, extras = {}) {
               },
             })
             if (item === undefined) return
-            if (!adopt) openEditPopover(item.id, null, 'manual')
+            if (!adopt) openEditPopover(item.id, webAnchor(picked.rect), 'manual')
           },
         })
-
+        webPickerHandle = webPicker
         webPicker.start()
+
+        /**
+         * 把网页内部元素的矩形换算成 DSH 窗口坐标，供批注弹层贴在该元素旁。
+         * 页面里的坐标以 webview 左上角为原点。
+         */
+        function webAnchor(rect) {
+          if (rect === null || rect === undefined) return null
+          const webview =
+            document.querySelector('webview[data-sidebar-browser-frame="webview"]') ??
+            document.querySelector('webview')
+          const offset = safe(() => webview?.getBoundingClientRect()) ?? { left: 0, top: 0 }
+          const left = offset.left + Number(rect.left ?? 0)
+          const top = offset.top + Number(rect.top ?? 0)
+          const width = Number(rect.width ?? 0)
+          const height = Number(rect.height ?? 0)
+          return {
+            getBoundingClientRect: () => ({
+              left,
+              top,
+              width,
+              height,
+              right: left + width,
+              bottom: top + height,
+            }),
+          }
+        }
 
         const panelRenderer = createPanelRenderer({
           t,
           closePanel: () => closePanel(),
-          collapsed: () => panelCollapsed && !panelHoverExpanded,
-          toggleCollapsed: () => togglePanelCollapsed(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
@@ -3239,7 +3255,6 @@ export function createPlugin(React, extras = {}) {
         function openPanel(anchor) {
           panelOpen = true
           panelAnchor = anchor
-          panelHoverExpanded = false
           if (panelHideTimer !== 0) {
             window.clearTimeout(panelHideTimer)
             panelHideTimer = 0
@@ -3258,7 +3273,6 @@ export function createPlugin(React, extras = {}) {
           if (!panelOpen) return
           panelOpen = false
           panelAnchor = null
-          panelHoverExpanded = false
           panelRoot.dataset.open = '0'
           if (panelHideTimer !== 0) window.clearTimeout(panelHideTimer)
           panelHideTimer = window.setTimeout(() => {
@@ -3267,20 +3281,6 @@ export function createPlugin(React, extras = {}) {
           }, 180)
           emit()
         }
-
-        panelRoot.addEventListener('mouseenter', () => {
-          // 与便签主面板一致：折叠成标题条时，鼠标移上去临时展开内容，移开恢复折叠。
-          if (panelCollapsed && !panelHoverExpanded) {
-            panelHoverExpanded = true
-            applyPanelCollapsedVisual()
-          }
-        })
-        panelRoot.addEventListener('mouseleave', () => {
-          if (panelHoverExpanded) {
-            panelHoverExpanded = false
-            applyPanelCollapsedVisual()
-          }
-        })
 
         const onPanelOutsidePointerDown = (event) => {
           if (!panelOpen) return
@@ -3326,8 +3326,11 @@ export function createPlugin(React, extras = {}) {
               type: 'button',
               title: count === 0 ? t('chip.emptyTitle') : t('chip.title'),
               onClick: (event) => {
-                // 点击入口只负责打开；收起用面板标题栏的折叠键或关闭按钮。
-                if (panelOpen) return
+                // 入口只负责开合总览；不涉及标题栏折叠。
+                if (panelOpen) {
+                  closePanel()
+                  return
+                }
                 openPanel(event.currentTarget)
               },
             },
