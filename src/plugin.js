@@ -163,7 +163,7 @@ export function createPlugin(React, extras = {}) {
               id: item.id,
               selector: item.source.anchorKey ?? '',
               url: item.source.path ?? '',
-              adopt: hasAdoptNote(item),
+              adopt: hasAdoptNote(item.note),
             }))
           webPickerHandle.sync(notes)
         }
@@ -2354,6 +2354,8 @@ export function createPlugin(React, extras = {}) {
           popoverSource = options.source === 'hover' ? 'hover' : 'manual'
           cancelHoverOpen()
           cancelHoverClose()
+          // 每次打开都从「自动贴靠」开始；用户手动拖过之后，滚动与窗口变化不再把它挪回去。
+          delete popover.dataset.dragged
           popover.dataset.open = '1'
           if (options.rect !== undefined && options.rect !== null) placePopover(options.rect)
           syncPopInputHeight()
@@ -2945,6 +2947,45 @@ export function createPlugin(React, extras = {}) {
         let panelAnchor = null
         /** 关闭动画结束后再隐藏面板，避免过渡被 display:none 打断。*/
         let panelHideTimer = 0
+        /** 悬停入口临时展开：指针移开就收起；点击则固定。*/
+        let panelOpenedByHover = false
+        let panelHovered = false
+        let chipHoverOpenTimer = 0
+        let chipHoverCloseTimer = 0
+
+        function cancelChipTimers() {
+          if (chipHoverOpenTimer !== 0) {
+            window.clearTimeout(chipHoverOpenTimer)
+            chipHoverOpenTimer = 0
+          }
+          if (chipHoverCloseTimer !== 0) {
+            window.clearTimeout(chipHoverCloseTimer)
+            chipHoverCloseTimer = 0
+          }
+        }
+
+        function scheduleHoverOpen(anchor) {
+          if (panelOpen || panelOpenedByHover) return
+          if (chipHoverCloseTimer !== 0) {
+            window.clearTimeout(chipHoverCloseTimer)
+            chipHoverCloseTimer = 0
+          }
+          chipHoverOpenTimer = window.setTimeout(() => {
+            chipHoverOpenTimer = 0
+            if (panelOpen) return
+            panelOpenedByHover = true
+            openPanel(anchor)
+          }, 140)
+        }
+
+        function scheduleHoverClose() {
+          if (!panelOpen || !panelOpenedByHover) return
+          if (chipHoverCloseTimer !== 0) return
+          chipHoverCloseTimer = window.setTimeout(() => {
+            chipHoverCloseTimer = 0
+            if (panelOpenedByHover && !panelHovered) closePanel()
+          }, 220)
+        }
 
         /** 面板底部的图片设置是否展开。*/
         let imageSettingsOpen = false
@@ -2982,15 +3023,26 @@ export function createPlugin(React, extras = {}) {
 
         const webPicker = createWebPicker({
           onPick: (picked) => {
-            if (picked.action === 'copied') return
-            if (picked.action === 'copy') {
-              copyPlainText(picked.text)
+            const existing = annotations.find(
+              (candidate) =>
+                candidate.source !== null &&
+                candidate.source !== undefined &&
+                candidate.source.kind === 'web' &&
+                candidate.source.anchorKey === picked.selector,
+            )
+            if (picked.action === 'delete') {
+              const target = annotations.find((candidate) => candidate.id === picked.id)
+              if (target !== undefined) removeAnnotation(target.id)
               return
             }
-            if (picked.action === 'open') {
+            if (picked.action === 'modify' || picked.action === 'open') {
               const target = annotations.find((candidate) => candidate.id === picked.id)
-              if (target === undefined) return
-              openEditPopover(target.id, webAnchor(picked.rect), 'manual')
+              if (target !== undefined) openEditPopover(target.id, webAnchor(picked.rect), 'manual')
+              return
+            }
+            // 同一元素只保留一条网页批注：已有就直接打开那一条，不再新建。
+            if (existing !== undefined) {
+              openEditPopover(existing.id, webAnchor(picked.rect), 'manual')
               return
             }
             const adopt = picked.action === 'adopt'
@@ -3271,6 +3323,7 @@ export function createPlugin(React, extras = {}) {
         function openPanel(anchor) {
           panelOpen = true
           panelAnchor = anchor
+          cancelChipTimers()
           if (panelHideTimer !== 0) {
             window.clearTimeout(panelHideTimer)
             panelHideTimer = 0
@@ -3289,6 +3342,9 @@ export function createPlugin(React, extras = {}) {
           if (!panelOpen) return
           panelOpen = false
           panelAnchor = null
+          cancelChipTimers()
+          panelOpenedByHover = false
+          panelHovered = false
           panelRoot.dataset.open = '0'
           if (panelHideTimer !== 0) window.clearTimeout(panelHideTimer)
           panelHideTimer = window.setTimeout(() => {
@@ -3297,6 +3353,18 @@ export function createPlugin(React, extras = {}) {
           }, 180)
           emit()
         }
+
+        panelRoot.addEventListener('mouseenter', () => {
+          panelHovered = true
+          if (chipHoverCloseTimer !== 0) {
+            window.clearTimeout(chipHoverCloseTimer)
+            chipHoverCloseTimer = 0
+          }
+        })
+        panelRoot.addEventListener('mouseleave', () => {
+          panelHovered = false
+          scheduleHoverClose()
+        })
 
         const onPanelOutsidePointerDown = (event) => {
           if (!panelOpen) return
@@ -3341,13 +3409,17 @@ export function createPlugin(React, extras = {}) {
               className: `sa-chip${count > 0 ? ' sa-chip-has' : ''}${local.open ? ' sa-chip-open' : ''}`,
               type: 'button',
               title: count === 0 ? t('chip.emptyTitle') : t('chip.title'),
+              onMouseEnter: (event) => scheduleHoverOpen(event.currentTarget),
+              onMouseLeave: () => scheduleHoverClose(),
               onClick: (event) => {
-                // 入口只负责开合总览；不涉及标题栏折叠。
-                if (panelOpen) {
+                cancelChipTimers()
+                // 点击是持久的开合；悬停只是临时展开，移开就收回去。
+                if (panelOpen && !panelOpenedByHover) {
                   closePanel()
                   return
                 }
-                openPanel(event.currentTarget)
+                panelOpenedByHover = false
+                if (!panelOpen) openPanel(event.currentTarget)
               },
             },
             h(
@@ -3558,7 +3630,7 @@ export function createPlugin(React, extras = {}) {
             scheduleRepaint()
             positionPanel()
             closeContextMenu()
-            if (popover.dataset.open === '1' && popoverRect !== null) placePopover(popoverRect)
+            if (popover.dataset.open === '1' && popoverRect !== null && popover.dataset.dragged !== '1') placePopover(popoverRect)
           }
           window.addEventListener('scroll', onViewport, true)
           window.addEventListener('resize', onViewport)

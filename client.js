@@ -1976,7 +1976,7 @@
   // src/core/web-picker.js
   var PICK_SCRIPT = String.raw`(function () {
   if (window.__saPicker) { try { window.__saWebRender && window.__saWebRender() } catch (e) {} return 'already' }
-  var state = { el: null }
+  var state = { el: null, note: null }
   var host = document.createElement('div')
   host.setAttribute('data-sa-web-picker', '')
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483000;pointer-events:none;contains:layout style;'
@@ -1991,28 +1991,75 @@
   host.appendChild(actions)
   document.documentElement.appendChild(host)
 
-  var labels = [
-    ['adopt', '批注采纳'],
-    ['feedback', '批注反馈'],
-    ['copy', '复制'],
-  ]
-  labels.forEach(function (entry) {
+  var ICONS = {
+    adopt: 'M2.5 6.2 5 8.7 9.5 3.6',
+    feedback: 'M2.2 9.8 1.6 11.4l1.7-.5 4.5-4.5-1.1-1.1zM7.6 4.4l1.1 1.1',
+    modify: 'M2.2 9.8 1.6 11.4l1.7-.5 4.5-4.5-1.1-1.1zM7.6 4.4l1.1 1.1',
+    delete: 'M2.5 3.5h7M4.5 3.5V2.2h3v1.3M3.4 3.5l.4 7h4.4l.4-7',
+  }
+
+  function setGroupTone(inside) {
+    var buttons = actions.querySelectorAll('button')
+    for (var i = 0; i < buttons.length; i += 1) {
+      buttons[i].style.background = inside ? 'rgba(0,0,0,.5)' : 'rgba(0,0,0,.25)'
+      buttons[i].style.color = inside ? 'rgba(255,255,255,.8)' : 'transparent'
+    }
+  }
+  actions.addEventListener('pointerenter', function () { setGroupTone(true) })
+  actions.addEventListener('pointerleave', function () { setGroupTone(false) })
+
+  function makeButton(action, label, id) {
     var button = document.createElement('button')
     button.type = 'button'
-    button.textContent = entry[1]
-    button.dataset.action = entry[0]
-    button.style.cssText = 'pointer-events:auto;padding:3px 7px;border:0;border-radius:4px;background:rgba(0,0,0,.3);color:rgba(255,255,255,.5);font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.85);'
-    button.addEventListener('pointerenter', function () {
-      button.style.background = 'rgba(36,123,191,.5)'
-      button.style.color = 'rgba(255,255,255,.9)'
-    })
-    button.addEventListener('pointerleave', function () {
-      button.style.background = 'rgba(0,0,0,.3)'
-      button.style.color = 'rgba(255,255,255,.5)'
-    })
-    button.addEventListener('click', function (event) { onClick(event, entry[0]) })
-    actions.appendChild(button)
-  })
+    button.dataset.action = action
+    button.style.cssText = 'pointer-events:auto;display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border:0;border-radius:4px;background:rgba(0,0,0,.25);color:transparent;font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.85);'
+    var svgNS = 'http://www.w3.org/2000/svg'
+    var svg = document.createElementNS(svgNS, 'svg')
+    svg.setAttribute('viewBox', '0 0 14 14')
+    svg.setAttribute('width', '12')
+    svg.setAttribute('height', '12')
+    svg.setAttribute('fill', 'none')
+    svg.setAttribute('stroke', 'currentColor')
+    svg.setAttribute('stroke-width', '1.4')
+    svg.setAttribute('stroke-linecap', 'round')
+    svg.setAttribute('stroke-linejoin', 'round')
+    var path = document.createElementNS(svgNS, 'path')
+    path.setAttribute('d', ICONS[action] || ICONS.feedback)
+    svg.appendChild(path)
+    button.appendChild(svg)
+    button.appendChild(document.createTextNode(label))
+    button.addEventListener('click', function (event) { onClick(event, action, id) })
+    return button
+  }
+
+  function setActionsFor(el) {
+    var note = findNote(el)
+    state.note = note
+    var signature = note ? 'note:' + note.id : 'empty'
+    if (actions.dataset.signature === signature) return note
+    actions.dataset.signature = signature
+    actions.textContent = ''
+    if (note) {
+      actions.appendChild(makeButton('modify', '修改批注', note.id))
+      actions.appendChild(makeButton('delete', '删除批注', note.id))
+    } else {
+      actions.appendChild(makeButton('adopt', '批注采纳', ''))
+      actions.appendChild(makeButton('feedback', '批注反馈', ''))
+    }
+    setGroupTone(false)
+    return note
+  }
+
+  function findNote(el) {
+    var notes = Array.isArray(window.__saWebNotes) ? window.__saWebNotes : []
+    for (var i = 0; i < notes.length; i += 1) {
+      if (!notes[i] || !notes[i].selector) continue
+      var target = null
+      try { target = document.querySelector(notes[i].selector) } catch (e) { target = null }
+      if (target && target === el) return notes[i]
+    }
+    return null
+  }
 
   function selectorOf(el) {
     if (!el || el.nodeType !== 1) return ''
@@ -2050,20 +2097,35 @@
     var rect = el.getBoundingClientRect()
     if (rect.width < 2 || rect.height < 2) return
     state.el = el
+    setActionsFor(el)
     box.style.display = 'block'
     box.style.left = rect.left + 'px'
     box.style.top = rect.top + 'px'
     box.style.width = rect.width + 'px'
     box.style.height = rect.height + 'px'
     actions.style.display = 'flex'
-    var width = actions.offsetWidth || 150
-    actions.style.left = Math.max(4, Math.min(rect.right - width - 4, window.innerWidth - width - 4)) + 'px'
-    actions.style.top = Math.max(4, rect.top + 4) + 'px'
+    var width = actions.offsetWidth || 180
+    var height = actions.offsetHeight || 24
+    var fitsInside = rect.width >= width + 16 && rect.height >= height + 12
+    var top
+    var left
+    if (fitsInside) {
+      top = rect.top + 4
+      left = rect.right - width - 4
+    } else {
+      // 框太小：贴到框外侧，上方优先，其次下方，中间不留空隙。
+      top = rect.top - height
+      if (top < 4) top = rect.bottom
+      left = rect.left
+    }
+    left = Math.max(4, Math.min(left, window.innerWidth - width - 4))
+    actions.style.left = left + 'px'
+    actions.style.top = Math.max(4, top) + 'px'
   }
 
   function inActions(x, y) {
     var rect = actions.getBoundingClientRect()
-    return x >= rect.left - 10 && x <= rect.right + 10 && y >= rect.top - 10 && y <= rect.bottom + 10
+    return x >= rect.left - 6 && x <= rect.right + 6 && y >= rect.top - 6 && y <= rect.bottom + 6
   }
 
   function onMove(event) {
@@ -2073,42 +2135,31 @@
     place(el)
   }
 
-  function copyInPage(text) {
-    var area = document.createElement('textarea')
-    area.value = text
-    area.style.cssText = 'position:fixed;left:-9999px;top:0;'
-    document.body.appendChild(area)
-    area.select()
-    var ok = false
-    try { ok = document.execCommand('copy') } catch (e) { ok = false }
-    area.remove()
-    return ok
-  }
-
-  function onClick(event, action) {
+  function onClick(event, action, id) {
     event.preventDefault()
     event.stopPropagation()
     var el = state.el
     if (!el) return
-    if (action === 'copy') {
-      // 在点击的手势内完成复制，并保留元素文本的换行结构。
-      var ok = copyInPage(el.innerText || el.textContent || '')
-      window.__saPicked = { action: 'copied', ok: ok }
-      return
-    }
     window.__saPicked = {
       action: action,
+      id: id || '',
       selector: selectorOf(el),
       label: labelOf(el),
       url: location.href,
       title: document.title,
-      text: (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+      text: el.innerText || el.textContent || '',
       rect: rectOf(el),
     }
   }
 
   function onKey(event) {
-    if (event.key === 'Escape') { event.preventDefault(); actions.style.display = 'none'; box.style.display = 'none'; state.el = null }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      actions.style.display = 'none'
+      box.style.display = 'none'
+      state.el = null
+      state.note = null
+    }
   }
 
   function renderNotes() {
@@ -2122,7 +2173,7 @@
       if (!el) return
       var rect = el.getBoundingClientRect()
       if (rect.width < 2 || rect.height < 2) return
-      var color = note.adopt ? 'rgba(52,199,89,.95)' : 'rgba(245,158,11,.95)'
+      var color = note.adopt ? 'rgba(52,199,89,.8)' : 'rgba(245,158,11,.8)'
       var frame = document.createElement('div')
       frame.style.cssText = 'position:fixed;border:3px solid ' + color + ';border-radius:0;background:transparent;pointer-events:none;box-sizing:border-box;'
       frame.style.left = rect.left + 'px'
@@ -2697,7 +2748,7 @@
             id: item.id,
             selector: item.source.anchorKey ?? "",
             url: item.source.path ?? "",
-            adopt: hasAdoptNote(item)
+            adopt: hasAdoptNote(item.note)
           }));
           webPickerHandle.sync(notes);
         }
@@ -4476,6 +4527,7 @@
           popoverSource = options.source === "hover" ? "hover" : "manual";
           cancelHoverOpen();
           cancelHoverClose();
+          delete popover.dataset.dragged;
           popover.dataset.open = "1";
           if (options.rect !== void 0 && options.rect !== null) placePopover(options.rect);
           syncPopInputHeight();
@@ -4969,6 +5021,41 @@
         let panelOpen = false;
         let panelAnchor = null;
         let panelHideTimer = 0;
+        let panelOpenedByHover = false;
+        let panelHovered = false;
+        let chipHoverOpenTimer = 0;
+        let chipHoverCloseTimer = 0;
+        function cancelChipTimers() {
+          if (chipHoverOpenTimer !== 0) {
+            window.clearTimeout(chipHoverOpenTimer);
+            chipHoverOpenTimer = 0;
+          }
+          if (chipHoverCloseTimer !== 0) {
+            window.clearTimeout(chipHoverCloseTimer);
+            chipHoverCloseTimer = 0;
+          }
+        }
+        function scheduleHoverOpen(anchor) {
+          if (panelOpen || panelOpenedByHover) return;
+          if (chipHoverCloseTimer !== 0) {
+            window.clearTimeout(chipHoverCloseTimer);
+            chipHoverCloseTimer = 0;
+          }
+          chipHoverOpenTimer = window.setTimeout(() => {
+            chipHoverOpenTimer = 0;
+            if (panelOpen) return;
+            panelOpenedByHover = true;
+            openPanel(anchor);
+          }, 140);
+        }
+        function scheduleHoverClose() {
+          if (!panelOpen || !panelOpenedByHover) return;
+          if (chipHoverCloseTimer !== 0) return;
+          chipHoverCloseTimer = window.setTimeout(() => {
+            chipHoverCloseTimer = 0;
+            if (panelOpenedByHover && !panelHovered) closePanel();
+          }, 220);
+        }
         let imageSettingsOpen = false;
         let instructionSettingsOpen = false;
         let fallbackSettingsOpen = false;
@@ -4998,15 +5085,21 @@
         }
         const webPicker = createWebPicker({
           onPick: (picked) => {
-            if (picked.action === "copied") return;
-            if (picked.action === "copy") {
-              copyPlainText(picked.text);
+            const existing = annotations.find(
+              (candidate) => candidate.source !== null && candidate.source !== void 0 && candidate.source.kind === "web" && candidate.source.anchorKey === picked.selector
+            );
+            if (picked.action === "delete") {
+              const target = annotations.find((candidate) => candidate.id === picked.id);
+              if (target !== void 0) removeAnnotation(target.id);
               return;
             }
-            if (picked.action === "open") {
+            if (picked.action === "modify" || picked.action === "open") {
               const target = annotations.find((candidate) => candidate.id === picked.id);
-              if (target === void 0) return;
-              openEditPopover(target.id, webAnchor(picked.rect), "manual");
+              if (target !== void 0) openEditPopover(target.id, webAnchor(picked.rect), "manual");
+              return;
+            }
+            if (existing !== void 0) {
+              openEditPopover(existing.id, webAnchor(picked.rect), "manual");
               return;
             }
             const adopt = picked.action === "adopt";
@@ -5254,6 +5347,7 @@
         function openPanel(anchor) {
           panelOpen = true;
           panelAnchor = anchor;
+          cancelChipTimers();
           if (panelHideTimer !== 0) {
             window.clearTimeout(panelHideTimer);
             panelHideTimer = 0;
@@ -5270,6 +5364,9 @@
           if (!panelOpen) return;
           panelOpen = false;
           panelAnchor = null;
+          cancelChipTimers();
+          panelOpenedByHover = false;
+          panelHovered = false;
           panelRoot.dataset.open = "0";
           if (panelHideTimer !== 0) window.clearTimeout(panelHideTimer);
           panelHideTimer = window.setTimeout(() => {
@@ -5278,6 +5375,17 @@
           }, 180);
           emit();
         }
+        panelRoot.addEventListener("mouseenter", () => {
+          panelHovered = true;
+          if (chipHoverCloseTimer !== 0) {
+            window.clearTimeout(chipHoverCloseTimer);
+            chipHoverCloseTimer = 0;
+          }
+        });
+        panelRoot.addEventListener("mouseleave", () => {
+          panelHovered = false;
+          scheduleHoverClose();
+        });
         const onPanelOutsidePointerDown = (event) => {
           if (!panelOpen) return;
           const target = elementOf2(event.target);
@@ -5315,12 +5423,16 @@
               className: `sa-chip${count > 0 ? " sa-chip-has" : ""}${local.open ? " sa-chip-open" : ""}`,
               type: "button",
               title: count === 0 ? t("chip.emptyTitle") : t("chip.title"),
+              onMouseEnter: (event) => scheduleHoverOpen(event.currentTarget),
+              onMouseLeave: () => scheduleHoverClose(),
               onClick: (event) => {
-                if (panelOpen) {
+                cancelChipTimers();
+                if (panelOpen && !panelOpenedByHover) {
                   closePanel();
                   return;
                 }
-                openPanel(event.currentTarget);
+                panelOpenedByHover = false;
+                if (!panelOpen) openPanel(event.currentTarget);
               }
             },
             h(
@@ -5513,7 +5625,7 @@
             scheduleRepaint();
             positionPanel();
             closeContextMenu();
-            if (popover.dataset.open === "1" && popoverRect !== null) placePopover(popoverRect);
+            if (popover.dataset.open === "1" && popoverRect !== null && popover.dataset.dragged !== "1") placePopover(popoverRect);
           };
           window.addEventListener("scroll", onViewport, true);
           window.addEventListener("resize", onViewport);
