@@ -142,8 +142,21 @@
   color: var(--sa-dim-secondary, var(--dsw-alias-label-secondary, #a3a3ab)); font: inherit; font-size: calc(16px + var(--dsh-content-font-delta, 0px) * 0.8); line-height: 1; cursor: pointer; }
 .sa-panel-close:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(255 255 255 / 0.08)); color: var(--sa-dim-primary, var(--dsw-alias-label-primary, #e8e8ea)); }
 .sa-panel-close:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 1px; }
-.sa-panel-foot { flex: none; display: flex; justify-content: flex-end; padding: 8px 14px 10px;
+.sa-panel-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px 10px;
   border-top: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
+.sa-panel-side { flex: none; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent;
+  color: var(--sa-dim-secondary, var(--dsw-alias-label-secondary, #a3a3ab)); cursor: pointer; }
+.sa-panel-side:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(255 255 255 / 0.08)); color: var(--sa-dim-primary, var(--dsw-alias-label-primary, #e8e8ea)); }
+.sa-panel-side:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 1px; }
+.sa-side { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; overflow: auto; height: 100%; box-sizing: border-box; }
+.sa-side-empty { padding: 16px 12px; font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-tertiary, GrayText); }
+.sa-side-item { display: flex; gap: 8px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 8px; background: var(--dsw-alias-bg-layer-1, Canvas); }
+.sa-side-num { flex: none; min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px;
+  background: var(--dsw-alias-brand-primary, #247bbf); color: #fff; font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-variant-numeric: tabular-nums; }
+.sa-side-content { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sa-side-quote { font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, #a3a3ab); }
+.sa-side-note { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); white-space: pre-wrap; word-break: break-word; }
+.sa-side-adopt { color: var(--dsw-alias-state-success-primary, #3fb950); }
 .sa-panel-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
   color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-panel-count { padding: 2px 7px; border-radius: 999px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-variant-numeric: tabular-nums;
@@ -393,7 +406,7 @@
   var MAX_IMAGES_PER_ANNOTATION = 4;
   var MAX_IMAGE_BYTES = 8 * 1024 * 1024;
   var IMAGE_SETTINGS_KEY = "dsh-selection-annotations:image-settings";
-  var DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100 };
+  var DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100, webShot: "element" };
   var INSTRUCTION_SETTINGS_KEY = "dsh-selection-annotations:instruction-settings";
   var ADOPT_SETTINGS_KEY = "dsh-selection-annotations:adopt-settings";
   var DEFAULT_ADOPT_TEXT = "【意见采纳】";
@@ -509,6 +522,9 @@
       "panel.collapse": "收起或展开批注总览",
       "webPick.missing": "没有找到内嵌浏览器，请先在侧栏打开网页。",
       "panel.foot": "发送时批注作为独立块随消息提交",
+      "panel.sideTab": "在右侧边栏打开批注",
+      "sideTab.title": "批注",
+      "sideTab.empty": "还没有批注",
       "panel.refineFailed": "位置精修未生效：{reason}",
       "settings.imagesOpen": "收起图片设置",
       "settings.imagesClosed": "图片设置",
@@ -518,6 +534,10 @@
       "settings.quality": "质量 ",
       "settings.minSizeBefore": "最短边超过 ",
       "settings.minSizeAfter": " 像素才压缩",
+      "settings.webShot": "网页元素批注自动截图 ",
+      "settings.webShotOff": "停用",
+      "settings.webShotElement": "仅目标元素本身",
+      "settings.webShotPage": "完整页面",
       "settings.instructionOpen": "收起批注指令",
       "settings.instructionClosed": "批注指令",
       "settings.pageTitle": "批注指令",
@@ -623,6 +643,9 @@
       "panel.collapse": "Collapse or expand annotations",
       "webPick.missing": "No embedded browser found. Open a page in the sidebar first.",
       "panel.foot": "Annotations are sent as a separate block with the message",
+      "panel.sideTab": "Open annotations in the right sidebar",
+      "sideTab.title": "Annotations",
+      "sideTab.empty": "No annotations yet",
       "panel.refineFailed": "Position refinement failed: {reason}",
       "settings.imagesOpen": "Hide image settings",
       "settings.imagesClosed": "Image settings",
@@ -632,6 +655,10 @@
       "settings.quality": "Quality ",
       "settings.minSizeBefore": "Compress only when the shortest side exceeds ",
       "settings.minSizeAfter": " px",
+      "settings.webShot": "Auto screenshot for web page annotations ",
+      "settings.webShotOff": "Off",
+      "settings.webShotElement": "Target element only",
+      "settings.webShotPage": "Full page",
       "settings.instructionOpen": "Hide annotation instruction",
       "settings.instructionClosed": "Annotation instruction",
       "settings.pageTitle": "Annotation instruction",
@@ -859,6 +886,8 @@
       if (Number.isFinite(quality)) settings.quality = Math.min(1, Math.max(0.1, quality));
       const minSize = Number(parsed.minSize);
       if (Number.isFinite(minSize)) settings.minSize = Math.min(4096, Math.max(0, Math.round(minSize)));
+      const webShot = parsed.webShot;
+      if (webShot === "off" || webShot === "element" || webShot === "page") settings.webShot = webShot;
       return settings;
     }
     function imageSettingsOf() {
@@ -1838,6 +1867,8 @@
     fallbackSettingsRow,
     closePanel = () => {
     },
+    openSideTab = () => {
+    },
     isAdopt = () => false
   }) {
     function render(panelEl) {
@@ -1968,6 +1999,23 @@
       const build = el("span", "sa-build", `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`);
       build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`;
       panelFoot.appendChild(build);
+      const side = button("sa-panel-side", "", openSideTab);
+      side.title = t("panel.sideTab");
+      side.setAttribute("aria-label", t("panel.sideTab"));
+      const sideIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      sideIcon.setAttribute("viewBox", "0 0 16 16");
+      sideIcon.setAttribute("width", "14");
+      sideIcon.setAttribute("height", "14");
+      sideIcon.setAttribute("fill", "none");
+      sideIcon.setAttribute("stroke", "currentColor");
+      sideIcon.setAttribute("stroke-width", "1.2");
+      for (const d of ["M2.2 3.2h11.6v9.6H2.2z", "M10.2 3.2v9.6"]) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", d);
+        sideIcon.appendChild(path);
+      }
+      side.appendChild(sideIcon);
+      panelFoot.appendChild(side);
       panelEl.appendChild(panelFoot);
     }
     return { render };
@@ -1976,7 +2024,7 @@
   // src/core/web-picker.js
   var PICK_SCRIPT = String.raw`(function () {
   if (window.__saPicker) { try { window.__saWebRender && window.__saWebRender() } catch (e) {} return 'already' }
-  var state = { el: null, note: null, fitsInside: false }
+  var state = { el: null, note: null }
   var host = document.createElement('div')
   host.setAttribute('data-sa-web-picker', '')
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483000;pointer-events:none;contain:layout style;'
@@ -1999,16 +2047,14 @@
     ],
   }
 
-  function setGroupTone(inside) {
-    actions.style.background = inside ? 'rgba(0,0,0,.5)' : 'rgba(0,0,0,.1)'
+  function resetTone() {
+    actions.style.background = 'rgba(0,0,0,.1)'
     var buttons = actions.querySelectorAll('button')
     for (var i = 0; i < buttons.length; i += 1) {
-      buttons[i].style.color = inside ? 'rgba(255,255,255,.8)' : 'transparent'
-      buttons[i].style.textShadow = inside ? '0 1px 3px rgba(0,0,0,.85)' : 'none'
+      buttons[i].style.background = 'transparent'
+      buttons[i].style.color = 'rgba(255,255,255,.8)'
     }
   }
-  actions.addEventListener('pointerenter', function () { setGroupTone(true) })
-  actions.addEventListener('pointerleave', function () { setGroupTone(false) })
 
   function iconFor(action) {
     var svgNS = 'http://www.w3.org/2000/svg'
@@ -2041,9 +2087,11 @@
     var button = document.createElement('button')
     button.type = 'button'
     button.dataset.action = action
-    button.style.cssText = 'pointer-events:auto;display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:0;border-right:' + (last ? '0' : '1px solid rgba(255,255,255,.16)') + ';background:transparent;color:transparent;font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:none;transition:background .12s,color .12s;'
+    button.style.cssText = 'pointer-events:auto;display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:0;border-right:' + (last ? '0' : '1px solid rgba(255,255,255,.16)') + ';background:transparent;color:rgba(255,255,255,.8);font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.85);transition:background .12s;'
     button.appendChild(iconFor(action))
     button.appendChild(document.createTextNode(label))
+    button.addEventListener('pointerenter', function () { button.style.background = 'rgba(0,0,0,.8)' })
+    button.addEventListener('pointerleave', function () { button.style.background = 'transparent' })
     button.addEventListener('click', function (event) { onClick(event, action, id) })
     return button
   }
@@ -2062,7 +2110,7 @@
         actions.appendChild(makeButton('feedback', '批注反馈', '', false))
         actions.appendChild(makeButton('adopt', '批注采纳', '', true))
       }
-      setGroupTone(false)
+      resetTone()
     }
     return note
   }
@@ -2110,7 +2158,7 @@
     return { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
   }
 
-  function place(el, mouseX) {
+  function place(el, mouseX, mouseY) {
     if (!el || el.closest('[data-sa-web-picker]')) return
     var rect = el.getBoundingClientRect()
     if (rect.width < 2 || rect.height < 2) return
@@ -2127,20 +2175,27 @@
     actions.style.display = 'flex'
     var width = actions.offsetWidth || 180
     var height = actions.offsetHeight || 24
-    var fitsInside = rect.width >= width + 16 && rect.height >= height + 12
-    state.fitsInside = fitsInside
+    var marginX = 4
     var top
-    var left
-    if (fitsInside) {
-      top = rect.top + 4
-      // 框内：中心跟着鼠标，但不超出框的左右边缘。
-      left = Math.max(rect.left + 2, Math.min((mouseX || rect.right - width / 2) - width / 2, rect.right - width - 2))
+    // 默认放框外：鼠标在元素上半部分就放上方，下半部分放下方；那一侧没空间才换另一侧。
+    var preferAbove = mouseY === undefined ? true : mouseY < rect.top + rect.height / 2
+    var above = rect.top - height
+    var below = rect.bottom
+    if (above >= 4 || below + height > window.innerHeight - 4) {
+      top = preferAbove ? above : below
+      if (top < 4) top = below
+      if (top + height > window.innerHeight - 4) top = above >= 4 ? above : Math.max(4, window.innerHeight - height - 4)
     } else {
-      // 框太小：贴到框外侧，上方优先，其次下方，中间不留空隙。
-      top = rect.top - height
-      if (top < 4) top = rect.bottom
-      // 框外：中心跟着鼠标，但不超出视窗。
-      left = Math.max(4, Math.min((mouseX || rect.left + width / 2) - width / 2, window.innerWidth - width - 4))
+      top = below
+    }
+    var outsideOk = top < rect.top || top >= rect.bottom
+    if (!outsideOk) {
+      // 框外上下都没有空间：放进框内，居中偏上。
+      top = rect.top + Math.max(4, Math.min((rect.height - height) / 2, 4))
+    }
+    var left = Math.max(marginX, Math.min((mouseX === undefined ? rect.left + width / 2 : mouseX) - width / 2, window.innerWidth - width - marginX))
+    if (!outsideOk) {
+      left = Math.max(rect.left + 2, Math.min(left, rect.right - width - 2))
     }
     actions.style.left = left + 'px'
     actions.style.top = Math.max(4, top) + 'px'
@@ -2155,7 +2210,7 @@
     if (actions.style.display !== 'none' && inActions(event.clientX, event.clientY)) return
     var el = document.elementFromPoint(event.clientX, event.clientY)
     if (el && el.closest && el.closest('[data-sa-web-picker]')) return
-    place(el, event.clientX)
+    place(el, event.clientX, event.clientY)
   }
 
   function onClick(event, action, id) {
@@ -2238,6 +2293,15 @@
     function view() {
       return document.querySelector('webview[data-sidebar-browser-frame="webview"]') ?? document.querySelector("webview");
     }
+    function execute(script) {
+      const webview = view();
+      if (webview === null || typeof webview.executeJavaScript !== "function") return void 0;
+      try {
+        return webview.executeJavaScript(script);
+      } catch {
+        return void 0;
+      }
+    }
     function stop() {
       if (timer !== 0) {
         window.clearInterval(timer);
@@ -2246,10 +2310,27 @@
     }
     function sync(notes) {
       lastNotes = Array.isArray(notes) ? notes : [];
-      const webview = view();
-      if (webview === null || typeof webview.executeJavaScript !== "function") return;
       const json = JSON.stringify(lastNotes);
-      safeCall(() => webview.executeJavaScript(`window.__saWebNotes = ${json}; window.__saWebRender && window.__saWebRender()`));
+      execute(`window.__saWebNotes = ${json}; window.__saWebRender && window.__saWebRender()`);
+    }
+    async function capture(scope, rect) {
+      if (scope !== "page" && scope !== "element") return void 0;
+      const webview = view();
+      if (webview === null || typeof webview.capturePage !== "function") return void 0;
+      try {
+        const area = scope === "element" && rect !== null && typeof rect === "object" ? {
+          x: Math.max(0, Math.round(rect.left)),
+          y: Math.max(0, Math.round(rect.top)),
+          width: Math.max(1, Math.round(rect.width)),
+          height: Math.max(1, Math.round(rect.height))
+        } : void 0;
+        const image = await webview.capturePage(area);
+        if (image === null || image === void 0 || typeof image.toDataURL !== "function") return void 0;
+        const dataUrl = image.toDataURL();
+        return typeof dataUrl === "string" && dataUrl.startsWith("data:image/") ? dataUrl : void 0;
+      } catch {
+        return void 0;
+      }
     }
     function start() {
       if (timer !== 0) return;
@@ -2286,13 +2367,10 @@
       }, POLL_MS);
     }
     function dispose() {
-      const webview = view();
-      if (webview !== null && typeof webview.executeJavaScript === "function") {
-        safeCall(() => webview.executeJavaScript("window.__saPicker && window.__saPicker.stop()"));
-      }
+      execute("window.__saPicker && window.__saPicker.stop()");
       stop();
     }
-    return { start, sync, dispose, available: () => view() !== null };
+    return { start, sync, capture, dispose, available: () => view() !== null };
   }
   function safeCall(fn) {
     try {
@@ -4612,11 +4690,11 @@
             source
           });
         }
-        function closePopover() {
+        function closePopover(options = {}) {
           popover.dataset.open = "0";
           lowerPopover();
           safe(() => popInput.blur());
-          if (popoverMode === "edit" && popoverTargetId !== null) {
+          if (options.discardWebEmpty !== false && popoverMode === "edit" && popoverTargetId !== null) {
             const item = annotations.find((candidate) => candidate.id === popoverTargetId);
             if (item !== void 0 && item.source !== null && item.source !== void 0 && item.source.kind === "web" && String(item.note ?? "").trim() === "") {
               removeAnnotation(popoverTargetId);
@@ -4671,11 +4749,11 @@
             const images2 = popInputImages;
             const note2 = noteValue();
             const before = target === null ? void 0 : annotations.find((item) => item.id === target);
-            closePopover();
+            if (target !== null) updateAnnotation(target, note2, images2);
+            closePopover({ discardWebEmpty: false });
             if (before !== void 0 && before.note === note2 && JSON.stringify(before.images) === JSON.stringify(images2)) {
               return;
             }
-            if (target !== null) updateAnnotation(target, note2, images2);
             return;
           }
           const anchor = popoverAnchor;
@@ -4928,9 +5006,24 @@
           }
           return void 0;
         }
+        function hoverPointExposed(x, y) {
+          if (typeof document.elementsFromPoint !== "function") return true;
+          for (const node of document.elementsFromPoint(x, y)) {
+            if (node === document.body || node === document.documentElement) break;
+            const className = typeof node.className === "string" ? node.className : "";
+            if (className.includes("sa-hl")) continue;
+            if (node.closest?.("[data-sa-ui]") !== null && node.closest?.("[data-sa-ui]") !== void 0) return false;
+            const style = window.getComputedStyle(node);
+            const z = Number(style.zIndex);
+            if ((style.position === "fixed" || style.position === "sticky") && Number.isFinite(z) && z >= 10) return false;
+            return true;
+          }
+          return true;
+        }
         function onHoverMove(event) {
           const open = popover.dataset.open === "1";
-          const hit = highlightHits.length === 0 ? void 0 : hitHighlight(event.clientX, event.clientY);
+          const raw = highlightHits.length === 0 ? void 0 : hitHighlight(event.clientX, event.clientY);
+          const hit = raw !== void 0 && hoverPointExposed(event.clientX, event.clientY) ? raw : void 0;
           if (open) {
             if (popoverSource !== "hover") return;
             if (popoverTouched || popoverHovered) return;
@@ -5111,7 +5204,7 @@
           panelRoot.style.top = `${Math.max(8, top)}px`;
         }
         const webPicker = createWebPicker({
-          onPick: (picked) => {
+          onPick: async (picked) => {
             const existing = annotations.find(
               (candidate) => candidate.source !== null && candidate.source !== void 0 && candidate.source.kind === "web" && candidate.source.anchorKey === picked.selector
             );
@@ -5130,10 +5223,21 @@
               return;
             }
             const adopt = picked.action === "adopt";
+            const shot = await webPicker.capture(imageSettingsOf().webShot ?? "element", picked.rect);
+            const images = shot === void 0 ? [] : [
+              {
+                id: `img-web-${Date.now().toString(36)}`,
+                name: `网页截图-${(/* @__PURE__ */ new Date()).toISOString().slice(11, 19).replace(/:/g, "")}.png`,
+                dataUrl: shot,
+                thumb: shot,
+                preview: shot,
+                bytes: Math.round(shot.length * 3 / 4)
+              }
+            ];
             const item = addAnnotation({
               quote: picked.quote !== "" ? picked.quote : picked.selector,
               note: adopt ? adoptTextOf() : "",
-              images: [],
+              images,
               source: {
                 kind: "web",
                 anchorKey: picked.selector,
@@ -5147,6 +5251,86 @@
         });
         webPickerHandle = webPicker;
         webPicker.start();
+        const SIDE_TAB_ID = "@u2a5f/dsh-selection-annotations";
+        const SIDE_TAB_KIND = "selection-annotations";
+        function openSideAnnotationsTab() {
+          const service = ctx.sidebarRight;
+          if (service === void 0 || typeof service.openTab !== "function") {
+            warn("[selection-annotations] 当前环境没有右侧边栏，无法打开批注标签页");
+            return;
+          }
+          try {
+            service.openTab(SIDE_TAB_KIND);
+          } catch (error) {
+            warn("[selection-annotations] 打开右侧批注标签页失败：", error);
+          }
+        }
+        function SideTabBody() {
+          const [, force] = React.useState(0);
+          React.useEffect(() => {
+            const timer = window.setInterval(() => force((value) => value + 1), 800);
+            return () => window.clearInterval(timer);
+          }, []);
+          const list = annotations;
+          if (list.length === 0) return h("div", { className: "sa-side-empty" }, t("sideTab.empty"));
+          return h(
+            "div",
+            { className: "sa-side" },
+            list.map(
+              (item) => h(
+                "div",
+                { key: item.id, className: "sa-side-item" },
+                h("span", { className: "sa-side-num" }, String(item.number)),
+                h(
+                  "div",
+                  { className: "sa-side-content" },
+                  h("div", { className: "sa-side-quote" }, item.quote),
+                  item.note === "" ? null : h(
+                    "div",
+                    {
+                      className: hasAdoptNote(item.note) ? "sa-side-note sa-side-adopt" : "sa-side-note"
+                    },
+                    item.note
+                  )
+                )
+              )
+            )
+          );
+        }
+        function SideTabTitle() {
+          return h("span", null, t("sideTab.title"));
+        }
+        ctx.effect(() => {
+          if (ctx.sidebarRightTabs === void 0 || typeof ctx.sidebarRightTabs.register !== "function") return;
+          return ctx.sidebarRightTabs.register({
+            id: SIDE_TAB_ID,
+            kind: SIDE_TAB_KIND,
+            multiple: false,
+            priority: "builtin",
+            title: () => t("sideTab.title"),
+            guide: []
+          });
+        }, "selection-annotations: side tab type");
+        ctx.effect(() => {
+          if (ctx.slots === void 0) return;
+          return ctx.slots.inject(
+            "sidebar.right.pane.tab",
+            () => ctx.slots.register(
+              { name: "sidebar.right.pane.tab", key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
+              SideTabBody
+            )
+          );
+        }, "selection-annotations: side tab body");
+        ctx.effect(() => {
+          if (ctx.slots === void 0) return;
+          return ctx.slots.inject(
+            "sidebar.right.pane.tab.title",
+            () => ctx.slots.register(
+              { name: "sidebar.right.pane.tab.title", key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
+              SideTabTitle
+            )
+          );
+        }, "selection-annotations: side tab title");
         function webAnchor(rect) {
           if (rect === null || rect === void 0) return null;
           const webview = document.querySelector('webview[data-sidebar-browser-frame="webview"]') ?? document.querySelector("webview");
@@ -5179,6 +5363,7 @@
           imageSettingsRow: () => imageSettingsRow(),
           instructionSettingsRow: () => instructionSettingsRow(),
           fallbackSettingsRow: () => fallbackSettingsRow(),
+          openSideTab: () => openSideAnnotationsTab(),
           isAdopt: hasAdoptNote
         });
         const renderPanel = () => panelRenderer.render(panelEl);
@@ -5281,18 +5466,41 @@
             persistImageSettings();
           });
           sizeRow.append(document.createTextNode(t("settings.minSizeBefore")), size, document.createTextNode(t("settings.minSizeAfter")));
+          const shotRow = el("label", "sa-setting");
+          const shot = document.createElement("select");
+          shot.className = "sa-setting-select";
+          for (const [value, label] of [
+            ["off", t("settings.webShotOff")],
+            ["element", t("settings.webShotElement")],
+            ["page", t("settings.webShotPage")]
+          ]) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = label;
+            shot.appendChild(option);
+          }
+          shot.value = settings2.webShot ?? "element";
+          shot.addEventListener("change", () => {
+            const next = shot.value === "off" || shot.value === "page" ? shot.value : "element";
+            imageSettingsOf().webShot = next;
+            persistImageSettings();
+            section.refreshStatus();
+          });
+          shotRow.append(document.createTextNode(t("settings.webShot")), shot);
           const section = settingsSection({
             open: imageSettingsOpen,
             label: t("settings.imagesClosed"),
             getStatus: () => imageSettingsOf().compress ? t("settings.imagesOn", { n: Math.round(imageSettingsOf().quality * 100) }) : t("settings.imagesOff"),
-            body: [compressRow, qualityRow, sizeRow],
+            body: [compressRow, qualityRow, sizeRow, shotRow],
             onRestore: () => {
               const next = { ...DEFAULT_IMAGE_SETTINGS };
               const current = imageSettingsOf();
               current.compress = next.compress;
               current.quality = next.quality;
               current.minSize = next.minSize;
+              current.webShot = next.webShot;
               persistImageSettings();
+              shot.value = next.webShot;
               compress.checked = next.compress;
               quality.value = String(next.quality);
               qualityText.textContent = `${Math.round(next.quality * 100)}%`;

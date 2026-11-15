@@ -19,6 +19,7 @@ import {
   SENT_MAX_BYTES,
   REPLY_POLL_MS,
   SENT_PENDING_TTL_MS,
+  LOCALE_NS,
 } from './core/config.js'
 import {
   CONSUME_CONFIRM_MS,
@@ -2430,13 +2431,15 @@ export function createPlugin(React, extras = {}) {
           })
         }
 
-        function closePopover() {
+        function closePopover(options = {}) {
           popover.dataset.open = '0'
           lowerPopover()
           // 页面刷新、关闭或插件卸载前再存一次：只靠状态变更时保存会丢掉最后几秒的编辑。
           safe(() => popInput.blur())
           // 网页来源的批注在拾取时就先落了条目；取消时正文仍为空，就把它当作没创建过。
-          if (popoverMode === 'edit' && popoverTargetId !== null) {
+          // 明确保存（Ctrl+Enter、保存按钮）时不能走这条清理：保存顺序是先关弹层再写内容，
+          // 这里删掉会让刚写下的批注一起消失。
+          if (options.discardWebEmpty !== false && popoverMode === 'edit' && popoverTargetId !== null) {
             const item = annotations.find((candidate) => candidate.id === popoverTargetId)
             if (
               item !== undefined &&
@@ -2523,12 +2526,12 @@ export function createPlugin(React, extras = {}) {
             const images = popInputImages
             const note = noteValue()
             const before = target === null ? undefined : annotations.find((item) => item.id === target)
-            closePopover()
-            // 悬停预览只因离开而收起时，内容常常没变；不要白做一次重绘（会让会话视图抖一下）。
+            // 保存路径先写内容再关弹层：closePopover 里「空正文就删除网页条目」只适用于取消。
+            if (target !== null) updateAnnotation(target, note, images)
+            closePopover({ discardWebEmpty: false })
             if (before !== undefined && before.note === note && JSON.stringify(before.images) === JSON.stringify(images)) {
               return
             }
-            if (target !== null) updateAnnotation(target, note, images)
             return
           }
           const anchor = popoverAnchor
@@ -2809,9 +2812,30 @@ export function createPlugin(React, extras = {}) {
           return undefined
         }
 
+        /**
+         * 悬停只在鼠标真正落在高亮文字上时才算命中。
+         * 高亮层本身 pointer-events:none，纯几何判断会让它穿过盖在上面的面板、菜单继续命中，
+         * 表现为鼠标停在浮层上、文字却弹出预览。这里看该点最上层的实际元素。
+         */
+        function hoverPointExposed(x, y) {
+          if (typeof document.elementsFromPoint !== 'function') return true
+          for (const node of document.elementsFromPoint(x, y)) {
+            if (node === document.body || node === document.documentElement) break
+            const className = typeof node.className === 'string' ? node.className : ''
+            if (className.includes('sa-hl')) continue
+            if (node.closest?.('[data-sa-ui]') !== null && node.closest?.('[data-sa-ui]') !== undefined) return false
+            const style = window.getComputedStyle(node)
+            const z = Number(style.zIndex)
+            if ((style.position === 'fixed' || style.position === 'sticky') && Number.isFinite(z) && z >= 10) return false
+            return true
+          }
+          return true
+        }
+
         function onHoverMove(event) {
           const open = popover.dataset.open === '1'
-          const hit = highlightHits.length === 0 ? undefined : hitHighlight(event.clientX, event.clientY)
+          const raw = highlightHits.length === 0 ? undefined : hitHighlight(event.clientX, event.clientY)
+          const hit = raw !== undefined && hoverPointExposed(event.clientX, event.clientY) ? raw : undefined
           if (open) {
             // 主动点开的弹层不会被悬停逻辑关掉；只有悬停预览才自动收。
             if (popoverSource !== 'hover') return
@@ -3022,7 +3046,7 @@ export function createPlugin(React, extras = {}) {
         }
 
         const webPicker = createWebPicker({
-          onPick: (picked) => {
+          onPick: async (picked) => {
             const existing = annotations.find(
               (candidate) =>
                 candidate.source !== null &&
@@ -3046,10 +3070,24 @@ export function createPlugin(React, extras = {}) {
               return
             }
             const adopt = picked.action === 'adopt'
+            const shot = await webPicker.capture(imageSettingsOf().webShot ?? 'element', picked.rect)
+            const images =
+              shot === undefined
+                ? []
+                : [
+                    {
+                      id: `img-web-${Date.now().toString(36)}`,
+                      name: `网页截图-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.png`,
+                      dataUrl: shot,
+                      thumb: shot,
+                      preview: shot,
+                      bytes: Math.round((shot.length * 3) / 4),
+                    },
+                  ]
             const item = addAnnotation({
               quote: picked.quote !== '' ? picked.quote : picked.selector,
               note: adopt ? adoptTextOf() : '',
-              images: [],
+              images,
               source: {
                 kind: 'web',
                 anchorKey: picked.selector,
@@ -3063,6 +3101,93 @@ export function createPlugin(React, extras = {}) {
         })
         webPickerHandle = webPicker
         webPicker.start()
+
+        const SIDE_TAB_ID = '@u2a5f/dsh-selection-annotations'
+        const SIDE_TAB_KIND = 'selection-annotations'
+
+        /** 总览右下角的按钮：在 DSH 右侧边栏开一个批注标签页。 */
+        function openSideAnnotationsTab() {
+          const service = ctx.sidebarRight
+          if (service === undefined || typeof service.openTab !== 'function') {
+            warn('[selection-annotations] 当前环境没有右侧边栏，无法打开批注标签页')
+            return
+          }
+          try {
+            service.openTab(SIDE_TAB_KIND)
+          } catch (error) {
+            warn('[selection-annotations] 打开右侧批注标签页失败：', error)
+          }
+        }
+
+        /** 右侧标签页的正文：随批注增删自动刷新，内容与总览一致（引用、批注、采纳色）。 */
+        function SideTabBody() {
+          const [, force] = React.useState(0)
+          React.useEffect(() => {
+            const timer = window.setInterval(() => force((value) => value + 1), 800)
+            return () => window.clearInterval(timer)
+          }, [])
+          const list = annotations
+          if (list.length === 0) return h('div', { className: 'sa-side-empty' }, t('sideTab.empty'))
+          return h(
+            'div',
+            { className: 'sa-side' },
+            list.map((item) =>
+              h(
+                'div',
+                { key: item.id, className: 'sa-side-item' },
+                h('span', { className: 'sa-side-num' }, String(item.number)),
+                h(
+                  'div',
+                  { className: 'sa-side-content' },
+                  h('div', { className: 'sa-side-quote' }, item.quote),
+                  item.note === ''
+                    ? null
+                    : h(
+                        'div',
+                        {
+                          className: hasAdoptNote(item.note) ? 'sa-side-note sa-side-adopt' : 'sa-side-note',
+                        },
+                        item.note,
+                      ),
+                ),
+              ),
+            ),
+          )
+        }
+
+        function SideTabTitle() {
+          return h('span', null, t('sideTab.title'))
+        }
+
+        ctx.effect(() => {
+          if (ctx.sidebarRightTabs === undefined || typeof ctx.sidebarRightTabs.register !== 'function') return
+          return ctx.sidebarRightTabs.register({
+            id: SIDE_TAB_ID,
+            kind: SIDE_TAB_KIND,
+            multiple: false,
+            priority: 'builtin',
+            title: () => t('sideTab.title'),
+            guide: [],
+          })
+        }, 'selection-annotations: side tab type')
+        ctx.effect(() => {
+          if (ctx.slots === undefined) return
+          return ctx.slots.inject('sidebar.right.pane.tab', () =>
+            ctx.slots.register(
+              { name: 'sidebar.right.pane.tab', key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
+              SideTabBody,
+            ),
+          )
+        }, 'selection-annotations: side tab body')
+        ctx.effect(() => {
+          if (ctx.slots === undefined) return
+          return ctx.slots.inject('sidebar.right.pane.tab.title', () =>
+            ctx.slots.register(
+              { name: 'sidebar.right.pane.tab.title', key: SIDE_TAB_ID, locale: LOCALE_NS, inject: () => ({}) },
+              SideTabTitle,
+            ),
+          )
+        }, 'selection-annotations: side tab title')
 
         /**
          * 把网页内部元素的矩形换算成 DSH 窗口坐标，供批注弹层贴在该元素旁。
@@ -3103,6 +3228,7 @@ export function createPlugin(React, extras = {}) {
           imageSettingsRow: () => imageSettingsRow(),
           instructionSettingsRow: () => instructionSettingsRow(),
           fallbackSettingsRow: () => fallbackSettingsRow(),
+          openSideTab: () => openSideAnnotationsTab(),
           isAdopt: hasAdoptNote,
         })
         const renderPanel = () => panelRenderer.render(panelEl)
@@ -3216,6 +3342,28 @@ export function createPlugin(React, extras = {}) {
           })
           sizeRow.append(document.createTextNode(t('settings.minSizeBefore')), size, document.createTextNode(t('settings.minSizeAfter')))
 
+          const shotRow = el('label', 'sa-setting')
+          const shot = document.createElement('select')
+          shot.className = 'sa-setting-select'
+          for (const [value, label] of [
+            ['off', t('settings.webShotOff')],
+            ['element', t('settings.webShotElement')],
+            ['page', t('settings.webShotPage')],
+          ]) {
+            const option = document.createElement('option')
+            option.value = value
+            option.textContent = label
+            shot.appendChild(option)
+          }
+          shot.value = settings.webShot ?? 'element'
+          shot.addEventListener('change', () => {
+            const next = shot.value === 'off' || shot.value === 'page' ? shot.value : 'element'
+            imageSettingsOf().webShot = next
+            persistImageSettings()
+            section.refreshStatus()
+          })
+          shotRow.append(document.createTextNode(t('settings.webShot')), shot)
+
           const section = settingsSection({
             open: imageSettingsOpen,
             label: t('settings.imagesClosed'),
@@ -3223,14 +3371,16 @@ export function createPlugin(React, extras = {}) {
               imageSettingsOf().compress
                 ? t('settings.imagesOn', { n: Math.round(imageSettingsOf().quality * 100) })
                 : t('settings.imagesOff'),
-            body: [compressRow, qualityRow, sizeRow],
+            body: [compressRow, qualityRow, sizeRow, shotRow],
             onRestore: () => {
               const next = { ...DEFAULT_IMAGE_SETTINGS }
               const current = imageSettingsOf()
               current.compress = next.compress
               current.quality = next.quality
               current.minSize = next.minSize
+              current.webShot = next.webShot
               persistImageSettings()
+              shot.value = next.webShot
               compress.checked = next.compress
               quality.value = String(next.quality)
               qualityText.textContent = `${Math.round(next.quality * 100)}%`

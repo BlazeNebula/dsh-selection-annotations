@@ -18,6 +18,7 @@ export function createPanelRenderer({
   instructionSettingsRow,
   fallbackSettingsRow,
   closePanel = () => {},
+  openSideTab = () => {},
   isAdopt = () => false,
 }) {
   function render(panelEl) {
@@ -163,6 +164,23 @@ export function createPanelRenderer({
     const build = el('span', 'sa-build', `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`)
     build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`
     panelFoot.appendChild(build)
+    const side = button('sa-panel-side', '', openSideTab)
+    side.title = t('panel.sideTab')
+    side.setAttribute('aria-label', t('panel.sideTab'))
+    const sideIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    sideIcon.setAttribute('viewBox', '0 0 16 16')
+    sideIcon.setAttribute('width', '14')
+    sideIcon.setAttribute('height', '14')
+    sideIcon.setAttribute('fill', 'none')
+    sideIcon.setAttribute('stroke', 'currentColor')
+    sideIcon.setAttribute('stroke-width', '1.2')
+    for (const d of ['M2.2 3.2h11.6v9.6H2.2z', 'M10.2 3.2v9.6']) {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.setAttribute('d', d)
+      sideIcon.appendChild(path)
+    }
+    side.appendChild(sideIcon)
+    panelFoot.appendChild(side)
     panelEl.appendChild(panelFoot)
   }
 

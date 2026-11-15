@@ -32,6 +32,8 @@ export function createSettings(getStorage, locale) {
     if (Number.isFinite(quality)) settings.quality = Math.min(1, Math.max(0.1, quality))
     const minSize = Number(parsed.minSize)
     if (Number.isFinite(minSize)) settings.minSize = Math.min(4096, Math.max(0, Math.round(minSize)))
+    const webShot = parsed.webShot
+    if (webShot === 'off' || webShot === 'element' || webShot === 'page') settings.webShot = webShot
     return settings
   }
 

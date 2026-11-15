@@ -11,7 +11,7 @@ export const MAX_IMAGE_BYTES = 8 * 1024 * 1024
     /** 图片设置键：压缩开关、质量、触发压缩的最小边。*/
 export const IMAGE_SETTINGS_KEY = 'dsh-selection-annotations:image-settings'
     /** 默认设置：80% 质量、最短边超过 100 像素才重编码。 */
-export const DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100 }
+export const DEFAULT_IMAGE_SETTINGS = { compress: true, quality: 0.8, minSize: 100, webShot: 'element' }
     /** 批注指令设置键：随批注数据块发给模型的说明文字。*/
 export const INSTRUCTION_SETTINGS_KEY = 'dsh-selection-annotations:instruction-settings'
     /** 「批注采纳」预填文本：可在插件设置里改，恢复默认回到下面这句。*/

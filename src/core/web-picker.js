@@ -2,18 +2,17 @@
  * 网页元素拾取与常驻标记。
  *
  * 常驻部分：宿主把「网页来源的批注」同步进页面，脚本按选择器解析出元素，
- * 已批注的元素保留矩形框（3px、与划线同色，采纳绿、其余橙，80% 不透明），
- * 左上角给白色控制柄，点控制柄交回 action=open 与批注 id。
+ * 已批注的元素保留矩形框（3px、采纳绿其余橙、80% 不透明），左上角白色控制柄点开修改。
  *
  * 拾取部分：鼠标经过元素时画无填充、无圆角的框，并给一组合并的按钮：
- * 没有批注的元素给「批注反馈 / 批注采纳」，已有批注的元素给「修改批注 / 删除批注」。
- * 按钮组只在指针进入时显出文字；组内底色统一，左右边缘各留半个字号并做羽化。
- * 指针没进按钮组时，按钮组的水平中心跟着鼠标走，并夹在元素框内或视窗内。
+ * 没有批注给「批注反馈 / 批注采纳」，已有批注给「修改批注 / 删除批注」。
+ * 按钮文字始终可见；指针进入具体按钮时该按钮底色加深到 80%。
+ * 按钮组默认放在框外，按鼠标靠近的一侧放上方或下方；框外确实没空间才放进框内。
  */
 
 const PICK_SCRIPT = String.raw`(function () {
   if (window.__saPicker) { try { window.__saWebRender && window.__saWebRender() } catch (e) {} return 'already' }
-  var state = { el: null, note: null, fitsInside: false }
+  var state = { el: null, note: null }
   var host = document.createElement('div')
   host.setAttribute('data-sa-web-picker', '')
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483000;pointer-events:none;contain:layout style;'
@@ -36,16 +35,14 @@ const PICK_SCRIPT = String.raw`(function () {
     ],
   }
 
-  function setGroupTone(inside) {
-    actions.style.background = inside ? 'rgba(0,0,0,.5)' : 'rgba(0,0,0,.1)'
+  function resetTone() {
+    actions.style.background = 'rgba(0,0,0,.1)'
     var buttons = actions.querySelectorAll('button')
     for (var i = 0; i < buttons.length; i += 1) {
-      buttons[i].style.color = inside ? 'rgba(255,255,255,.8)' : 'transparent'
-      buttons[i].style.textShadow = inside ? '0 1px 3px rgba(0,0,0,.85)' : 'none'
+      buttons[i].style.background = 'transparent'
+      buttons[i].style.color = 'rgba(255,255,255,.8)'
     }
   }
-  actions.addEventListener('pointerenter', function () { setGroupTone(true) })
-  actions.addEventListener('pointerleave', function () { setGroupTone(false) })
 
   function iconFor(action) {
     var svgNS = 'http://www.w3.org/2000/svg'
@@ -78,9 +75,11 @@ const PICK_SCRIPT = String.raw`(function () {
     var button = document.createElement('button')
     button.type = 'button'
     button.dataset.action = action
-    button.style.cssText = 'pointer-events:auto;display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:0;border-right:' + (last ? '0' : '1px solid rgba(255,255,255,.16)') + ';background:transparent;color:transparent;font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:none;transition:background .12s,color .12s;'
+    button.style.cssText = 'pointer-events:auto;display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:0;border-right:' + (last ? '0' : '1px solid rgba(255,255,255,.16)') + ';background:transparent;color:rgba(255,255,255,.8);font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.85);transition:background .12s;'
     button.appendChild(iconFor(action))
     button.appendChild(document.createTextNode(label))
+    button.addEventListener('pointerenter', function () { button.style.background = 'rgba(0,0,0,.8)' })
+    button.addEventListener('pointerleave', function () { button.style.background = 'transparent' })
     button.addEventListener('click', function (event) { onClick(event, action, id) })
     return button
   }
@@ -99,7 +98,7 @@ const PICK_SCRIPT = String.raw`(function () {
         actions.appendChild(makeButton('feedback', '批注反馈', '', false))
         actions.appendChild(makeButton('adopt', '批注采纳', '', true))
       }
-      setGroupTone(false)
+      resetTone()
     }
     return note
   }
@@ -147,7 +146,7 @@ const PICK_SCRIPT = String.raw`(function () {
     return { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
   }
 
-  function place(el, mouseX) {
+  function place(el, mouseX, mouseY) {
     if (!el || el.closest('[data-sa-web-picker]')) return
     var rect = el.getBoundingClientRect()
     if (rect.width < 2 || rect.height < 2) return
@@ -164,20 +163,27 @@ const PICK_SCRIPT = String.raw`(function () {
     actions.style.display = 'flex'
     var width = actions.offsetWidth || 180
     var height = actions.offsetHeight || 24
-    var fitsInside = rect.width >= width + 16 && rect.height >= height + 12
-    state.fitsInside = fitsInside
+    var marginX = 4
     var top
-    var left
-    if (fitsInside) {
-      top = rect.top + 4
-      // 框内：中心跟着鼠标，但不超出框的左右边缘。
-      left = Math.max(rect.left + 2, Math.min((mouseX || rect.right - width / 2) - width / 2, rect.right - width - 2))
+    // 默认放框外：鼠标在元素上半部分就放上方，下半部分放下方；那一侧没空间才换另一侧。
+    var preferAbove = mouseY === undefined ? true : mouseY < rect.top + rect.height / 2
+    var above = rect.top - height
+    var below = rect.bottom
+    if (above >= 4 || below + height > window.innerHeight - 4) {
+      top = preferAbove ? above : below
+      if (top < 4) top = below
+      if (top + height > window.innerHeight - 4) top = above >= 4 ? above : Math.max(4, window.innerHeight - height - 4)
     } else {
-      // 框太小：贴到框外侧，上方优先，其次下方，中间不留空隙。
-      top = rect.top - height
-      if (top < 4) top = rect.bottom
-      // 框外：中心跟着鼠标，但不超出视窗。
-      left = Math.max(4, Math.min((mouseX || rect.left + width / 2) - width / 2, window.innerWidth - width - 4))
+      top = below
+    }
+    var outsideOk = top < rect.top || top >= rect.bottom
+    if (!outsideOk) {
+      // 框外上下都没有空间：放进框内，居中偏上。
+      top = rect.top + Math.max(4, Math.min((rect.height - height) / 2, 4))
+    }
+    var left = Math.max(marginX, Math.min((mouseX === undefined ? rect.left + width / 2 : mouseX) - width / 2, window.innerWidth - width - marginX))
+    if (!outsideOk) {
+      left = Math.max(rect.left + 2, Math.min(left, rect.right - width - 2))
     }
     actions.style.left = left + 'px'
     actions.style.top = Math.max(4, top) + 'px'
@@ -192,7 +198,7 @@ const PICK_SCRIPT = String.raw`(function () {
     if (actions.style.display !== 'none' && inActions(event.clientX, event.clientY)) return
     var el = document.elementFromPoint(event.clientX, event.clientY)
     if (el && el.closest && el.closest('[data-sa-web-picker]')) return
-    place(el, event.clientX)
+    place(el, event.clientX, event.clientY)
   }
 
   function onClick(event, action, id) {
@@ -281,6 +287,16 @@ export function createWebPicker({ onPick }) {
     )
   }
 
+  function execute(script) {
+    const webview = view()
+    if (webview === null || typeof webview.executeJavaScript !== 'function') return undefined
+    try {
+      return webview.executeJavaScript(script)
+    } catch {
+      return undefined
+    }
+  }
+
   function stop() {
     if (timer !== 0) {
       window.clearInterval(timer)
@@ -291,10 +307,35 @@ export function createWebPicker({ onPick }) {
   /** 把网页来源的批注同步给页面：{id, selector, url, adopt}。 */
   function sync(notes) {
     lastNotes = Array.isArray(notes) ? notes : []
-    const webview = view()
-    if (webview === null || typeof webview.executeJavaScript !== 'function') return
     const json = JSON.stringify(lastNotes)
-    safeCall(() => webview.executeJavaScript(`window.__saWebNotes = ${json}; window.__saWebRender && window.__saWebRender()`))
+    execute(`window.__saWebNotes = ${json}; window.__saWebRender && window.__saWebRender()`)
+  }
+
+  /**
+   * 按设置截当前页：scope 为 'page' 截整页，'element' 截目标元素区域，'off' 不截。
+   * 失败返回 undefined，批注仍可正常创建。
+   */
+  async function capture(scope, rect) {
+    if (scope !== 'page' && scope !== 'element') return undefined
+    const webview = view()
+    if (webview === null || typeof webview.capturePage !== 'function') return undefined
+    try {
+      const area =
+        scope === 'element' && rect !== null && typeof rect === 'object'
+          ? {
+              x: Math.max(0, Math.round(rect.left)),
+              y: Math.max(0, Math.round(rect.top)),
+              width: Math.max(1, Math.round(rect.width)),
+              height: Math.max(1, Math.round(rect.height)),
+            }
+          : undefined
+      const image = await webview.capturePage(area)
+      if (image === null || image === undefined || typeof image.toDataURL !== 'function') return undefined
+      const dataUrl = image.toDataURL()
+      return typeof dataUrl === 'string' && dataUrl.startsWith('data:image/') ? dataUrl : undefined
+    } catch {
+      return undefined
+    }
   }
 
   function start() {
@@ -335,14 +376,11 @@ export function createWebPicker({ onPick }) {
   }
 
   function dispose() {
-    const webview = view()
-    if (webview !== null && typeof webview.executeJavaScript === 'function') {
-      safeCall(() => webview.executeJavaScript('window.__saPicker && window.__saPicker.stop()'))
-    }
+    execute('window.__saPicker && window.__saPicker.stop()')
     stop()
   }
 
-  return { start, sync, dispose, available: () => view() !== null }
+  return { start, sync, capture, dispose, available: () => view() !== null }
 }
 
 function safeCall(fn) {
