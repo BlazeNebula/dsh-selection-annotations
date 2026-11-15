@@ -76,8 +76,8 @@ export function createSettings(getStorage, locale) {
     const parsed = safe(() => JSON.parse(storage.getItem(ADOPT_SETTINGS_KEY) ?? 'null'))
     if (parsed === null || typeof parsed !== 'object') return DEFAULT_ADOPT_TEXT
     const text = typeof parsed.text === 'string' ? parsed.text.trim() : ''
-    // 旧默认值静默迁移到新默认，不要求用户手动恢复。
-    if (text === '意见采纳。' || text === '意见采纳') return DEFAULT_ADOPT_TEXT
+    // 旧默认值只在没有版本标记时迁移一次；迁移后写入 version，用户之后特意改回旧措辞不会被再次覆盖。
+    if (parsed.version === undefined && (text === '意见采纳。' || text === '意见采纳')) return DEFAULT_ADOPT_TEXT
     return text === '' ? DEFAULT_ADOPT_TEXT : text
   }
 
@@ -90,7 +90,7 @@ export function createSettings(getStorage, locale) {
     adoptText = typeof text === 'string' && text.trim() !== '' ? text : DEFAULT_ADOPT_TEXT
     const storage = getStorage()
     if (storage === undefined) return
-    safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText })))
+    safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText, version: 1 })))
   }
 
   /** 空提示词填充：空串等同默认文案；旧默认「请按批注内容处理。」静默迁移。 */
@@ -101,9 +101,11 @@ export function createSettings(getStorage, locale) {
     if (parsed === null || typeof parsed !== 'object') return DEFAULT_FALLBACK_TEXT
     const text = typeof parsed.text === 'string' ? parsed.text : ''
     if (text.trim() === '') return DEFAULT_FALLBACK_TEXT
-    // 旧默认文案（含「请按批注内容处理。」与带「请逐一受理」的旧模板）静默迁移到当前模板。
-    if (text === '请按批注内容处理。') return DEFAULT_FALLBACK_TEXT
-    if (text.startsWith('此轮对话内容均在批注中给出') && text.includes('请逐一受理')) return DEFAULT_FALLBACK_TEXT
+    // 旧默认文案只在没有版本标记时迁移一次。
+    if (parsed.version === undefined) {
+      if (text === '请按批注内容处理。') return DEFAULT_FALLBACK_TEXT
+      if (text.startsWith('此轮对话内容均在批注中给出') && text.includes('请逐一受理')) return DEFAULT_FALLBACK_TEXT
+    }
     return text
   }
 
@@ -116,7 +118,7 @@ export function createSettings(getStorage, locale) {
     fallbackText = typeof text === 'string' ? text : ''
     const storage = getStorage()
     if (storage === undefined) return
-    safe(() => storage.setItem(FALLBACK_SETTINGS_KEY, JSON.stringify({ text: fallbackText })))
+    safe(() => storage.setItem(FALLBACK_SETTINGS_KEY, JSON.stringify({ text: fallbackText, version: 1 })))
   }
 
   return {

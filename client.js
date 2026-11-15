@@ -429,6 +429,34 @@
   var REPLY_POLL_MS = 6e3;
   var SENT_PENDING_TTL_MS = 6e4;
 
+  // src/core/constants.js
+  var DRAFT_MAX_BYTES = 3.5 * 1024 * 1024;
+  var HOVER_OPEN_DELAY_MS = 500;
+  var SETTLE_MS = 220;
+  var UPLOAD_DEBOUNCE_MS = 450;
+  var UPLOAD_READY_TIMEOUT_MS = 1e4;
+  var REPAINT_MS = 120;
+  var CONSUME_POLL_MS = 1e3;
+  var CONSUME_CONFIRM_MS = 400;
+  var SOURCE_LOOKUP_TIMEOUT_MS = 600;
+  var ORPHAN_SWEEP_MS = 1500;
+  var REFINE_WAIT_MS = 1200;
+  var STRAY_GUARD_MS = 12e4;
+
+  // src/core/log.js
+  var log = (message, ...rest) => {
+    try {
+      console.log(message, ...rest);
+    } catch {
+    }
+  };
+  var warn = (message, ...rest) => {
+    try {
+      console.error(message, ...rest);
+    } catch {
+    }
+  };
+
   // src/core/messages.js
   var MESSAGES = {
     zh: {
@@ -649,34 +677,6 @@
     }
   };
 
-  // src/core/constants.js
-  var DRAFT_MAX_BYTES = 3.5 * 1024 * 1024;
-  var HOVER_OPEN_DELAY_MS = 500;
-  var SETTLE_MS = 220;
-  var UPLOAD_DEBOUNCE_MS = 450;
-  var UPLOAD_READY_TIMEOUT_MS = 1e4;
-  var REPAINT_MS = 120;
-  var CONSUME_POLL_MS = 1e3;
-  var CONSUME_CONFIRM_MS = 400;
-  var SOURCE_LOOKUP_TIMEOUT_MS = 600;
-  var ORPHAN_SWEEP_MS = 1500;
-  var REFINE_WAIT_MS = 1200;
-  var STRAY_GUARD_MS = 12e4;
-
-  // src/core/log.js
-  var log = (message, ...rest) => {
-    try {
-      console.log(message, ...rest);
-    } catch {
-    }
-  };
-  var warn = (message, ...rest) => {
-    try {
-      console.error(message, ...rest);
-    } catch {
-    }
-  };
-
   // src/core/util.js
   var safe = (fn) => {
     try {
@@ -703,6 +703,12 @@
     created.type = "button";
     created.addEventListener("click", onClick);
     return created;
+  }
+  function hashString(input) {
+    const text = typeof input === "string" ? input : JSON.stringify(input ?? null);
+    let hash = 5381;
+    for (let i = 0; i < text.length; i += 1) hash = (hash << 5) + hash + text.charCodeAt(i) | 0;
+    return (hash >>> 0).toString(36);
   }
 
   // src/core/locale.js
@@ -859,7 +865,7 @@
       const parsed = safe(() => JSON.parse(storage.getItem(ADOPT_SETTINGS_KEY) ?? "null"));
       if (parsed === null || typeof parsed !== "object") return DEFAULT_ADOPT_TEXT;
       const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
-      if (text === "意见采纳。" || text === "意见采纳") return DEFAULT_ADOPT_TEXT;
+      if (parsed.version === void 0 && (text === "意见采纳。" || text === "意见采纳")) return DEFAULT_ADOPT_TEXT;
       return text === "" ? DEFAULT_ADOPT_TEXT : text;
     }
     function adoptTextOf() {
@@ -870,7 +876,7 @@
       adoptText = typeof text === "string" && text.trim() !== "" ? text : DEFAULT_ADOPT_TEXT;
       const storage = getStorage();
       if (storage === void 0) return;
-      safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText })));
+      safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText, version: 1 })));
     }
     function loadFallbackText() {
       const storage = getStorage();
@@ -879,8 +885,10 @@
       if (parsed === null || typeof parsed !== "object") return DEFAULT_FALLBACK_TEXT;
       const text = typeof parsed.text === "string" ? parsed.text : "";
       if (text.trim() === "") return DEFAULT_FALLBACK_TEXT;
-      if (text === "请按批注内容处理。") return DEFAULT_FALLBACK_TEXT;
-      if (text.startsWith("此轮对话内容均在批注中给出") && text.includes("请逐一受理")) return DEFAULT_FALLBACK_TEXT;
+      if (parsed.version === void 0) {
+        if (text === "请按批注内容处理。") return DEFAULT_FALLBACK_TEXT;
+        if (text.startsWith("此轮对话内容均在批注中给出") && text.includes("请逐一受理")) return DEFAULT_FALLBACK_TEXT;
+      }
       return text;
     }
     function fallbackTextOf() {
@@ -891,7 +899,7 @@
       fallbackText = typeof text === "string" ? text : "";
       const storage = getStorage();
       if (storage === void 0) return;
-      safe(() => storage.setItem(FALLBACK_SETTINGS_KEY, JSON.stringify({ text: fallbackText })));
+      safe(() => storage.setItem(FALLBACK_SETTINGS_KEY, JSON.stringify({ text: fallbackText, version: 1 })));
     }
     return {
       loadImageSettings,
@@ -1922,11 +1930,11 @@
   }
 
   // src/core/sent-store.js
+  function isSentItem2(value) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    return typeof value.quote === "string" || typeof value.note === "string";
+  }
   function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxBytes, maxItems, onChanged }) {
-    const isSentItem2 = (value) => {
-      if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-      return typeof value.quote === "string" || typeof value.note === "string";
-    };
     function loadSent(sessionId) {
       const memory = tableFor.get(sessionId);
       if (memory !== void 0) return memory;
@@ -2280,9 +2288,12 @@
     if (slots === void 0 || slots === null) return;
     if (typeof slots.inject !== "function" || typeof slots.register !== "function") return;
     const TurnAnchor = (props) => {
-      const turn = Number(props?.turn);
+      const rawTurn = typeof props?.turn === "object" && props?.turn !== null ? props.turn.turn : props?.turn;
+      const turn = Number(rawTurn);
       if (!Number.isFinite(turn) || turn <= 0) return null;
-      const sessionId = typeof props?.sessionId === "string" ? props.sessionId : "";
+      const fromProps = typeof props?.sessionId === "string" ? props.sessionId : "";
+      const fromTurn = typeof props?.turn?.sessionId === "string" ? props.turn.sessionId : "";
+      const sessionId = fromProps !== "" ? fromProps : fromTurn;
       return h("div", {
         className: "sa-turn-anchor",
         "data-sa-turn": String(turn),
@@ -2373,7 +2384,9 @@
         const currentSessionId = () => sessionApi.currentSessionId();
         const inputShell = () => sessionApi.inputShell();
         const liveAttachmentIds = (shell) => sessionApi.liveAttachmentIds(shell);
+        const orphanSweepUntil = Date.now() + 15e3;
         function sweepOrphans(shell) {
+          if (Date.now() > orphanSweepUntil) return;
           if (maintaining || syncing) return;
           const ids = liveAttachmentIds(shell);
           if (ids === void 0 || ids.length === 0) return;
@@ -2749,9 +2762,9 @@
           for (const element of document.querySelectorAll("[data-chat-anchor-key]")) {
             const kind = element.getAttribute("data-chat-flow-kind") ?? "";
             const anchorKey = element.getAttribute("data-chat-anchor-key") ?? "";
-            if (kind === "" || anchorKey.startsWith("group:")) {
-              push(element, anchorKey);
-            }
+            if (anchorKey.startsWith("group:")) continue;
+            if (element.hasAttribute?.("data-chat-group-key")) continue;
+            if (kind === "") push(element, anchorKey);
           }
           return rows;
         }
@@ -2823,7 +2836,7 @@
           });
           const loose = fresh.filter((entry) => {
             const kind = entry.row.getAttribute("data-chat-flow-kind") ?? "";
-            return kind === "" || kind.startsWith("group:");
+            return kind === "";
           });
           const pool = attached.length > 0 ? attached : bubbles.length > 0 ? bubbles : loose;
           const wait = Date.now() - pending.at;
@@ -2843,7 +2856,7 @@
             const hint = pending.turnHint;
             if (Number.isFinite(hint)) {
               pendingSent.shift();
-              recordSent(sessionId, `12:turn-process${hint}`, pending.items, hint);
+              recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint);
               scheduleRepaint();
             }
             return;
@@ -2989,14 +3002,22 @@
               onReplayItem: (item) => reuseSentItems([item])
             };
             let card = existing;
-            if (card !== null && card.getAttribute("data-reuse") !== "4") {
+            const sentSignature = hashString({
+              anchorKey,
+              items: record.items.map((item) => ({
+                quote: item.quote,
+                note: item.note,
+                images: (item.thumbs ?? []).map((thumb) => thumb.name)
+              }))
+            });
+            if (card !== null && card.getAttribute("data-sa-sig") !== sentSignature) {
               const fresh = buildSentCard(record, anchorKey, cardOptions);
               fresh.setAttribute("data-sa-key", storedKey);
               existing.replaceWith(fresh);
               card = fresh;
             }
             if (card === null) card = buildSentCard(record, anchorKey, cardOptions);
-            card.setAttribute("data-reuse", "4");
+            card.setAttribute("data-sa-sig", sentSignature);
             card.setAttribute("data-sa-key", storedKey);
             card.setAttribute("data-anchor", anchorKey);
             if (Number.isFinite(turn)) card.setAttribute("data-sa-turn", String(turn));
@@ -3234,7 +3255,10 @@
             if (sentCard === void 0) continue;
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
-            const signature = `${list.map((batch) => String(batch.at)).join("|")}#${items.length}#replay4#img2`;
+            const signature = hashString({
+              batches: list.map((batch) => ({ at: batch.at, replies: batch.replies })),
+              items: items.map((item) => ({ quote: item.quote, note: item.note }))
+            });
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`);
             if (existing !== null) {
               if (existing.dataset.signature === signature) {
@@ -4526,24 +4550,22 @@
         popInput.addEventListener("click", () => safe(() => updateSuggestion()));
         popInput.addEventListener("keyup", () => safe(() => updateSuggestion()));
         let hoverMoveAt = 0;
-        document.addEventListener(
-          "mousemove",
-          (event) => {
-            const now = Date.now();
-            if (now - hoverMoveAt < 60) return;
-            hoverMoveAt = now;
-            onHoverMove(event);
-          },
-          true
-        );
-        document.addEventListener("pointerdown", (event) => {
+        const onHoverMoveDocument = (event) => {
+          const now = Date.now();
+          if (now - hoverMoveAt < 60) return;
+          hoverMoveAt = now;
+          onHoverMove(event);
+        };
+        document.addEventListener("mousemove", onHoverMoveDocument, true);
+        const onPopoverOutsidePointerDown = (event) => {
           if (popover.dataset.open !== "1") return;
           const target = elementOf2(event.target);
           if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return;
           if (target !== null && target.closest('[data-sa-ui="viewer"]') !== null) return;
           commitPopover(true);
-        }, true);
-        document.addEventListener("keydown", (event) => {
+        };
+        document.addEventListener("pointerdown", onPopoverOutsidePointerDown, true);
+        const onPopoverEscapeKeyDown = (event) => {
           if (event.key !== "Escape") return;
           if (imageViewer.dataset.open === "1") {
             closeImageViewer();
@@ -4551,7 +4573,8 @@
           }
           hideToolbar();
           closePopover();
-        });
+        };
+        document.addEventListener("keydown", onPopoverEscapeKeyDown);
         function sourceSummary(item) {
           const source = item.source;
           if (source?.kind === "message") return source.flowKind === "user" ? t("source.user") : t("source.assistant");
@@ -4858,22 +4881,20 @@
           if (panelOpen) closePanel();
           else openPanel(anchor);
         }
-        document.addEventListener(
-          "pointerdown",
-          (event) => {
-            if (!panelOpen) return;
-            const target = elementOf2(event.target);
-            if (target === null) return;
-            if (target.closest('[data-sa-ui="panel"]') !== null) return;
-            if (target.closest('[data-sa-ui="popover"]') !== null) return;
-            if (target.closest(".sa-chip") !== null) return;
-            closePanel();
-          },
-          true
-        );
-        document.addEventListener("keydown", (event) => {
+        const onPanelOutsidePointerDown = (event) => {
+          if (!panelOpen) return;
+          const target = elementOf2(event.target);
+          if (target === null) return;
+          if (target.closest('[data-sa-ui="panel"]') !== null) return;
+          if (target.closest('[data-sa-ui="popover"]') !== null) return;
+          if (target.closest(".sa-chip") !== null) return;
+          closePanel();
+        };
+        document.addEventListener("pointerdown", onPanelOutsidePointerDown, true);
+        const onPanelEscapeKeyDown = (event) => {
           if (event.key === "Escape") closePanel();
-        });
+        };
+        document.addEventListener("keydown", onPanelEscapeKeyDown);
         subscribe(() => {
           if (panelOpen) {
             renderPanel();
@@ -5040,7 +5061,7 @@
             const button3 = target.closest("button");
             if (button3 === null || button3.closest("[data-composer-card]") === null) return;
             const label = button3.getAttribute("aria-label");
-            if (typeof label !== "string" || !/^(发送|Send)/i.test(label)) return;
+            if (typeof label !== "string" || !/(发送|送信|전송|senden|envoyer|inviare|send)/i.test(label)) return;
             fillFallbackIfSending();
           };
           const onDocumentKeydown = (event) => {
@@ -5083,6 +5104,11 @@
             document.removeEventListener("pointerdown", onMenuPointerDown, true);
             document.removeEventListener("click", onDocumentClick, true);
             document.removeEventListener("keydown", onDocumentKeydown, true);
+            document.removeEventListener("mousemove", onHoverMoveDocument, true);
+            document.removeEventListener("pointerdown", onPopoverOutsidePointerDown, true);
+            document.removeEventListener("keydown", onPopoverEscapeKeyDown);
+            document.removeEventListener("pointerdown", onPanelOutsidePointerDown, true);
+            document.removeEventListener("keydown", onPanelEscapeKeyDown);
             window.removeEventListener("scroll", onViewport, true);
             window.removeEventListener("resize", onViewport);
             observer.disconnect();

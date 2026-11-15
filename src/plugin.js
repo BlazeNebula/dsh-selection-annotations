@@ -5,16 +5,12 @@ import {
   DEFAULT_FALLBACK_TEXT,
   DEFAULT_IMAGE_SETTINGS,
   DEFAULT_INSTRUCTION,
-  DEFAULT_INSTRUCTION_EN,
   IMAGE_SETTINGS_KEY,
-  INSTRUCTION_SETTINGS_KEY,
-  LOCALE_NS,
   MAX_IMAGE_BYTES,
   MAX_IMAGES_PER_ANNOTATION,
   MAX_NOTE,
   MAX_QUOTE,
   PAYLOAD_KIND,
-  PLUGIN_BUILD,
   DRAFT_STORAGE_PREFIX,
   DRAFT_MAX_SESSIONS,
   DRAFT_MAX_ITEMS,
@@ -24,7 +20,6 @@ import {
   REPLY_POLL_MS,
   SENT_PENDING_TTL_MS,
 } from './core/config.js'
-import { MESSAGES } from './core/messages.js'
 import {
   CONSUME_CONFIRM_MS,
   CONSUME_POLL_MS,
@@ -54,19 +49,15 @@ import { createSentStore } from './core/sent-store.js'
 import { createRemoteSync } from './core/remote-sync.js'
 import { createDraftCodec } from './core/draft-codec.js'
 import { createDraftStore } from './core/draft-store.js'
-import { compressImage, downscaleDataUrl, fileToDataUrl, dataUrlToFile } from './core/image-codec.js'
+import { compressImage, downscaleDataUrl, fileToDataUrl } from './core/image-codec.js'
 import {
   offsetRange,
-  pathFromPreviewUrl,
   lineNumberOf,
-  codeLineNumberOf,
-  normalizeWithMap,
   locateInSource,
   lineOfOffset,
   withTimeout,
-  lineRangeWithin,
 } from './core/source-locate.js'
-import { safe, toBase64, cssEscape, truncateQuote, el, button } from './core/util.js'
+import { safe, cssEscape, el, button, hashString } from './core/util.js'
 import { registerTurnAnchor, findTurnAnchor } from './core/turn-anchor.js'
 
 /**
@@ -190,7 +181,14 @@ export function createPlugin(React, extras = {}) {
          * 所以判据不放在内存里，而放在*文件后*上：凡是我们没在跟踪的批注附件，一律摘掉。
          * @param shell - 当前输入外壳。
          */
+        /**
+         * 只在本插件刚加载的一小段时间里做孤儿清扫：运行时把附件还回输入框的竞态
+         * 只会发生在重载前后；一直扫会误删其他标签页或用户自己挂的同名附件。
+         */
+        const orphanSweepUntil = Date.now() + 15000
+
         function sweepOrphans(shell) {
+          if (Date.now() > orphanSweepUntil) return
           if (maintaining || syncing) return
           const ids = liveAttachmentIds(shell)
           if (ids === undefined || ids.length === 0) return
@@ -670,9 +668,10 @@ export function createPlugin(React, extras = {}) {
           for (const element of document.querySelectorAll('[data-chat-anchor-key]')) {
             const kind = element.getAttribute('data-chat-flow-kind') ?? ''
             const anchorKey = element.getAttribute('data-chat-anchor-key') ?? ''
-            if (kind === '' || anchorKey.startsWith('group:')) {
-              push(element, anchorKey)
-            }
+            // 分组外壳也带 data-chat-turn，但它不是消息：把它当锚点会写出 group:* 这类键。
+            if (anchorKey.startsWith('group:')) continue
+            if (element.hasAttribute?.('data-chat-group-key')) continue
+            if (kind === '') push(element, anchorKey)
           }
           return rows
         }
@@ -762,7 +761,7 @@ export function createPlugin(React, extras = {}) {
           // 仍排除过程块里的推理行与工具调用行。
           const loose = fresh.filter((entry) => {
             const kind = entry.row.getAttribute('data-chat-flow-kind') ?? ''
-            return kind === '' || kind.startsWith('group:')
+            return kind === ''
           })
           const pool = attached.length > 0 ? attached : bubbles.length > 0 ? bubbles : loose
           // 等气泡最多 1.2 秒：消息气泡有时要等回合开始才挂出来，但「已发送」不该因此迟到太久。
@@ -785,7 +784,8 @@ export function createPlugin(React, extras = {}) {
             const hint = pending.turnHint
             if (Number.isFinite(hint)) {
               pendingSent.shift()
-              recordSent(sessionId, `12:turn-process${hint}`, pending.items, hint)
+              // 没有消息行可锚：轮次号本身足够定位，锚点用批次时间保证唯一。
+              recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint)
               scheduleRepaint()
             }
             return
@@ -959,14 +959,22 @@ export function createPlugin(React, extras = {}) {
               onReplayItem: (item) => reuseSentItems([item]),
             }
             let card = existing
-            if (card !== null && card.getAttribute('data-reuse') !== '4') {
+            const sentSignature = hashString({
+              anchorKey,
+              items: record.items.map((item) => ({
+                quote: item.quote,
+                note: item.note,
+                images: (item.thumbs ?? []).map((thumb) => thumb.name),
+              })),
+            })
+            if (card !== null && card.getAttribute('data-sa-sig') !== sentSignature) {
               const fresh = buildSentCard(record, anchorKey, cardOptions)
               fresh.setAttribute('data-sa-key', storedKey)
               existing.replaceWith(fresh)
               card = fresh
             }
             if (card === null) card = buildSentCard(record, anchorKey, cardOptions)
-            card.setAttribute('data-reuse', '4')
+            card.setAttribute('data-sa-sig', sentSignature)
             card.setAttribute('data-sa-key', storedKey)
             card.setAttribute('data-anchor', anchorKey)
             if (Number.isFinite(turn)) card.setAttribute('data-sa-turn', String(turn))
@@ -1266,7 +1274,10 @@ export function createPlugin(React, extras = {}) {
             if (sentCard === undefined) continue
             const items = byAnchor.get(anchorKey)?.record.items ?? []
             const turn = byAnchor.get(anchorKey)?.turn ?? null
-            const signature = `${list.map((batch) => String(batch.at)).join('|')}#${items.length}#replay4#img2`
+            const signature = hashString({
+              batches: list.map((batch) => ({ at: batch.at, replies: batch.replies })),
+              items: items.map((item) => ({ quote: item.quote, note: item.note })),
+            })
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`)
             if (existing !== null) {
               if (existing.dataset.signature === signature) {
@@ -2783,17 +2794,14 @@ export function createPlugin(React, extras = {}) {
         popInput.addEventListener('click', () => safe(() => updateSuggestion()))
         popInput.addEventListener('keyup', () => safe(() => updateSuggestion()))
         let hoverMoveAt = 0
-        document.addEventListener(
-          'mousemove',
-          (event) => {
-            const now = Date.now()
-            if (now - hoverMoveAt < 60) return
-            hoverMoveAt = now
-            onHoverMove(event)
-          },
-          true,
-        )
-        document.addEventListener('pointerdown', (event) => {
+        const onHoverMoveDocument = (event) => {
+          const now = Date.now()
+          if (now - hoverMoveAt < 60) return
+          hoverMoveAt = now
+          onHoverMove(event)
+        }
+        document.addEventListener('mousemove', onHoverMoveDocument, true)
+        const onPopoverOutsidePointerDown = (event) => {
           if (popover.dataset.open !== '1') return
           const target = elementOf(event.target)
           if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return
@@ -2802,8 +2810,9 @@ export function createPlugin(React, extras = {}) {
           // 点框外算确认这次编辑：已经写下的内容不能因为一次误点就丢掉，
           // 但一个字都没写、也没加图的新批注属于「划完就反悔」，直接丢掉。
           commitPopover(true)
-        }, true)
-        document.addEventListener('keydown', (event) => {
+        }
+        document.addEventListener('pointerdown', onPopoverOutsidePointerDown, true)
+        const onPopoverEscapeKeyDown = (event) => {
           if (event.key !== 'Escape') return
           // 大图开着时 Esc 只收大图，弹层留在原地。
           if (imageViewer.dataset.open === '1') {
@@ -2812,7 +2821,8 @@ export function createPlugin(React, extras = {}) {
           }
           hideToolbar()
           closePopover()
-        })
+        }
+        document.addEventListener('keydown', onPopoverEscapeKeyDown)
         /* ------------------------------------------- 批注按钮 + 悬浮批注面板 */
 
         function sourceSummary(item) {
@@ -3167,22 +3177,20 @@ export function createPlugin(React, extras = {}) {
           else openPanel(anchor)
         }
 
-        document.addEventListener(
-          'pointerdown',
-          (event) => {
-            if (!panelOpen) return
-            const target = elementOf(event.target)
-            if (target === null) return
-            if (target.closest('[data-sa-ui="panel"]') !== null) return
-            if (target.closest('[data-sa-ui="popover"]') !== null) return
-            if (target.closest('.sa-chip') !== null) return
-            closePanel()
-          },
-          true,
-        )
-        document.addEventListener('keydown', (event) => {
+        const onPanelOutsidePointerDown = (event) => {
+          if (!panelOpen) return
+          const target = elementOf(event.target)
+          if (target === null) return
+          if (target.closest('[data-sa-ui="panel"]') !== null) return
+          if (target.closest('[data-sa-ui="popover"]') !== null) return
+          if (target.closest('.sa-chip') !== null) return
+          closePanel()
+        }
+        document.addEventListener('pointerdown', onPanelOutsidePointerDown, true)
+        const onPanelEscapeKeyDown = (event) => {
           if (event.key === 'Escape') closePanel()
-        })
+        }
+        document.addEventListener('keydown', onPanelEscapeKeyDown)
 
         // 批注集合或面板开合变化时重渲染面板正文（订阅由 store 的 emit 驱动）。
         subscribe(() => {
@@ -3372,7 +3380,8 @@ export function createPlugin(React, extras = {}) {
             const button = target.closest('button')
             if (button === null || button.closest('[data-composer-card]') === null) return
             const label = button.getAttribute('aria-label')
-            if (typeof label !== 'string' || !/^(发送|Send)/i.test(label)) return
+            // 发送按钮在忙碌时会变成「排队发送 / 插话发送」等文案；按关键词判断，避免只认固定词。
+            if (typeof label !== 'string' || !/(发送|送信|전송|senden|envoyer|inviare|send)/i.test(label)) return
             fillFallbackIfSending()
           }
           const onDocumentKeydown = (event) => {
@@ -3418,6 +3427,11 @@ export function createPlugin(React, extras = {}) {
             document.removeEventListener('pointerdown', onMenuPointerDown, true)
             document.removeEventListener('click', onDocumentClick, true)
             document.removeEventListener('keydown', onDocumentKeydown, true)
+            document.removeEventListener('mousemove', onHoverMoveDocument, true)
+            document.removeEventListener('pointerdown', onPopoverOutsidePointerDown, true)
+            document.removeEventListener('keydown', onPopoverEscapeKeyDown)
+            document.removeEventListener('pointerdown', onPanelOutsidePointerDown, true)
+            document.removeEventListener('keydown', onPanelEscapeKeyDown)
             window.removeEventListener('scroll', onViewport, true)
             window.removeEventListener('resize', onViewport)
             observer.disconnect()

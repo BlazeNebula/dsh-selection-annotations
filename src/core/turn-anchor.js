@@ -13,9 +13,13 @@ export function registerTurnAnchor(ctx, h) {
   if (typeof slots.inject !== 'function' || typeof slots.register !== 'function') return
 
   const TurnAnchor = (props) => {
-    const turn = Number(props?.turn)
+    // 0.2.2 的 turnTail 槽位传的是 turn 对象；旧版直接传数字。两种都认。
+    const rawTurn = typeof props?.turn === 'object' && props?.turn !== null ? props.turn.turn : props?.turn
+    const turn = Number(rawTurn)
     if (!Number.isFinite(turn) || turn <= 0) return null
-    const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : ''
+    const fromProps = typeof props?.sessionId === 'string' ? props.sessionId : ''
+    const fromTurn = typeof props?.turn?.sessionId === 'string' ? props.turn.sessionId : ''
+    const sessionId = fromProps !== '' ? fromProps : fromTurn
     return h('div', {
       className: 'sa-turn-anchor',
       'data-sa-turn': String(turn),

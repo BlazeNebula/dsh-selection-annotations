@@ -38,3 +38,11 @@ export function button(className, text, onClick) {
   created.addEventListener('click', onClick)
   return created
 }
+
+/** 稳定的内容指纹：用于判断卡片是否需要按最新数据重建，替代手写的版本号。 */
+export function hashString(input) {
+  const text = typeof input === 'string' ? input : JSON.stringify(input ?? null)
+  let hash = 5381
+  for (let i = 0; i < text.length; i += 1) hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0
+  return (hash >>> 0).toString(36)
+}

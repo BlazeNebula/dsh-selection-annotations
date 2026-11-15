@@ -1,14 +1,16 @@
 import { safe } from './util.js'
 
+/** 已提交记录的条目形状：引文或批注文字至少有一个是字符串。本地台账与远端合并共用这一条判据。 */
+export function isSentItem(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  return typeof value.quote === 'string' || typeof value.note === 'string'
+}
+
 /**
  * 已提交批注的本地台账（内存 + localStorage），按会话分表，键是消息锚点键。
  * 记录形如 { savedAt, items, turn? }；turn 用来把卡片固定在所属轮次的「已完成」前后。
  */
 export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxBytes, maxItems, onChanged }) {
-  const isSentItem = (value) => {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
-    return typeof value.quote === 'string' || typeof value.note === 'string'
-  }
 
   function loadSent(sessionId) {
     const memory = tableFor.get(sessionId)
