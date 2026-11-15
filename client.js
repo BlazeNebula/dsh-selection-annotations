@@ -526,7 +526,7 @@
       "webPick.missing": "没有找到内嵌浏览器，请先在侧栏打开网页。",
       "panel.foot": "发送时批注作为独立块随消息提交",
       "panel.sideTab": "在右侧边栏打开批注",
-      "sideTab.title": "批注",
+      "sideTab.title": "批注总览",
       "sideTab.empty": "还没有批注",
       "panel.refineFailed": "位置精修未生效：{reason}",
       "settings.imagesOpen": "收起图片设置",
