@@ -2920,8 +2920,10 @@ export function createPlugin(React, extras = {}) {
           panelCollapsed = window.localStorage.getItem(PANEL_COLLAPSED_KEY) === '1'
         } catch {}
         function togglePanelCollapsed() {
+          // 动作对准「当前看得见的状态」：悬停临展时点一下就是收起，不用点两次。
+          const foldedNow = panelCollapsed && !panelHoverExpanded
+          panelCollapsed = !foldedNow
           panelHoverExpanded = false
-          panelCollapsed = !panelCollapsed
           try {
             window.localStorage.setItem(PANEL_COLLAPSED_KEY, panelCollapsed ? '1' : '0')
           } catch {}
@@ -2937,53 +2939,12 @@ export function createPlugin(React, extras = {}) {
           panelEl.classList.toggle('sa-panel-collapsed', folded)
           const toggle = panelEl.querySelector('.sa-panel-collapse')
           if (toggle !== null) toggle.setAttribute('aria-expanded', folded ? 'false' : 'true')
+          // 高度变了要重新贴住入口，否则展开后会向下长、压住输入区。
+          if (panelOpen) positionPanel()
         }
         /** 关闭动画结束后再隐藏面板，避免过渡被 display:none 打断。*/
         let panelHideTimer = 0
-        /** 悬停入口打开的面板：只有这种来源才在移开鼠标后自动收起。*/
-        let panelOpenedByHover = false
-        let panelHovered = false
-        let chipHoverTimer = 0
-        let chipCloseTimer = 0
 
-        /** 鼠标停在入口上一小会儿再展开，避免掠过时闪一下。*/
-        function scheduleChipOpen(anchor) {
-          if (chipCloseTimer !== 0) {
-            window.clearTimeout(chipCloseTimer)
-            chipCloseTimer = 0
-          }
-          if (panelOpen || chipHoverTimer !== 0) return
-          chipHoverTimer = window.setTimeout(() => {
-            chipHoverTimer = 0
-            if (panelOpen) return
-            panelOpenedByHover = true
-            openPanel(anchor)
-          }, 140)
-        }
-
-        function cancelChipOpen() {
-          if (chipHoverTimer !== 0) {
-            window.clearTimeout(chipHoverTimer)
-            chipHoverTimer = 0
-          }
-        }
-
-        /** 离开入口或面板后留一点时间，让鼠标能跨过间隙落到面板里。*/
-        function scheduleChipClose() {
-          cancelChipOpen()
-          if (!panelOpen || !panelOpenedByHover || chipCloseTimer !== 0) return
-          chipCloseTimer = window.setTimeout(() => {
-            chipCloseTimer = 0
-            if (panelOpenedByHover && !panelHovered) closePanel()
-          }, 220)
-        }
-
-        function cancelChipClose() {
-          if (chipCloseTimer !== 0) {
-            window.clearTimeout(chipCloseTimer)
-            chipCloseTimer = 0
-          }
-        }
         /** 面板底部的图片设置是否展开。*/
         let imageSettingsOpen = false
         /** 面板底部的批注指令设置是否展开。*/
@@ -3278,6 +3239,7 @@ export function createPlugin(React, extras = {}) {
         function openPanel(anchor) {
           panelOpen = true
           panelAnchor = anchor
+          panelHoverExpanded = false
           if (panelHideTimer !== 0) {
             window.clearTimeout(panelHideTimer)
             panelHideTimer = 0
@@ -3296,10 +3258,7 @@ export function createPlugin(React, extras = {}) {
           if (!panelOpen) return
           panelOpen = false
           panelAnchor = null
-          panelOpenedByHover = false
-          panelHovered = false
-          cancelChipOpen()
-          cancelChipClose()
+          panelHoverExpanded = false
           panelRoot.dataset.open = '0'
           if (panelHideTimer !== 0) window.clearTimeout(panelHideTimer)
           panelHideTimer = window.setTimeout(() => {
@@ -3309,13 +3268,7 @@ export function createPlugin(React, extras = {}) {
           emit()
         }
 
-        panelRoot.addEventListener('pointerdown', () => {
-          // 一旦在面板里动手，就不再按「悬停预览」处理，免得移开鼠标把正在编辑的面板收走。
-          panelOpenedByHover = false
-        }, true)
         panelRoot.addEventListener('mouseenter', () => {
-          panelHovered = true
-          cancelChipClose()
           // 与便签主面板一致：折叠成标题条时，鼠标移上去临时展开内容，移开恢复折叠。
           if (panelCollapsed && !panelHoverExpanded) {
             panelHoverExpanded = true
@@ -3323,8 +3276,6 @@ export function createPlugin(React, extras = {}) {
           }
         })
         panelRoot.addEventListener('mouseleave', () => {
-          panelHovered = false
-          scheduleChipClose()
           if (panelHoverExpanded) {
             panelHoverExpanded = false
             applyPanelCollapsedVisual()
@@ -3375,15 +3326,8 @@ export function createPlugin(React, extras = {}) {
               type: 'button',
               title: count === 0 ? t('chip.emptyTitle') : t('chip.title'),
               onClick: (event) => {
-                cancelChipOpen()
-                cancelChipClose()
-                // 悬停只是预览；点击把面板固定住，收起用面板头的关闭按钮。
-                if (panelOpen) {
-                  panelOpenedByHover = false
-                  panelHovered = true
-                  return
-                }
-                panelOpenedByHover = false
+                // 点击入口只负责打开；收起用面板标题栏的折叠键或关闭按钮。
+                if (panelOpen) return
                 openPanel(event.currentTarget)
               },
             },

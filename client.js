@@ -4904,8 +4904,9 @@
         } catch {
         }
         function togglePanelCollapsed() {
+          const foldedNow = panelCollapsed && !panelHoverExpanded;
+          panelCollapsed = !foldedNow;
           panelHoverExpanded = false;
-          panelCollapsed = !panelCollapsed;
           try {
             window.localStorage.setItem(PANEL_COLLAPSED_KEY, panelCollapsed ? "1" : "0");
           } catch {
@@ -4917,45 +4918,9 @@
           panelEl.classList.toggle("sa-panel-collapsed", folded);
           const toggle = panelEl.querySelector(".sa-panel-collapse");
           if (toggle !== null) toggle.setAttribute("aria-expanded", folded ? "false" : "true");
+          if (panelOpen) positionPanel();
         }
         let panelHideTimer = 0;
-        let panelOpenedByHover = false;
-        let panelHovered = false;
-        let chipHoverTimer = 0;
-        let chipCloseTimer = 0;
-        function scheduleChipOpen(anchor) {
-          if (chipCloseTimer !== 0) {
-            window.clearTimeout(chipCloseTimer);
-            chipCloseTimer = 0;
-          }
-          if (panelOpen || chipHoverTimer !== 0) return;
-          chipHoverTimer = window.setTimeout(() => {
-            chipHoverTimer = 0;
-            if (panelOpen) return;
-            panelOpenedByHover = true;
-            openPanel(anchor);
-          }, 140);
-        }
-        function cancelChipOpen() {
-          if (chipHoverTimer !== 0) {
-            window.clearTimeout(chipHoverTimer);
-            chipHoverTimer = 0;
-          }
-        }
-        function scheduleChipClose() {
-          cancelChipOpen();
-          if (!panelOpen || !panelOpenedByHover || chipCloseTimer !== 0) return;
-          chipCloseTimer = window.setTimeout(() => {
-            chipCloseTimer = 0;
-            if (panelOpenedByHover && !panelHovered) closePanel();
-          }, 220);
-        }
-        function cancelChipClose() {
-          if (chipCloseTimer !== 0) {
-            window.clearTimeout(chipCloseTimer);
-            chipCloseTimer = 0;
-          }
-        }
         let imageSettingsOpen = false;
         let instructionSettingsOpen = false;
         let fallbackSettingsOpen = false;
@@ -5216,6 +5181,7 @@
         function openPanel(anchor) {
           panelOpen = true;
           panelAnchor = anchor;
+          panelHoverExpanded = false;
           if (panelHideTimer !== 0) {
             window.clearTimeout(panelHideTimer);
             panelHideTimer = 0;
@@ -5232,10 +5198,7 @@
           if (!panelOpen) return;
           panelOpen = false;
           panelAnchor = null;
-          panelOpenedByHover = false;
-          panelHovered = false;
-          cancelChipOpen();
-          cancelChipClose();
+          panelHoverExpanded = false;
           panelRoot.dataset.open = "0";
           if (panelHideTimer !== 0) window.clearTimeout(panelHideTimer);
           panelHideTimer = window.setTimeout(() => {
@@ -5244,20 +5207,13 @@
           }, 180);
           emit();
         }
-        panelRoot.addEventListener("pointerdown", () => {
-          panelOpenedByHover = false;
-        }, true);
         panelRoot.addEventListener("mouseenter", () => {
-          panelHovered = true;
-          cancelChipClose();
           if (panelCollapsed && !panelHoverExpanded) {
             panelHoverExpanded = true;
             applyPanelCollapsedVisual();
           }
         });
         panelRoot.addEventListener("mouseleave", () => {
-          panelHovered = false;
-          scheduleChipClose();
           if (panelHoverExpanded) {
             panelHoverExpanded = false;
             applyPanelCollapsedVisual();
@@ -5301,14 +5257,7 @@
               type: "button",
               title: count === 0 ? t("chip.emptyTitle") : t("chip.title"),
               onClick: (event) => {
-                cancelChipOpen();
-                cancelChipClose();
-                if (panelOpen) {
-                  panelOpenedByHover = false;
-                  panelHovered = true;
-                  return;
-                }
-                panelOpenedByHover = false;
+                if (panelOpen) return;
                 openPanel(event.currentTarget);
               }
             },
