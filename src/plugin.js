@@ -1089,6 +1089,9 @@ export function createPlugin(React, extras = {}) {
           // 插在它前面就会被折进过程区。先跟着「已发送」卡放在过程区外面，
           // 等 final output 出现后，再按正常规则挪到最终输出之前。
           if (Number.isFinite(turn) && document.querySelector(`[data-turn-process="${turn}"]`) === null) {
+            // 回合还在跑：卡片一旦放到过程区外就不再跟着流式内容来回挪，
+            // 否则每帧移动节点会让会话的滚动位置被反复重置。
+            if (section.dataset.saPlacement === `running:${turn}`) return
             const sent = document.querySelector(`[data-sa-ui="sent"][data-sa-turn="${turn}"]`)
             if (sent !== null && sent.parentElement !== null) {
               let cursor = sent
@@ -1097,6 +1100,7 @@ export function createPlugin(React, extras = {}) {
                 cursor = cursor.nextElementSibling
               }
               moveSection(section, sent.parentElement, cursor.nextSibling)
+              section.dataset.saPlacement = `running:${turn}`
               return
             }
           }
@@ -3309,9 +3313,13 @@ export function createPlugin(React, extras = {}) {
               onClick: (event) => {
                 cancelChipOpen()
                 cancelChipClose()
-                // 与悬停解耦：点击只负责把面板固定住，不切换开合，避免悬停与点击互相打架。
+                // 悬停只是预览；点击才是正式开合，和便签插件的行为一致。
+                if (panelOpen) {
+                  closePanel()
+                  return
+                }
                 panelOpenedByHover = false
-                if (!panelOpen) openPanel(event.currentTarget)
+                openPanel(event.currentTarget)
               },
             },
             h(

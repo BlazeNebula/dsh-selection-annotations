@@ -3125,6 +3125,7 @@
           if (pointerSelecting === true) return;
           if (Number.isFinite(turn)) section.dataset.saTurn = String(turn);
           if (Number.isFinite(turn) && document.querySelector(`[data-turn-process="${turn}"]`) === null) {
+            if (section.dataset.saPlacement === `running:${turn}`) return;
             const sent = document.querySelector(`[data-sa-ui="sent"][data-sa-turn="${turn}"]`);
             if (sent !== null && sent.parentElement !== null) {
               let cursor2 = sent;
@@ -3132,6 +3133,7 @@
                 cursor2 = cursor2.nextElementSibling;
               }
               moveSection(section, sent.parentElement, cursor2.nextSibling);
+              section.dataset.saPlacement = `running:${turn}`;
               return;
             }
           }
@@ -5007,8 +5009,12 @@
               onClick: (event) => {
                 cancelChipOpen();
                 cancelChipClose();
+                if (panelOpen) {
+                  closePanel();
+                  return;
+                }
                 panelOpenedByHover = false;
-                if (!panelOpen) openPanel(event.currentTarget);
+                openPanel(event.currentTarget);
               }
             },
             h(
