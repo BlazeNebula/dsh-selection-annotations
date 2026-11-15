@@ -2925,7 +2925,18 @@ export function createPlugin(React, extras = {}) {
           try {
             window.localStorage.setItem(PANEL_COLLAPSED_KEY, panelCollapsed ? '1' : '0')
           } catch {}
-          renderPanel()
+          applyPanelCollapsedVisual()
+        }
+
+        /**
+         * 只切换折叠样式，不重建面板内容：重建会把鼠标下的节点换掉，
+         * 让 hover 的进出事件错位，表现就是「点开后再点收不起」。
+         */
+        function applyPanelCollapsedVisual() {
+          const folded = panelCollapsed && !panelHoverExpanded
+          panelEl.classList.toggle('sa-panel-collapsed', folded)
+          const toggle = panelEl.querySelector('.sa-panel-collapse')
+          if (toggle !== null) toggle.setAttribute('aria-expanded', folded ? 'false' : 'true')
         }
         /** 关闭动画结束后再隐藏面板，避免过渡被 display:none 打断。*/
         let panelHideTimer = 0
@@ -3008,11 +3019,15 @@ export function createPlugin(React, extras = {}) {
         }
 
         const webPicker = createWebPicker({
-          t,
           onPick: (picked) => {
+            if (picked.action === 'copy') {
+              copyPlainText(picked.text)
+              return
+            }
+            const adopt = picked.action === 'adopt'
             const item = addAnnotation({
               quote: picked.quote !== '' ? picked.quote : picked.selector,
-              note: '',
+              note: adopt ? adoptTextOf() : '',
               images: [],
               source: {
                 kind: 'web',
@@ -3021,7 +3036,8 @@ export function createPlugin(React, extras = {}) {
                 textOrigin: 'rendered',
               },
             })
-            if (item !== undefined) renderPanel()
+            if (item === undefined) return
+            if (!adopt) openEditPopover(item.id, null, 'manual')
           },
         })
 
@@ -3303,7 +3319,7 @@ export function createPlugin(React, extras = {}) {
           // 与便签主面板一致：折叠成标题条时，鼠标移上去临时展开内容，移开恢复折叠。
           if (panelCollapsed && !panelHoverExpanded) {
             panelHoverExpanded = true
-            renderPanel()
+            applyPanelCollapsedVisual()
           }
         })
         panelRoot.addEventListener('mouseleave', () => {
@@ -3311,7 +3327,7 @@ export function createPlugin(React, extras = {}) {
           scheduleChipClose()
           if (panelHoverExpanded) {
             panelHoverExpanded = false
-            renderPanel()
+            applyPanelCollapsedVisual()
           }
         })
 
