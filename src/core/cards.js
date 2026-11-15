@@ -1,7 +1,7 @@
 import { truncateQuote } from './util.js'
 import { mergeReplyBatches } from './annotation-utils.js'
 
-const VERDICT_LABELS = {
+export const VERDICT_LABELS = {
   accepted: ['verdict.accepted', 'accepted'],
   partial: ['verdict.partial', 'partial'],
   rejected: ['verdict.rejected', 'rejected'],

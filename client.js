@@ -1400,7 +1400,7 @@
   }
 
   // src/core/cards.js
-  var VERDICT_LABELS2 = {
+  var VERDICT_LABELS = {
     accepted: ["verdict.accepted", "accepted"],
     partial: ["verdict.partial", "partial"],
     rejected: ["verdict.rejected", "rejected"],
@@ -1594,7 +1594,7 @@
       body.style.rowGap = "8px";
       for (const reply of replies) {
         const item = byIndex.get(reply.index);
-        const [labelKey, tone] = VERDICT_LABELS2[reply.verdict] ?? ["verdict.fallback", "accepted"];
+        const [labelKey, tone] = VERDICT_LABELS[reply.verdict] ?? ["verdict.fallback", "accepted"];
         const group = document.createElement("div");
         group.className = `sa-reply-item sa-tone-${tone}`;
         group.setAttribute("data-sa-batch-at", String(Number.isFinite(reply.at) ? reply.at : 0));
@@ -4991,10 +4991,10 @@
           };
           document.addEventListener("pointerdown", onSelectPointerDown, true);
           const onPointerUp = (event) => {
+            pointerSelecting = false;
             const target = elementOf2(event.target);
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return;
             if (target !== null && target.closest('[data-sa-ui="popover"], [data-sa-ui="ghost"]') !== null) return;
-            pointerSelecting = false;
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() };
             window.clearTimeout(settleTimer);
             settleTimer = null;

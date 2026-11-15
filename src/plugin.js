@@ -47,7 +47,7 @@ import { createSettings } from './core/settings.js'
 import { createPayload } from './core/payload.js'
 import { createSourceCapture } from './core/source-capture.js'
 import { createSourceResolver } from './core/source-resolve.js'
-import { createCards } from './core/cards.js'
+import { createCards, VERDICT_LABELS } from './core/cards.js'
 import { createMarkdown } from './core/markdown.js'
 import { createPanelRenderer } from './core/panel-render.js'
 import { createSentStore } from './core/sent-store.js'
@@ -3318,11 +3318,12 @@ export function createPlugin(React, extras = {}) {
           document.addEventListener('pointerdown', onSelectPointerDown, true)
           // 记住划线结束的位置；工具条要贴在这里，而不是 range 的末尾矩形。
           const onPointerUp = (event) => {
+            // 松手就结束拖选：即使落在工具条/弹层上或窗口外没有后续事件，也不能让标记一直为真。
+            pointerSelecting = false
             const target = elementOf(event.target)
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return
             // 在弹层里松手（包括拖标题）不算划线结束，不重算工具条。
             if (target !== null && target.closest('[data-sa-ui="popover"], [data-sa-ui="ghost"]') !== null) return
-            pointerSelecting = false
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() }
             // 松手即渲染：选区已经定了，不需要再等 220ms 的去抖。
             window.clearTimeout(settleTimer)
