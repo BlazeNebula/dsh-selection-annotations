@@ -2803,7 +2803,16 @@
     const h = React.createElement;
     const plugin = {
       name: "@u2a5f/dsh-selection-annotations",
-      inject: ["slots", "sessions", "conversation", "remote", "remote.workspaceFiles", "locale"],
+      inject: [
+        "slots",
+        "sessions",
+        "conversation",
+        "remote",
+        "remote.workspaceFiles",
+        "locale",
+        "sidebarRight",
+        "sidebarRightTabs"
+      ],
       apply(ctx) {
         try {
           return plugin.activate(ctx);
@@ -5274,12 +5283,21 @@
         const SIDE_TAB_KIND = "selection-annotations";
         function openSideAnnotationsTab() {
           const service = safe(() => ctx.sidebarRight);
-          if (service === void 0 || service === null || typeof service.openTab !== "function") {
+          if (service === void 0 || service === null) {
             warn("[selection-annotations] 当前环境没有右侧边栏，无法打开批注标签页");
             return;
           }
+          const sessionId = currentSessionId();
           try {
-            service.openTab(SIDE_TAB_KIND);
+            if (typeof service.openTabIn === "function" && typeof sessionId === "string" && sessionId !== "") {
+              service.openTabIn(sessionId, SIDE_TAB_KIND, {});
+              return;
+            }
+            if (typeof service.openTab === "function") {
+              service.openTab(SIDE_TAB_KIND);
+              return;
+            }
+            warn("[selection-annotations] 右侧边栏没有可用的打开方法");
           } catch (error) {
             warn("[selection-annotations] 打开右侧批注标签页失败：", error);
           }
