@@ -110,6 +110,10 @@ export const CSS = `
 .sa-chip svg { flex: none; }
 .sa-chip:hover { color: var(--dsw-alias-label-primary, #e8e8ea); background: var(--dsw-alias-bg-layer-2, rgb(255 255 255 / 0.06)); }
 .sa-chip-open { color: var(--dsw-alias-brand-primary, #247bbf); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 14%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 28%, transparent); }
+.sa-chip-has { border-color: var(--dsw-alias-border-l2, ButtonBorder); }
+.sa-chip-chevron { opacity: 0.65; transition: transform 160ms ease, opacity 160ms ease; }
+.sa-chip:hover .sa-chip-chevron, .sa-chip-open .sa-chip-chevron { opacity: 1; }
+.sa-chip-open .sa-chip-chevron { transform: rotate(180deg); }
 .sa-chip:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 2px; }
 .sa-panel { display: flex; flex-direction: column; width: min(560px, calc(100vw - 32px)); max-height: min(72vh, 600px);
   padding: 0; box-sizing: border-box; overflow: hidden; border-radius: 12px; color: var(--dsw-alias-label-primary, CanvasText);

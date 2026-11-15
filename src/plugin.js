@@ -3248,11 +3248,6 @@ export function createPlugin(React, extras = {}) {
           emit()
         }
 
-        function togglePanel(anchor) {
-          if (panelOpen) closePanel()
-          else openPanel(anchor)
-        }
-
         panelRoot.addEventListener('pointerdown', () => {
           // 一旦在面板里动手，就不再按「悬停预览」处理，免得移开鼠标把正在编辑的面板收走。
           panelOpenedByHover = false
@@ -3306,7 +3301,7 @@ export function createPlugin(React, extras = {}) {
           return h(
             'button',
             {
-              className: local.open ? 'sa-chip sa-chip-open' : 'sa-chip',
+              className: `sa-chip${count > 0 ? ' sa-chip-has' : ''}${local.open ? ' sa-chip-open' : ''}`,
               type: 'button',
               title: count === 0 ? t('chip.emptyTitle') : t('chip.title'),
               onMouseEnter: (event) => scheduleChipOpen(event.currentTarget),
@@ -3314,8 +3309,9 @@ export function createPlugin(React, extras = {}) {
               onClick: (event) => {
                 cancelChipOpen()
                 cancelChipClose()
+                // 与悬停解耦：点击只负责把面板固定住，不切换开合，避免悬停与点击互相打架。
                 panelOpenedByHover = false
-                togglePanel(event.currentTarget)
+                if (!panelOpen) openPanel(event.currentTarget)
               },
             },
             h(
@@ -3334,6 +3330,22 @@ export function createPlugin(React, extras = {}) {
               h('path', { d: 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z' }),
             ),
             h('span', null, count === 0 ? t('chip.label') : t('chip.count', { n: count })),
+            h(
+              'svg',
+              {
+                className: 'sa-chip-chevron',
+                width: 12,
+                height: 12,
+                viewBox: '0 0 16 16',
+                fill: 'none',
+                stroke: 'currentColor',
+                strokeWidth: 1.6,
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+                'aria-hidden': 'true',
+              },
+              h('path', { d: 'M4 6.5 8 10.5 12 6.5' }),
+            ),
           )
         }
         /* ------------------------------------------------------------------ 生命周期 */

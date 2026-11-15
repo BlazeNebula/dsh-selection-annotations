@@ -112,6 +112,10 @@
 .sa-chip svg { flex: none; }
 .sa-chip:hover { color: var(--dsw-alias-label-primary, #e8e8ea); background: var(--dsw-alias-bg-layer-2, rgb(255 255 255 / 0.06)); }
 .sa-chip-open { color: var(--dsw-alias-brand-primary, #247bbf); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 14%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 28%, transparent); }
+.sa-chip-has { border-color: var(--dsw-alias-border-l2, ButtonBorder); }
+.sa-chip-chevron { opacity: 0.65; transition: transform 160ms ease, opacity 160ms ease; }
+.sa-chip:hover .sa-chip-chevron, .sa-chip-open .sa-chip-chevron { opacity: 1; }
+.sa-chip-open .sa-chip-chevron { transform: rotate(180deg); }
 .sa-chip:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 2px; }
 .sa-panel { display: flex; flex-direction: column; width: min(560px, calc(100vw - 32px)); max-height: min(72vh, 600px);
   padding: 0; box-sizing: border-box; overflow: hidden; border-radius: 12px; color: var(--dsw-alias-label-primary, CanvasText);
@@ -4950,10 +4954,6 @@
           }, 180);
           emit();
         }
-        function togglePanel(anchor) {
-          if (panelOpen) closePanel();
-          else openPanel(anchor);
-        }
         panelRoot.addEventListener("pointerdown", () => {
           panelOpenedByHover = false;
         }, true);
@@ -4999,7 +4999,7 @@
           return h(
             "button",
             {
-              className: local.open ? "sa-chip sa-chip-open" : "sa-chip",
+              className: `sa-chip${count > 0 ? " sa-chip-has" : ""}${local.open ? " sa-chip-open" : ""}`,
               type: "button",
               title: count === 0 ? t("chip.emptyTitle") : t("chip.title"),
               onMouseEnter: (event) => scheduleChipOpen(event.currentTarget),
@@ -5008,7 +5008,7 @@
                 cancelChipOpen();
                 cancelChipClose();
                 panelOpenedByHover = false;
-                togglePanel(event.currentTarget);
+                if (!panelOpen) openPanel(event.currentTarget);
               }
             },
             h(
@@ -5026,7 +5026,23 @@
               },
               h("path", { d: "M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" })
             ),
-            h("span", null, count === 0 ? t("chip.label") : t("chip.count", { n: count }))
+            h("span", null, count === 0 ? t("chip.label") : t("chip.count", { n: count })),
+            h(
+              "svg",
+              {
+                className: "sa-chip-chevron",
+                width: 12,
+                height: 12,
+                viewBox: "0 0 16 16",
+                fill: "none",
+                stroke: "currentColor",
+                strokeWidth: 1.6,
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+                "aria-hidden": "true"
+              },
+              h("path", { d: "M4 6.5 8 10.5 12 6.5" })
+            )
           );
         }
         ctx.effect(() => {
