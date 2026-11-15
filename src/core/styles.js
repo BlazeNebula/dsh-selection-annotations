@@ -104,13 +104,12 @@ export const CSS = `
 .sa-pop-spacer { flex: 1; }
 .sa-pop-delete { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-float { position: fixed; z-index: 63; max-width: calc(100vw - 16px); }
-.sa-chip { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1; padding: 5px 10px; cursor: pointer;
-  color: var(--dsw-alias-brand-primary, #247bbf); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 38%, transparent); border-radius: 999px;
-  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
-.sa-chip:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 22%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 55%, transparent); }
-.sa-chip-open { background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 30%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 68%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 18%, transparent); }
+.sa-chip { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1; padding: 5px 8px; cursor: pointer;
+  color: var(--dsw-alias-label-secondary, #a3a3ab); background: transparent; border: 1px solid transparent; border-radius: 8px;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease; }
+.sa-chip svg { flex: none; }
+.sa-chip:hover { color: var(--dsw-alias-label-primary, #e8e8ea); background: var(--dsw-alias-bg-layer-2, rgb(255 255 255 / 0.06)); }
+.sa-chip-open { color: var(--dsw-alias-brand-primary, #247bbf); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 14%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 28%, transparent); }
 .sa-chip:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 2px; }
 .sa-panel { display: flex; flex-direction: column; width: min(560px, calc(100vw - 32px)); max-height: min(72vh, 600px);
   padding: 0; box-sizing: border-box; overflow: hidden; border-radius: 12px; color: var(--dsw-alias-label-primary, CanvasText);

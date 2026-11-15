@@ -1674,15 +1674,20 @@ test('locale：中英词典注册给 DSH 语言服务，默认仍按中文出文
 test('locale：切到英文后按钮与指令一起换，切回中文恢复', () => {
   const harness = makeHarness()
   const component = harness.registrations.find((registration) => registration.opts.name === 'conversation.input.right').Component
-  assert.equal(component({ sessionId: 's1' }).children[0], '批注')
+  const chipLabel = () => {
+    const tree = JSON.stringify(component({ sessionId: 's1' }))
+    const match = tree.match(/"批注"|"Annotate"/)
+    return match === null ? '' : match[0].slice(1, -1)
+  }
+  assert.equal(chipLabel(), '批注')
 
   harness.locale.setActive('en')
   const english = JSON.parse(harness.debug.payload())
   assert.ok(english.instruction.startsWith('This is an annotation payload sent by the user'), '指令跟着切成英文')
-  assert.equal(component({ sessionId: 's1' }).children[0], 'Annotate', '按钮文案跟着切成英文')
+  assert.equal(chipLabel(), 'Annotate', '按钮文案跟着切成英文')
 
   harness.locale.setActive('zh')
   const chinese = JSON.parse(harness.debug.payload())
   assert.ok(chinese.instruction.startsWith('这是用户发来的批注数据块'), '切回中文后指令恢复')
-  assert.equal(component({ sessionId: 's1' }).children[0], '批注')
+  assert.equal(chipLabel(), '批注')
 })

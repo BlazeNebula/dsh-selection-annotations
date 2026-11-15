@@ -3356,7 +3356,22 @@ export function createPlugin(React, extras = {}) {
                 togglePanel(event.currentTarget)
               },
             },
-            count === 0 ? t('chip.label') : t('chip.count', { n: count }),
+            h(
+              'svg',
+              {
+                width: 14,
+                height: 14,
+                viewBox: '0 0 16 16',
+                fill: 'none',
+                stroke: 'currentColor',
+                strokeWidth: 1.4,
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+                'aria-hidden': 'true',
+              },
+              h('path', { d: 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z' }),
+            ),
+            h('span', null, count === 0 ? t('chip.label') : t('chip.count', { n: count })),
           )
         }
         /* ------------------------------------------------------------------ 生命周期 */
