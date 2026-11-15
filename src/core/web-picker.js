@@ -26,9 +26,9 @@ const PICK_SCRIPT = String.raw`(function () {
     button.type = 'button'
     button.textContent = entry[1]
     button.dataset.action = entry[0]
-    button.style.cssText = 'pointer-events:auto;padding:3px 7px;border:0;border-radius:4px;background:rgba(20,20,24,.55);color:#fff;font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 2px rgba(0,0,0,.7);'
+    button.style.cssText = 'pointer-events:auto;padding:3px 7px;border:0;border-radius:4px;background:transparent;color:#fff;font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.85);'
     button.addEventListener('pointerenter', function () { button.style.background = 'rgba(36,123,191,.75)' })
-    button.addEventListener('pointerleave', function () { button.style.background = 'rgba(20,20,24,.55)' })
+    button.addEventListener('pointerleave', function () { button.style.background = 'transparent' })
     button.addEventListener('click', function (event) { onClick(event, entry[0]) })
     actions.appendChild(button)
     return button
