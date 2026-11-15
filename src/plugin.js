@@ -45,6 +45,7 @@ import { createSourceResolver } from './core/source-resolve.js'
 import { createCards, VERDICT_LABELS } from './core/cards.js'
 import { createMarkdown } from './core/markdown.js'
 import { createPanelRenderer } from './core/panel-render.js'
+import { createWebPicker } from './core/web-picker.js'
 import { createSentStore } from './core/sent-store.js'
 import { createRemoteSync } from './core/remote-sync.js'
 import { createDraftCodec } from './core/draft-codec.js'
@@ -2992,8 +2993,27 @@ export function createPlugin(React, extras = {}) {
           panelRoot.style.top = `${Math.max(8, top)}px`
         }
 
+        const webPicker = createWebPicker({
+          t,
+          onPick: (picked) => {
+            const item = addAnnotation({
+              quote: picked.quote !== '' ? picked.quote : picked.selector,
+              note: '',
+              images: [],
+              source: {
+                kind: 'web',
+                anchorKey: picked.selector,
+                path: picked.url,
+                textOrigin: 'rendered',
+              },
+            })
+            if (item !== undefined) renderPanel()
+          },
+        })
+
         const panelRenderer = createPanelRenderer({
           t,
+          pickWebElement: () => webPicker.pick(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
           moveAnnotation: (from, to) => moveAnnotation(from, to),

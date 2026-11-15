@@ -23,6 +23,12 @@ export function createPayload({ t, instructionOf }) {
       }
       return t('source.file', { path, where })
     }
+    if (source.kind === 'web') {
+      return t('source.web', {
+        url: typeof source.path === 'string' && source.path !== '' ? source.path : t('source.pathUnknown'),
+        selector: typeof source.anchorKey === 'string' && source.anchorKey !== '' ? source.anchorKey : '-',
+      })
+    }
     if (source.kind === 'reply') {
       const fieldLabel =
         { quote: t('label.quote'), note: t('label.note'), reason: t('label.reason'), next: t('label.next') }[
@@ -79,8 +85,11 @@ export function createPayload({ t, instructionOf }) {
       if (typeof source.anchorKey === 'string' && source.anchorKey !== '') out.anchorKey = source.anchorKey
       if (Number.isFinite(source.index)) out.index = source.index
       if (typeof source.field === 'string' && source.field !== '') out.field = source.field
+    } else if (source?.kind === 'web') {
+      if (typeof source.anchorKey === 'string' && source.anchorKey !== '') out.anchorKey = source.anchorKey
+      if (typeof source.path === 'string' && source.path !== '') out.path = source.path
     }
-    if (out.kind === 'file' || out.kind === 'message' || out.kind === 'reply' || out.kind === 'sent') {
+    if (out.kind === 'file' || out.kind === 'message' || out.kind === 'reply' || out.kind === 'sent' || out.kind === 'web') {
       out.textOrigin = source?.textOrigin === 'source' ? 'source' : 'rendered'
     }
     if (Number.isFinite(source?.charStart)) out.charStart = source.charStart

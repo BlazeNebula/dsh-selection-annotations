@@ -493,6 +493,8 @@
       "panel.quote": "引用",
       "panel.note": "批注",
       "panel.clear": "清空",
+      "panel.webPick": "拾取网页元素",
+      "webPick.missing": "没有找到内嵌浏览器，请先在侧栏打开网页。",
       "panel.foot": "发送时批注作为独立块随消息提交",
       "panel.refineFailed": "位置精修未生效：{reason}",
       "settings.imagesOpen": "收起图片设置",
@@ -566,6 +568,7 @@
       "source.sentField": "整条批注",
       "source.reply": "逐条答复 · 批注 {index} · {field}（锚点 {anchor}{span}）",
       "source.sent": "已发送批注 · 批注 {index} · {field}（锚点 {anchor}{span}）",
+      "source.web": "网页 `{url}` · 选择器 `{selector}`",
       "source.span": "，字符 {a}–{b}",
       "source.selection": "页面选区",
       "source.fileFallback": "文件",
@@ -601,6 +604,8 @@
       "panel.quote": "Quote",
       "panel.note": "Note",
       "panel.clear": "Clear",
+      "panel.webPick": "Pick page element",
+      "webPick.missing": "No embedded browser found. Open a page in the sidebar first.",
       "panel.foot": "Annotations are sent as a separate block with the message",
       "panel.refineFailed": "Position refinement failed: {reason}",
       "settings.imagesOpen": "Hide image settings",
@@ -674,6 +679,7 @@
       "source.sentField": "Entire annotation",
       "source.reply": "Annotation reply · annotation {index} · {field} (anchor {anchor}{span})",
       "source.sent": "Sent annotation · annotation {index} · {field} (anchor {anchor}{span})",
+      "source.web": "Web page `{url}` · selector `{selector}`",
       "source.span": ", chars {a}–{b}",
       "source.selection": "Page selection",
       "source.fileFallback": "File",
@@ -939,6 +945,12 @@
         }
         return t("source.file", { path, where });
       }
+      if (source.kind === "web") {
+        return t("source.web", {
+          url: typeof source.path === "string" && source.path !== "" ? source.path : t("source.pathUnknown"),
+          selector: typeof source.anchorKey === "string" && source.anchorKey !== "" ? source.anchorKey : "-"
+        });
+      }
       if (source.kind === "reply") {
         const fieldLabel = { quote: t("label.quote"), note: t("label.note"), reason: t("label.reason"), next: t("label.next") }[source.field] ?? t("source.replyField");
         const anchor = `reply:${Number.isFinite(source.batchAt) ? source.batchAt : "-"}:${Number.isFinite(source.index) ? source.index : "-"}:${source.field || "item"}`;
@@ -981,8 +993,11 @@
         if (typeof source.anchorKey === "string" && source.anchorKey !== "") out.anchorKey = source.anchorKey;
         if (Number.isFinite(source.index)) out.index = source.index;
         if (typeof source.field === "string" && source.field !== "") out.field = source.field;
+      } else if (source?.kind === "web") {
+        if (typeof source.anchorKey === "string" && source.anchorKey !== "") out.anchorKey = source.anchorKey;
+        if (typeof source.path === "string" && source.path !== "") out.path = source.path;
       }
-      if (out.kind === "file" || out.kind === "message" || out.kind === "reply" || out.kind === "sent") {
+      if (out.kind === "file" || out.kind === "message" || out.kind === "reply" || out.kind === "sent" || out.kind === "web") {
         out.textOrigin = source?.textOrigin === "source" ? "source" : "rendered";
       }
       if (Number.isFinite(source?.charStart)) out.charStart = source.charStart;
@@ -1804,6 +1819,7 @@
     imageSettingsRow,
     instructionSettingsRow,
     fallbackSettingsRow,
+    pickWebElement = () => false,
     isAdopt = () => false
   }) {
     function render(panelEl) {
@@ -1816,6 +1832,9 @@
       hint.title = t("panel.foot");
       meta.appendChild(hint);
       meta.appendChild(el("span", "sa-panel-count", t("panel.count", { n: annotations.length })));
+      meta.appendChild(button("sa-foot-action", t("panel.webPick"), () => {
+        if (!pickWebElement()) alert(t("webPick.missing"));
+      }));
       if (annotations.length > 0) {
         meta.appendChild(button("sa-foot-action", t("panel.clear"), () => clearAnnotations()));
       }
@@ -1933,6 +1952,160 @@
       panelEl.appendChild(panelFoot);
     }
     return { render };
+  }
+
+  // src/core/web-picker.js
+  var PICK_SCRIPT = String.raw`(function () {
+  if (window.__saPicker) return 'already'
+  var state = { el: null, box: null, action: null }
+  var host = document.createElement('div')
+  host.setAttribute('data-sa-web-picker', '')
+  host.style.cssText = 'position:fixed;inset:0;z-index:2147483000;pointer-events:none;contains:layout style;'
+  var box = document.createElement('div')
+  box.style.cssText = 'position:fixed;border:2px solid rgba(36,123,191,.95);border-radius:0;background:transparent;display:none;pointer-events:none;box-sizing:border-box;'
+  var action = document.createElement('button')
+  action.type = 'button'
+  action.textContent = '批注'
+  action.style.cssText = 'position:fixed;display:none;pointer-events:auto;z-index:2147483001;padding:4px 10px;border-radius:6px;border:1px solid rgba(36,123,191,.7);background:#1b1b1f;color:#e8e8ea;font:12px/1.4 system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35);'
+  host.appendChild(box)
+  host.appendChild(action)
+  document.documentElement.appendChild(host)
+
+  function selectorOf(el) {
+    if (!el || el.nodeType !== 1) return ''
+    if (el.id) return '#' + CSS.escape(el.id)
+    for (var attr of ['data-testid', 'data-test', 'name', 'aria-label']) {
+      var value = el.getAttribute(attr)
+      if (value) return el.tagName.toLowerCase() + '[' + attr + '="' + value.replace(/"/g, '\\"') + '"]'
+    }
+    var parts = []
+    var node = el
+    while (node && node.nodeType === 1 && parts.length < 8) {
+      var tag = node.tagName.toLowerCase()
+      var index = 1
+      var prev = node.previousElementSibling
+      while (prev) { if (prev.tagName === node.tagName) index += 1; prev = prev.previousElementSibling }
+      parts.unshift(tag + ':nth-of-type(' + index + ')')
+      node = node.parentElement
+      if (node === document.body || node === document.documentElement) break
+    }
+    return parts.join(' > ')
+  }
+
+  function labelOf(el) {
+    var text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60)
+    return el.tagName.toLowerCase() + (text ? ' · ' + text : '')
+  }
+
+  function place(el) {
+    if (!el || el === host || el === box || el === action) return
+    var rect = el.getBoundingClientRect()
+    if (rect.width < 2 || rect.height < 2) return
+    state.el = el
+    box.style.display = 'block'
+    box.style.left = rect.left + 'px'
+    box.style.top = rect.top + 'px'
+    box.style.width = rect.width + 'px'
+    box.style.height = rect.height + 'px'
+    var top = rect.top - 32
+    if (top < 4) top = Math.min(rect.bottom + 6, window.innerHeight - 30)
+    action.style.display = 'block'
+    action.style.left = Math.max(4, Math.min(rect.left, window.innerWidth - 72)) + 'px'
+    action.style.top = top + 'px'
+  }
+
+  function onMove(event) {
+    var el = document.elementFromPoint(event.clientX, event.clientY)
+    if (el && el.closest && el.closest('[data-sa-web-picker]')) return
+    place(el)
+  }
+
+  function cleanup() {
+    window.removeEventListener('mousemove', onMove, true)
+    window.removeEventListener('keydown', onKey, true)
+    action.removeEventListener('click', onClick)
+    host.remove()
+    window.__saPicker = null
+  }
+
+  function onClick(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    var el = state.el
+    if (!el) return
+    window.__saPicked = {
+      selector: selectorOf(el),
+      label: labelOf(el),
+      url: location.href,
+      title: document.title,
+      text: (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+      frame: window === window.top ? '' : location.href,
+    }
+    cleanup()
+  }
+
+  function onKey(event) {
+    if (event.key === 'Escape') { event.preventDefault(); cleanup() }
+  }
+
+  action.addEventListener('click', onClick)
+  window.addEventListener('mousemove', onMove, true)
+  window.addEventListener('keydown', onKey, true)
+  window.__saPicker = { stop: cleanup }
+  return 'ok'
+})()`;
+  var POLL_MS = 400;
+  function createWebPicker({ t, onPick }) {
+    let timer = 0;
+    function view() {
+      return document.querySelector('webview[data-sidebar-browser-frame="webview"]') ?? document.querySelector("webview");
+    }
+    function stop() {
+      if (timer !== 0) {
+        window.clearInterval(timer);
+        timer = 0;
+      }
+    }
+    function pick() {
+      const webview = view();
+      if (webview === null || typeof webview.executeJavaScript !== "function") {
+        return false;
+      }
+      safeCall(() => webview.executeJavaScript("window.__saPicked = null"));
+      safeCall(() => webview.executeJavaScript(PICK_SCRIPT));
+      stop();
+      timer = window.setInterval(() => {
+        let raw;
+        try {
+          raw = webview.executeJavaScript("window.__saPicked || null");
+        } catch {
+          stop();
+          return;
+        }
+        Promise.resolve(raw).then((picked) => {
+          if (picked === null || typeof picked !== "object") return;
+          stop();
+          safeCall(() => webview.executeJavaScript("window.__saPicked = null"));
+          onPick({
+            quote: typeof picked.label === "string" ? picked.label : "",
+            selector: typeof picked.selector === "string" ? picked.selector : "",
+            url: typeof picked.url === "string" ? picked.url : ""
+          });
+        }).catch(() => stop());
+      }, POLL_MS);
+      return true;
+    }
+    function dispose() {
+      stop();
+    }
+    return { pick, dispose, available: () => view() !== null };
+  }
+  function safeCall(fn) {
+    try {
+      return fn();
+    } catch {
+      return void 0;
+    }
   }
 
   // src/core/sent-store.js
@@ -4724,8 +4897,26 @@
           panelRoot.style.left = `${left}px`;
           panelRoot.style.top = `${Math.max(8, top)}px`;
         }
+        const webPicker = createWebPicker({
+          t,
+          onPick: (picked) => {
+            const item = addAnnotation({
+              quote: picked.quote !== "" ? picked.quote : picked.selector,
+              note: "",
+              images: [],
+              source: {
+                kind: "web",
+                anchorKey: picked.selector,
+                path: picked.url,
+                textOrigin: "rendered"
+              }
+            });
+            if (item !== void 0) renderPanel();
+          }
+        });
         const panelRenderer = createPanelRenderer({
           t,
+          pickWebElement: () => webPicker.pick(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
