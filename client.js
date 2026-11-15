@@ -3124,8 +3124,11 @@
           if (parent === null) return;
           if (pointerSelecting === true) return;
           if (Number.isFinite(turn)) section.dataset.saTurn = String(turn);
+          if (document.querySelector(`[data-turn-process="${turn}"]`) !== null) delete section.dataset.saPlacementAt;
           if (Number.isFinite(turn) && document.querySelector(`[data-turn-process="${turn}"]`) === null) {
-            if (section.dataset.saPlacement === `running:${turn}`) return;
+            const now = Date.now();
+            const last = Number(section.dataset.saPlacementAt ?? 0);
+            if (Number.isFinite(last) && now - last < 400) return;
             const sent = document.querySelector(`[data-sa-ui="sent"][data-sa-turn="${turn}"]`);
             if (sent !== null && sent.parentElement !== null) {
               let cursor2 = sent;
@@ -3133,7 +3136,7 @@
                 cursor2 = cursor2.nextElementSibling;
               }
               moveSection(section, sent.parentElement, cursor2.nextSibling);
-              section.dataset.saPlacement = `running:${turn}`;
+              section.dataset.saPlacementAt = String(now);
               return;
             }
           }
