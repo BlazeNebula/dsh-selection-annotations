@@ -131,6 +131,17 @@
   font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: var(--dsw-alias-label-tertiary, GrayText);
   user-select: text; white-space: nowrap; }
 .sa-panel-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; max-width: 66%; margin-left: auto; }
+.sa-panel-collapse { flex: none; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 5px; background: transparent;
+  color: var(--sa-dim-secondary, var(--dsw-alias-label-secondary, #a3a3ab)); cursor: pointer; }
+.sa-panel-collapse svg { transition: transform 160ms ease; }
+.sa-panel-collapse[aria-expanded="true"] svg { transform: rotate(90deg); }
+.sa-panel-collapse:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(255 255 255 / 0.08)); color: var(--sa-dim-primary, var(--dsw-alias-label-primary, #e8e8ea)); }
+.sa-panel-collapsed .sa-panel-body, .sa-panel-collapsed .sa-panel-foot { display: none; }
+.sa-panel-collapsed .sa-panel-head { border-bottom: 0; padding-bottom: 12px; }
+.sa-panel-close { flex: none; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent;
+  color: var(--sa-dim-secondary, var(--dsw-alias-label-secondary, #a3a3ab)); font: inherit; font-size: calc(16px + var(--dsh-content-font-delta, 0px) * 0.8); line-height: 1; cursor: pointer; }
+.sa-panel-close:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(255 255 255 / 0.08)); color: var(--sa-dim-primary, var(--dsw-alias-label-primary, #e8e8ea)); }
+.sa-panel-close:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 1px; }
 .sa-panel-foot { flex: none; display: flex; justify-content: flex-end; padding: 8px 14px 10px;
   border-top: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-panel-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
@@ -494,6 +505,8 @@
       "panel.note": "批注",
       "panel.clear": "清空",
       "panel.webPick": "拾取网页元素",
+      "panel.close": "关闭批注总览",
+      "panel.collapse": "收起或展开批注总览",
       "webPick.missing": "没有找到内嵌浏览器，请先在侧栏打开网页。",
       "panel.foot": "发送时批注作为独立块随消息提交",
       "panel.refineFailed": "位置精修未生效：{reason}",
@@ -605,6 +618,8 @@
       "panel.note": "Note",
       "panel.clear": "Clear",
       "panel.webPick": "Pick page element",
+      "panel.close": "Close annotations",
+      "panel.collapse": "Collapse or expand annotations",
       "webPick.missing": "No embedded browser found. Open a page in the sidebar first.",
       "panel.foot": "Annotations are sent as a separate block with the message",
       "panel.refineFailed": "Position refinement failed: {reason}",
@@ -1820,12 +1835,38 @@
     instructionSettingsRow,
     fallbackSettingsRow,
     pickWebElement = () => false,
+    closePanel = () => {
+    },
+    collapsed = () => false,
+    toggleCollapsed = () => {
+    },
     isAdopt = () => false
   }) {
     function render(panelEl) {
       const annotations = getAnnotations();
       panelEl.textContent = "";
+      const isCollapsed = collapsed() === true;
+      panelEl.classList.toggle("sa-panel-collapsed", isCollapsed);
       const panelHead = el("div", "sa-panel-head");
+      const collapse = button("sa-panel-collapse", "", () => toggleCollapsed());
+      const collapseIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      collapseIcon.setAttribute("viewBox", "0 0 16 16");
+      collapseIcon.setAttribute("width", "12");
+      collapseIcon.setAttribute("height", "12");
+      collapseIcon.setAttribute("aria-hidden", "true");
+      collapseIcon.setAttribute("fill", "none");
+      collapseIcon.setAttribute("stroke", "currentColor");
+      collapseIcon.setAttribute("stroke-width", "1.8");
+      collapseIcon.setAttribute("stroke-linecap", "round");
+      collapseIcon.setAttribute("stroke-linejoin", "round");
+      const collapsePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      collapsePath.setAttribute("d", "M6.2 3.6 10.7 8l-4.5 4.4");
+      collapseIcon.appendChild(collapsePath);
+      collapse.appendChild(collapseIcon);
+      collapse.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+      collapse.setAttribute("aria-label", t("panel.collapse"));
+      collapse.title = t("panel.collapse");
+      panelHead.appendChild(collapse);
       panelHead.appendChild(el("span", "sa-panel-title", t("panel.title")));
       const meta = el("div", "sa-panel-meta");
       const hint = el("span", "sa-panel-hint", t("panel.foot"));
@@ -1839,6 +1880,10 @@
         meta.appendChild(button("sa-foot-action", t("panel.clear"), () => clearAnnotations()));
       }
       panelHead.appendChild(meta);
+      const close = button("sa-panel-close", "×", () => closePanel());
+      close.setAttribute("aria-label", t("panel.close"));
+      close.title = t("panel.close");
+      panelHead.appendChild(close);
       panelEl.appendChild(panelHead);
       const panelBody = el("div", "sa-panel-body");
       if (annotations.length === 0) {
@@ -4832,6 +4877,20 @@
         }
         let panelOpen = false;
         let panelAnchor = null;
+        const PANEL_COLLAPSED_KEY = "dsh-selection-annotations:panel-collapsed";
+        let panelCollapsed = false;
+        try {
+          panelCollapsed = window.localStorage.getItem(PANEL_COLLAPSED_KEY) === "1";
+        } catch {
+        }
+        function togglePanelCollapsed() {
+          panelCollapsed = !panelCollapsed;
+          try {
+            window.localStorage.setItem(PANEL_COLLAPSED_KEY, panelCollapsed ? "1" : "0");
+          } catch {
+          }
+          renderPanel();
+        }
         let panelHideTimer = 0;
         let panelOpenedByHover = false;
         let panelHovered = false;
@@ -4917,6 +4976,9 @@
         const panelRenderer = createPanelRenderer({
           t,
           pickWebElement: () => webPicker.pick(),
+          closePanel: () => closePanel(),
+          collapsed: () => panelCollapsed,
+          toggleCollapsed: () => togglePanelCollapsed(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
@@ -5204,7 +5266,8 @@
                 cancelChipOpen();
                 cancelChipClose();
                 if (panelOpen) {
-                  closePanel();
+                  panelOpenedByHover = false;
+                  panelHovered = true;
                   return;
                 }
                 panelOpenedByHover = false;

@@ -2913,6 +2913,18 @@ export function createPlugin(React, extras = {}) {
 
         let panelOpen = false
         let panelAnchor = null
+        const PANEL_COLLAPSED_KEY = 'dsh-selection-annotations:panel-collapsed'
+        let panelCollapsed = false
+        try {
+          panelCollapsed = window.localStorage.getItem(PANEL_COLLAPSED_KEY) === '1'
+        } catch {}
+        function togglePanelCollapsed() {
+          panelCollapsed = !panelCollapsed
+          try {
+            window.localStorage.setItem(PANEL_COLLAPSED_KEY, panelCollapsed ? '1' : '0')
+          } catch {}
+          renderPanel()
+        }
         /** 关闭动画结束后再隐藏面板，避免过渡被 display:none 打断。*/
         let panelHideTimer = 0
         /** 悬停入口打开的面板：只有这种来源才在移开鼠标后自动收起。*/
@@ -3014,6 +3026,9 @@ export function createPlugin(React, extras = {}) {
         const panelRenderer = createPanelRenderer({
           t,
           pickWebElement: () => webPicker.pick(),
+          closePanel: () => closePanel(),
+          collapsed: () => panelCollapsed,
+          toggleCollapsed: () => togglePanelCollapsed(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
@@ -3336,9 +3351,10 @@ export function createPlugin(React, extras = {}) {
               onClick: (event) => {
                 cancelChipOpen()
                 cancelChipClose()
-                // 悬停只是预览；点击才是正式开合，和便签插件的行为一致。
+                // 悬停只是预览；点击把面板固定住，收起用面板头的关闭按钮。
                 if (panelOpen) {
-                  closePanel()
+                  panelOpenedByHover = false
+                  panelHovered = true
                   return
                 }
                 panelOpenedByHover = false

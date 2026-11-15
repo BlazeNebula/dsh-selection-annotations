@@ -129,6 +129,17 @@ export const CSS = `
   font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: var(--dsw-alias-label-tertiary, GrayText);
   user-select: text; white-space: nowrap; }
 .sa-panel-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; max-width: 66%; margin-left: auto; }
+.sa-panel-collapse { flex: none; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 5px; background: transparent;
+  color: var(--sa-dim-secondary, var(--dsw-alias-label-secondary, #a3a3ab)); cursor: pointer; }
+.sa-panel-collapse svg { transition: transform 160ms ease; }
+.sa-panel-collapse[aria-expanded="true"] svg { transform: rotate(90deg); }
+.sa-panel-collapse:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(255 255 255 / 0.08)); color: var(--sa-dim-primary, var(--dsw-alias-label-primary, #e8e8ea)); }
+.sa-panel-collapsed .sa-panel-body, .sa-panel-collapsed .sa-panel-foot { display: none; }
+.sa-panel-collapsed .sa-panel-head { border-bottom: 0; padding-bottom: 12px; }
+.sa-panel-close { flex: none; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent;
+  color: var(--sa-dim-secondary, var(--dsw-alias-label-secondary, #a3a3ab)); font: inherit; font-size: calc(16px + var(--dsh-content-font-delta, 0px) * 0.8); line-height: 1; cursor: pointer; }
+.sa-panel-close:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(255 255 255 / 0.08)); color: var(--sa-dim-primary, var(--dsw-alias-label-primary, #e8e8ea)); }
+.sa-panel-close:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 1px; }
 .sa-panel-foot { flex: none; display: flex; justify-content: flex-end; padding: 8px 14px 10px;
   border-top: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-panel-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
