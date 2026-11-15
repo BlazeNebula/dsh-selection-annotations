@@ -3970,7 +3970,7 @@
           popover.style.maxHeight = "";
           const width = popover.offsetWidth || 340;
           const height = popover.offsetHeight || 240;
-          const point = popoverSource === "hover" ? lastPointerMove : selectionPointer ?? lastPointerMove;
+          const point = popoverSource === "hover" ? lastPointerMove : popoverSource === "manual" ? null : selectionPointer ?? lastPointerMove;
           const left = anchoredLeft(point, rect, width);
           const margin = 8;
           const gap = 10;
@@ -4186,7 +4186,8 @@
           const item = annotations.find((candidate) => candidate.id === id);
           if (item === void 0) return;
           const measured = safe(() => anchor?.getBoundingClientRect());
-          const rect = measured ?? {
+          const panelRect = measured === void 0 || measured === null || measured.width === 0 && measured.height === 0 ? safe(() => document.querySelector('[data-sa-ui="panel"]')?.getBoundingClientRect()) : measured;
+          const rect = (panelRect !== void 0 && panelRect !== null ? panelRect : null) ?? {
             left: window.innerWidth / 2 - 40,
             top: window.innerHeight / 2,
             width: 80,

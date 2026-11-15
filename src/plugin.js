@@ -2092,7 +2092,14 @@ export function createPlugin(React, extras = {}) {
           popover.style.maxHeight = ''
           const width = popover.offsetWidth || 340
           const height = popover.offsetHeight || 240
-          const point = popoverSource === 'hover' ? lastPointerMove : (selectionPointer ?? lastPointerMove)
+          // 悬停跟鼠标；手动打开（总览编辑、角标编辑）跟被点的元素，
+          // 不能再沿用上一次划线的落点，否则弹层会被推到屏幕左边的旧位置。
+          const point =
+            popoverSource === 'hover'
+              ? lastPointerMove
+              : popoverSource === 'manual'
+                ? null
+                : (selectionPointer ?? lastPointerMove)
           const left = anchoredLeft(point, rect, width)
           const margin = 8
           const gap = 10
@@ -2351,8 +2358,13 @@ export function createPlugin(React, extras = {}) {
           const item = annotations.find((candidate) => candidate.id === id)
           if (item === undefined) return
           const measured = safe(() => anchor?.getBoundingClientRect())
+          // 总览重绘后原节点可能已被替换，量到 0×0：退回面板本身的位置，别让弹层飘到左上角。
+          const panelRect =
+            measured === undefined || measured === null || (measured.width === 0 && measured.height === 0)
+              ? safe(() => document.querySelector('[data-sa-ui="panel"]')?.getBoundingClientRect())
+              : measured
           const rect =
-            measured ??
+            (panelRect !== undefined && panelRect !== null ? panelRect : null) ??
             {
               left: window.innerWidth / 2 - 40,
               top: window.innerHeight / 2,
