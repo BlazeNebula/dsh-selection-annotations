@@ -5254,8 +5254,8 @@
         const SIDE_TAB_ID = "@u2a5f/dsh-selection-annotations";
         const SIDE_TAB_KIND = "selection-annotations";
         function openSideAnnotationsTab() {
-          const service = ctx.sidebarRight;
-          if (service === void 0 || typeof service.openTab !== "function") {
+          const service = safe(() => ctx.sidebarRight);
+          if (service === void 0 || service === null || typeof service.openTab !== "function") {
             warn("[selection-annotations] 当前环境没有右侧边栏，无法打开批注标签页");
             return;
           }
@@ -5301,9 +5301,10 @@
           return h("span", null, t("sideTab.title"));
         }
         ctx.effect(() => {
-          if (ctx.sidebarRightTabs === void 0 || typeof ctx.sidebarRightTabs.register !== "function") return;
+          const tabs = safe(() => ctx.sidebarRightTabs);
+          if (tabs === void 0 || tabs === null || typeof tabs.register !== "function") return;
           try {
-            return ctx.sidebarRightTabs.register({
+            return tabs.register({
               id: SIDE_TAB_ID,
               kind: SIDE_TAB_KIND,
               multiple: false,

@@ -3107,8 +3107,8 @@ export function createPlugin(React, extras = {}) {
 
         /** 总览右下角的按钮：在 DSH 右侧边栏开一个批注标签页。 */
         function openSideAnnotationsTab() {
-          const service = ctx.sidebarRight
-          if (service === undefined || typeof service.openTab !== 'function') {
+          const service = safe(() => ctx.sidebarRight)
+          if (service === undefined || service === null || typeof service.openTab !== 'function') {
             warn('[selection-annotations] 当前环境没有右侧边栏，无法打开批注标签页')
             return
           }
@@ -3160,9 +3160,10 @@ export function createPlugin(React, extras = {}) {
         }
 
         ctx.effect(() => {
-          if (ctx.sidebarRightTabs === undefined || typeof ctx.sidebarRightTabs.register !== 'function') return
+          const tabs = safe(() => ctx.sidebarRightTabs)
+          if (tabs === undefined || tabs === null || typeof tabs.register !== 'function') return
           try {
-            return ctx.sidebarRightTabs.register({
+            return tabs.register({
               id: SIDE_TAB_ID,
               kind: SIDE_TAB_KIND,
               multiple: false,
