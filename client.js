@@ -2027,7 +2027,9 @@
         return void 0;
       }
     }
-    async function push(sessionId) {
+    const pending = /* @__PURE__ */ new Set();
+    const inflight = /* @__PURE__ */ new Map();
+    async function pushOnce(sessionId) {
       if (typeof fetch !== "function") return;
       try {
         const response = await fetch(storeUrl(sessionId), {
@@ -2040,6 +2042,22 @@
         state = false;
       }
     }
+    function enqueue(sessionId) {
+      if (typeof sessionId !== "string" || sessionId === "") return;
+      pending.add(sessionId);
+      if (inflight.has(sessionId)) return;
+      const task = (async () => {
+        while (pending.has(sessionId)) {
+          pending.delete(sessionId);
+          await pushOnce(sessionId);
+        }
+      })();
+      inflight.set(sessionId, task);
+      void task.finally(() => {
+        inflight.delete(sessionId);
+        if (pending.has(sessionId)) enqueue(sessionId);
+      });
+    }
     function schedule(sessionId) {
       if (typeof sessionId !== "string" || sessionId === "") return;
       queue.add(sessionId);
@@ -2048,10 +2066,10 @@
         timer = null;
         const ids = [...queue];
         queue.clear();
-        for (const id of ids) void push(id);
+        for (const id of ids) enqueue(id);
       }, 600);
     }
-    return { pull, push, schedule, storeUrl };
+    return { pull, push: pushOnce, schedule, storeUrl };
   }
 
   // src/core/image-codec.js

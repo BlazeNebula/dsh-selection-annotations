@@ -34,7 +34,10 @@ export function createRemoteSync(getSnapshot) {
     }
   }
 
-  async function push(sessionId) {
+  const pending = new Set()
+  const inflight = new Map()
+
+  async function pushOnce(sessionId) {
     if (typeof fetch !== 'function') return
     try {
       const response = await fetch(storeUrl(sessionId), {
@@ -48,6 +51,24 @@ export function createRemoteSync(getSnapshot) {
     }
   }
 
+  /** 每个会话串行推送：同一时间只允许一个 PUT 在飞，期间的新快照合并成一次补发。 */
+  function enqueue(sessionId) {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    pending.add(sessionId)
+    if (inflight.has(sessionId)) return
+    const task = (async () => {
+      while (pending.has(sessionId)) {
+        pending.delete(sessionId)
+        await pushOnce(sessionId)
+      }
+    })()
+    inflight.set(sessionId, task)
+    void task.finally(() => {
+      inflight.delete(sessionId)
+      if (pending.has(sessionId)) enqueue(sessionId)
+    })
+  }
+
   /** 合并 600ms 内的写入，避免每敲一个字就发一次请求。 */
   function schedule(sessionId) {
     if (typeof sessionId !== 'string' || sessionId === '') return
@@ -57,9 +78,9 @@ export function createRemoteSync(getSnapshot) {
       timer = null
       const ids = [...queue]
       queue.clear()
-      for (const id of ids) void push(id)
+      for (const id of ids) enqueue(id)
     }, 600)
   }
 
-  return { pull, push, schedule, storeUrl }
+  return { pull, push: pushOnce, schedule, storeUrl }
 }
