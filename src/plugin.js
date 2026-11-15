@@ -925,11 +925,49 @@ export function createPlugin(React, extras = {}) {
           return button.closest('[data-chat-flow-kind="turn-process"]') ?? button
         }
 
+        /** 每个会话见过的最大轮次：用来发现「回退对话」后轮次变少。*/
+        const turnHighWater = new Map()
+
+        function maxMountedTurn() {
+          let max = 0
+          for (const element of document.querySelectorAll('[data-chat-turn]')) {
+            const turn = Number(element.getAttribute('data-chat-turn'))
+            if (Number.isFinite(turn) && turn > max) max = turn
+          }
+          return max
+        }
+
+        /**
+         * 回退对话后会话的最后轮次变小。发现变小就把轮次大于当前最后的已发送批注
+         * 放回待发送队列，并从台账移除：那几轮已经被回退掉，卡片留着也没有落点。
+         * 返回 true 表示动过台账，调用方跳过一次渲染，等下一帧再画。
+         */
+        function detectRewind(sessionId, table) {
+          const max = maxMountedTurn()
+          if (max === 0) return false
+          const previous = turnHighWater.get(sessionId)
+          turnHighWater.set(sessionId, max)
+          if (previous === undefined || max >= previous) return false
+          const removed = []
+          for (const [key, record] of table) {
+            if (Number.isFinite(record.turn) && record.turn > max) removed.push([key, record])
+          }
+          if (removed.length === 0) return false
+          for (const [key, record] of removed) {
+            table.delete(key)
+            reuseSentItems(record.items)
+          }
+          saveSent(sessionId, table)
+          scheduleRepaint()
+          return true
+        }
+
         /** 在所属轮次的「已完成」之前补出已提交批注卡片；按轮次定位，不依赖消息行是否已加载。*/
         function renderSentCards() {
           const sessionId = currentSessionId()
           if (sessionId === undefined) return
           const table = loadSent(sessionId)
+          if (detectRewind(sessionId, table)) return
           if (table.size === 0) return
           // 卡片身份取台账键；锚点只用来挂答复卡。
           for (const stale of document.querySelectorAll('[data-sa-ui="sent"]')) {

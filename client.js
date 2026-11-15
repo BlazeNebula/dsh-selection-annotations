@@ -2992,10 +2992,39 @@
           if (button3 === null) return null;
           return button3.closest('[data-chat-flow-kind="turn-process"]') ?? button3;
         }
+        const turnHighWater = /* @__PURE__ */ new Map();
+        function maxMountedTurn() {
+          let max = 0;
+          for (const element of document.querySelectorAll("[data-chat-turn]")) {
+            const turn = Number(element.getAttribute("data-chat-turn"));
+            if (Number.isFinite(turn) && turn > max) max = turn;
+          }
+          return max;
+        }
+        function detectRewind(sessionId, table) {
+          const max = maxMountedTurn();
+          if (max === 0) return false;
+          const previous = turnHighWater.get(sessionId);
+          turnHighWater.set(sessionId, max);
+          if (previous === void 0 || max >= previous) return false;
+          const removed = [];
+          for (const [key, record] of table) {
+            if (Number.isFinite(record.turn) && record.turn > max) removed.push([key, record]);
+          }
+          if (removed.length === 0) return false;
+          for (const [key, record] of removed) {
+            table.delete(key);
+            reuseSentItems(record.items);
+          }
+          saveSent(sessionId, table);
+          scheduleRepaint();
+          return true;
+        }
         function renderSentCards() {
           const sessionId = currentSessionId();
           if (sessionId === void 0) return;
           const table = loadSent(sessionId);
+          if (detectRewind(sessionId, table)) return;
           if (table.size === 0) return;
           for (const stale of document.querySelectorAll('[data-sa-ui="sent"]')) {
             const key = stale.getAttribute("data-sa-key");
