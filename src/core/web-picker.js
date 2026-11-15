@@ -108,11 +108,29 @@ const PICK_SCRIPT = String.raw`(function () {
     place(el)
   }
 
+  function copyInPage(text) {
+    var area = document.createElement('textarea')
+    area.value = text
+    area.style.cssText = 'position:fixed;left:-9999px;top:0;'
+    document.body.appendChild(area)
+    area.select()
+    var ok = false
+    try { ok = document.execCommand('copy') } catch (e) { ok = false }
+    area.remove()
+    return ok
+  }
+
   function onClick(event, action) {
     event.preventDefault()
     event.stopPropagation()
     var el = state.el
     if (!el) return
+    if (action === 'copy') {
+      // 在点击的手势内完成复制，并保留元素文本的换行结构。
+      var ok = copyInPage(el.innerText || el.textContent || '')
+      window.__saPicked = { action: 'copied', ok: ok }
+      return
+    }
     window.__saPicked = {
       action: action,
       selector: selectorOf(el),
@@ -133,6 +151,7 @@ const PICK_SCRIPT = String.raw`(function () {
     layers.textContent = ''
     notes.forEach(function (note) {
       if (!note || !note.selector) return
+      if (note.url && note.url !== location.href) return
       var el = null
       try { el = document.querySelector(note.selector) } catch (e) { el = null }
       if (!el) return
@@ -175,6 +194,7 @@ const POLL_MS = 400
 
 export function createWebPicker({ onPick }) {
   let timer = 0
+  let lastNotes = []
 
   function view() {
     return (
@@ -191,9 +211,10 @@ export function createWebPicker({ onPick }) {
 
   /** 把网页来源的批注同步给页面：{id, selector, adopt}。 */
   function sync(notes) {
+    lastNotes = Array.isArray(notes) ? notes : []
     const webview = view()
     if (webview === null || typeof webview.executeJavaScript !== 'function') return
-    const json = JSON.stringify(Array.isArray(notes) ? notes : [])
+    const json = JSON.stringify(lastNotes)
     safeCall(() => webview.executeJavaScript(`window.__saWebNotes = ${json}; window.__saWebRender && window.__saWebRender()`))
   }
 
@@ -224,7 +245,11 @@ export function createWebPicker({ onPick }) {
             })
             return
           }
-          if (state.live !== true) safeCall(() => webview.executeJavaScript(PICK_SCRIPT))
+          if (state.live !== true) {
+            safeCall(() => webview.executeJavaScript(PICK_SCRIPT))
+            // 页面重新注入时把已有的批注一并推回去，换页或首次打开浏览器都能立刻恢复常驻框。
+            if (lastNotes.length > 0) sync(lastNotes)
+          }
         })
         .catch(() => {})
     }, POLL_MS)

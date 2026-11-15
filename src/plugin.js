@@ -162,6 +162,7 @@ export function createPlugin(React, extras = {}) {
             .map((item) => ({
               id: item.id,
               selector: item.source.anchorKey ?? '',
+              url: item.source.path ?? '',
               adopt: hasAdoptNote(item),
             }))
           webPickerHandle.sync(notes)
@@ -2431,6 +2432,19 @@ export function createPlugin(React, extras = {}) {
           lowerPopover()
           // 页面刷新、关闭或插件卸载前再存一次：只靠状态变更时保存会丢掉最后几秒的编辑。
           safe(() => popInput.blur())
+          // 网页来源的批注在拾取时就先落了条目；取消时正文仍为空，就把它当作没创建过。
+          if (popoverMode === 'edit' && popoverTargetId !== null) {
+            const item = annotations.find((candidate) => candidate.id === popoverTargetId)
+            if (
+              item !== undefined &&
+              item.source !== null &&
+              item.source !== undefined &&
+              item.source.kind === 'web' &&
+              String(item.note ?? '').trim() === ''
+            ) {
+              removeAnnotation(popoverTargetId)
+            }
+          }
           popoverAnchor = null
           popoverTargetId = null
           popoverMode = 'create'
@@ -2881,6 +2895,7 @@ export function createPlugin(React, extras = {}) {
           if (source?.kind === 'message') return source.flowKind === 'user' ? t('source.user') : t('source.assistant')
           if (source?.kind === 'reply') return t('source.replyShort', { n: Number.isFinite(source.index) ? source.index : '-' })
           if (source?.kind === 'sent') return t('source.sentShort', { n: Number.isFinite(source.index) ? source.index : '-' })
+          if (source?.kind === 'web') return t('source.webShort', { url: source.path ?? '' })
           if (source?.kind === 'file') {
             const path = source.path ?? t('source.fileFallback')
             const where = Number.isFinite(source.lineStart) ? `${path}:${source.lineStart}` : path
@@ -2967,6 +2982,7 @@ export function createPlugin(React, extras = {}) {
 
         const webPicker = createWebPicker({
           onPick: (picked) => {
+            if (picked.action === 'copied') return
             if (picked.action === 'copy') {
               copyPlainText(picked.text)
               return
@@ -3593,6 +3609,7 @@ export function createPlugin(React, extras = {}) {
           document.addEventListener('click', onTurnProcessClick, true)
           return () => {
             document.removeEventListener('click', onTurnProcessClick, true)
+            webPicker.dispose()
           }
         })
 

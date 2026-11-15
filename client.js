@@ -582,6 +582,7 @@
       "source.reply": "逐条答复 · 批注 {index} · {field}（锚点 {anchor}{span}）",
       "source.sent": "已发送批注 · 批注 {index} · {field}（锚点 {anchor}{span}）",
       "source.web": "网页 `{url}` · 选择器 `{selector}`",
+      "source.webShort": "网页 · {url}",
       "source.span": "，字符 {a}–{b}",
       "source.selection": "页面选区",
       "source.fileFallback": "文件",
@@ -695,6 +696,7 @@
       "source.reply": "Annotation reply · annotation {index} · {field} (anchor {anchor}{span})",
       "source.sent": "Sent annotation · annotation {index} · {field} (anchor {anchor}{span})",
       "source.web": "Web page `{url}` · selector `{selector}`",
+      "source.webShort": "Web · {url}",
       "source.span": ", chars {a}–{b}",
       "source.selection": "Page selection",
       "source.fileFallback": "File",
@@ -2071,11 +2073,29 @@
     place(el)
   }
 
+  function copyInPage(text) {
+    var area = document.createElement('textarea')
+    area.value = text
+    area.style.cssText = 'position:fixed;left:-9999px;top:0;'
+    document.body.appendChild(area)
+    area.select()
+    var ok = false
+    try { ok = document.execCommand('copy') } catch (e) { ok = false }
+    area.remove()
+    return ok
+  }
+
   function onClick(event, action) {
     event.preventDefault()
     event.stopPropagation()
     var el = state.el
     if (!el) return
+    if (action === 'copy') {
+      // 在点击的手势内完成复制，并保留元素文本的换行结构。
+      var ok = copyInPage(el.innerText || el.textContent || '')
+      window.__saPicked = { action: 'copied', ok: ok }
+      return
+    }
     window.__saPicked = {
       action: action,
       selector: selectorOf(el),
@@ -2096,6 +2116,7 @@
     layers.textContent = ''
     notes.forEach(function (note) {
       if (!note || !note.selector) return
+      if (note.url && note.url !== location.href) return
       var el = null
       try { el = document.querySelector(note.selector) } catch (e) { el = null }
       if (!el) return
@@ -2136,6 +2157,7 @@
   var POLL_MS = 400;
   function createWebPicker({ onPick }) {
     let timer = 0;
+    let lastNotes = [];
     function view() {
       return document.querySelector('webview[data-sidebar-browser-frame="webview"]') ?? document.querySelector("webview");
     }
@@ -2146,9 +2168,10 @@
       }
     }
     function sync(notes) {
+      lastNotes = Array.isArray(notes) ? notes : [];
       const webview = view();
       if (webview === null || typeof webview.executeJavaScript !== "function") return;
-      const json = JSON.stringify(Array.isArray(notes) ? notes : []);
+      const json = JSON.stringify(lastNotes);
       safeCall(() => webview.executeJavaScript(`window.__saWebNotes = ${json}; window.__saWebRender && window.__saWebRender()`));
     }
     function start() {
@@ -2177,7 +2200,10 @@
             });
             return;
           }
-          if (state.live !== true) safeCall(() => webview.executeJavaScript(PICK_SCRIPT));
+          if (state.live !== true) {
+            safeCall(() => webview.executeJavaScript(PICK_SCRIPT));
+            if (lastNotes.length > 0) sync(lastNotes);
+          }
         }).catch(() => {
         });
       }, POLL_MS);
@@ -2670,6 +2696,7 @@
           const notes = annotations.filter((item) => item.source !== null && item.source !== void 0 && item.source.kind === "web").map((item) => ({
             id: item.id,
             selector: item.source.anchorKey ?? "",
+            url: item.source.path ?? "",
             adopt: hasAdoptNote(item)
           }));
           webPickerHandle.sync(notes);
@@ -4509,6 +4536,12 @@
           popover.dataset.open = "0";
           lowerPopover();
           safe(() => popInput.blur());
+          if (popoverMode === "edit" && popoverTargetId !== null) {
+            const item = annotations.find((candidate) => candidate.id === popoverTargetId);
+            if (item !== void 0 && item.source !== null && item.source !== void 0 && item.source.kind === "web" && String(item.note ?? "").trim() === "") {
+              removeAnnotation(popoverTargetId);
+            }
+          }
           popoverAnchor = null;
           popoverTargetId = null;
           popoverMode = "create";
@@ -4896,6 +4929,7 @@
           if (source?.kind === "message") return source.flowKind === "user" ? t("source.user") : t("source.assistant");
           if (source?.kind === "reply") return t("source.replyShort", { n: Number.isFinite(source.index) ? source.index : "-" });
           if (source?.kind === "sent") return t("source.sentShort", { n: Number.isFinite(source.index) ? source.index : "-" });
+          if (source?.kind === "web") return t("source.webShort", { url: source.path ?? "" });
           if (source?.kind === "file") {
             const path = source.path ?? t("source.fileFallback");
             const where = Number.isFinite(source.lineStart) ? `${path}:${source.lineStart}` : path;
@@ -4964,6 +4998,7 @@
         }
         const webPicker = createWebPicker({
           onPick: (picked) => {
+            if (picked.action === "copied") return;
             if (picked.action === "copy") {
               copyPlainText(picked.text);
               return;
@@ -5523,6 +5558,7 @@
           document.addEventListener("click", onTurnProcessClick, true);
           return () => {
             document.removeEventListener("click", onTurnProcessClick, true);
+            webPicker.dispose();
           };
         });
         ctx.slots.inject(
