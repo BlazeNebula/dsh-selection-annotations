@@ -327,9 +327,13 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
         const label = document.createElement('span')
         label.className = 'sa-a-next-label'
         label.textContent = t('next.label')
-        const body = document.createElement('span')
+        const body = document.createElement('div')
         body.className = 'sa-a-next-text'
-        body.textContent = reply.next
+        if (markdown !== undefined && typeof markdown.mount === 'function') {
+          markdown.mount(body, reply.next)
+        } else {
+          body.textContent = reply.next
+        }
         next.append(label, body)
         a.appendChild(next)
       }

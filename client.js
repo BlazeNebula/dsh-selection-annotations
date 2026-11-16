@@ -1787,9 +1787,13 @@
           const label = document.createElement("span");
           label.className = "sa-a-next-label";
           label.textContent = t("next.label");
-          const body2 = document.createElement("span");
+          const body2 = document.createElement("div");
           body2.className = "sa-a-next-text";
-          body2.textContent = reply.next;
+          if (markdown !== void 0 && typeof markdown.mount === "function") {
+            markdown.mount(body2, reply.next);
+          } else {
+            body2.textContent = reply.next;
+          }
           next.append(label, body2);
           a.appendChild(next);
         }
@@ -1907,6 +1911,7 @@
     function paint(panelEl, options) {
       const side = options !== void 0 && options.surface === "side";
       if (!side) panelEl.className = "sa-panel";
+      else panelEl.className = "sa-panel sa-panel-side";
       const annotations = getAnnotations();
       panelEl.textContent = "";
       const panelHead = el("div", "sa-panel-head");
@@ -3215,6 +3220,7 @@ ${PICK_SCRIPT}<\/script>`;
         let annotationsSession = void 0;
         const draftSessions = /* @__PURE__ */ new Map();
         const sentBySession = /* @__PURE__ */ new Map();
+        const sentRemovals = /* @__PURE__ */ new Map();
         let pendingSent = [];
         let consumedSnapshot = null;
         let attachedSessionId = void 0;
@@ -3423,7 +3429,8 @@ ${PICK_SCRIPT}<\/script>`;
           const drafts = annotationsSession === sessionId ? draftItems(annotations) : draftSessions.get(sessionId) ?? [];
           const sent = {};
           for (const [key, value] of sentBySession.get(sessionId) ?? []) sent[key] = value;
-          return { schemaVersion: 1, sessionId, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), drafts, sent };
+          const sentRemoved = [...sentRemovals.get(sessionId) ?? []];
+          return { schemaVersion: 1, sessionId, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), drafts, sent, sentRemoved };
         }
         const pushRemoteSession = (sessionId) => remoteSync.push(sessionId);
         const scheduleRemotePush = (sessionId) => remoteSync.schedule(sessionId);
@@ -4281,6 +4288,7 @@ ${PICK_SCRIPT}<\/script>`;
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
             const signature = hashString({
+              v: 2,
               batches: list.map((batch) => ({ at: batch.at, replies: batch.replies })),
               items: items.map((item) => ({ quote: item.quote, note: item.note }))
             });
@@ -6570,7 +6578,12 @@ ${PICK_SCRIPT}`;
             removed.push({ key, record });
             table.delete(key);
           }
-          if (removed.length > 0) saveSent(sessionId, table);
+          if (removed.length > 0) {
+            const gone = sentRemovals.get(sessionId) ?? /* @__PURE__ */ new Set();
+            for (const { key } of removed) gone.add(key);
+            sentRemovals.set(sessionId, gone);
+            saveSent(sessionId, table);
+          }
           for (const { key } of removed) {
             for (const card of document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${cssEscape(key)}"]`)) card.remove();
           }

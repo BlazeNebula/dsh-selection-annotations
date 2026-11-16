@@ -43,6 +43,7 @@ export function createPanelRenderer({
   function paint(panelEl, options) {
     const side = options !== undefined && options.surface === 'side'
     if (!side) panelEl.className = 'sa-panel'
+    else panelEl.className = 'sa-panel sa-panel-side'
     const annotations = getAnnotations()
     panelEl.textContent = ''
 

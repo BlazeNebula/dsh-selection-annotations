@@ -160,6 +160,8 @@ export function createPlugin(React, extras = {}) {
         const draftSessions = new Map()
         /** 已提交批注台账（sessionId → Map(anchorKey → 记录)）。 */
         const sentBySession = new Map()
+        /** 回退删除过的台账键：宿主按名单删，避免下一次整表合并把删掉的记录带回来。 */
+        const sentRemovals = new Map()
         /** 刚随消息发出、还在等对应消息行出现的负载。*/
         let pendingSent = []
         /** 上一批已清空但还没记账的批注；扫描超时后放回界面，避免用户什么都看不到。*/
@@ -458,7 +460,8 @@ const rewindHandled = new Map()
             annotationsSession === sessionId ? draftItems(annotations) : draftSessions.get(sessionId) ?? []
           const sent = {}
           for (const [key, value] of sentBySession.get(sessionId) ?? []) sent[key] = value
-          return { schemaVersion: 1, sessionId, updatedAt: new Date().toISOString(), drafts, sent }
+          const sentRemoved = [...(sentRemovals.get(sessionId) ?? [])]
+          return { schemaVersion: 1, sessionId, updatedAt: new Date().toISOString(), drafts, sent, sentRemoved }
         }
 
         const pushRemoteSession = (sessionId) => remoteSync.push(sessionId)
@@ -1509,6 +1512,7 @@ const rewindHandled = new Map()
             const items = byAnchor.get(anchorKey)?.record.items ?? []
             const turn = byAnchor.get(anchorKey)?.turn ?? null
             const signature = hashString({
+              v: 2,
               batches: list.map((batch) => ({ at: batch.at, replies: batch.replies })),
               items: items.map((item) => ({ quote: item.quote, note: item.note })),
             })
@@ -4205,7 +4209,12 @@ const rewindHandled = new Map()
             removed.push({ key, record })
             table.delete(key)
           }
-          if (removed.length > 0) saveSent(sessionId, table)
+          if (removed.length > 0) {
+            const gone = sentRemovals.get(sessionId) ?? new Set()
+            for (const { key } of removed) gone.add(key)
+            sentRemovals.set(sessionId, gone)
+            saveSent(sessionId, table)
+          }
           for (const { key } of removed) {
             for (const card of document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${cssEscape(key)}"]`)) card.remove()
           }
