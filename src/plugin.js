@@ -177,6 +177,8 @@ export function createPlugin(React, extras = {}) {
         }
         const snapshot = () => annotations
         let webPickerHandle = null
+/** 每个会话最近一次已处理的回退时间戳，避免轮询重复回放。 */
+const rewindHandled = new Map()
         function emit() {
           for (const fn of [...listeners]) {
             try {
@@ -3944,6 +3946,45 @@ export function createPlugin(React, extras = {}) {
           }
         })
 
+        /** 当前页面里可见的最大轮次；没有轮次行时返回 0。 */
+        function currentMaxTurn() {
+          let max = 0
+          for (const row of document.querySelectorAll('[data-chat-turn]')) {
+            const value = Number(row.getAttribute('data-chat-turn'))
+            if (Number.isFinite(value)) max = Math.max(max, value)
+          }
+          return max
+        }
+
+        /**
+         * 会话回退后的清理与回放：宿主在会话记录里写 rewind（at + 起点轮次），
+         * 这里把该轮及之后的已发送记录撤掉、删掉对应卡片，并把批注原样放回待发送。
+         */
+        function applyRewind(sessionId, mark) {
+          if (sessionId !== currentSessionId()) return
+          const cutoff = Number.isFinite(mark?.turn) ? Number(mark.turn) : currentMaxTurn() + 1
+          const table = loadSent(sessionId)
+          const removed = []
+          for (const [key, record] of [...table]) {
+            if (!Number.isFinite(record?.turn) || record.turn < cutoff) continue
+            removed.push({ key, record })
+            table.delete(key)
+          }
+          if (removed.length > 0) saveSent(sessionId, table)
+          for (const { key } of removed) {
+            for (const card of document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${cssEscape(key)}"]`)) card.remove()
+          }
+          for (const section of document.querySelectorAll('[data-sa-ui="replies"]')) {
+            const turn = Number(section.dataset.saTurn)
+            if (Number.isFinite(turn) && turn >= cutoff) section.remove()
+          }
+          const items = removed
+            .sort((left, right) => left.record.savedAt - right.record.savedAt)
+            .flatMap(({ record }) => (Array.isArray(record.items) ? record.items : []))
+          if (items.length > 0) reuseSentItems(items)
+          scheduleRepaint()
+        }
+
         // 逐条答复由宿主写进会话文件：轮询本机路由，把新答复挂到历史卡片后面。
         ctx.effect(() => {
             let timer = null
@@ -3956,6 +3997,11 @@ export function createPlugin(React, extras = {}) {
                 const sessionId = currentSessionId()
                 if (sessionId !== undefined) {
           const remote = await pullRemoteSession(sessionId)
+                  const mark = remote !== null && remote !== undefined ? remote.rewind : undefined
+                  if (mark !== null && mark !== undefined && Number.isFinite(mark.at) && rewindHandled.get(sessionId) !== mark.at) {
+                    rewindHandled.set(sessionId, mark.at)
+                    applyRewind(sessionId, mark)
+                  }
                   if (remote !== null && remote !== undefined && absorbRemoteReplies(sessionId, remote)) {
                     scheduleRepaint()
                   }
