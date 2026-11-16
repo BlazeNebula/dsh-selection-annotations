@@ -4,7 +4,7 @@
 
 > Select text anywhere in the DSH Web UI — an assistant reply, a workspace file, a message from
 > an earlier conversation — leave a note, and send the whole set with your next message as a
-> **separate, machine-readable JSON block**. Your message text is never touched.
+> **machine-readable JSON block attached to that message**. Your prose stays exactly as written.
 
 A plugin for [DeepSeek Harness](https://github.com/deepseek-ai) (DSH). Zero dependencies,
 zero changes to DSH itself.
@@ -21,7 +21,7 @@ This plugin puts the annotations on the message as a real content block instead:
 | | draft-text injection | **this plugin** |
 |---|---|---|
 | message `content` | `[{type:'text'}]` | `[{type:'text'}, {type:'file'}]` |
-| what the model receives | your prose with notes inline | your text, **then a separate JSON message** |
+| what the model receives | your prose with notes inline | your text, **then the JSON payload in the same user message** |
 | your own bubble | rewritten post-send | untouched |
 | position data | free-form text | `lineStart/lineEnd`, `charStart/charEnd`, `anchorKey` |
 
@@ -36,12 +36,12 @@ This plugin puts the annotations on the message as a real content block instead:
 | Trigger next to Send | Registered into `conversation.input.right`, so it occupies one compact control slot and never disturbs the composer layout. |
 | Floating panel | The "批注 ×N" panel is plain DOM appended to `body` with `position: fixed` — it is completely out of flow and never pushes the input box around. |
 | Sent as a separate block | The annotation set is packed into a `File` (`批注.json`) and handed to the runtime's own `createDrafts` + the input shell's `addFiles` — the exact path drag-and-drop attachments use. It is attached only once the upload reports `ready`. |
-| Separate message for the model | The host half strips that file block from the model-visible content during `agent/pre-step` and appends an independent user message whose body is the JSON. |
+| Payload rides on the message | The host half strips that file block from the model-visible content during `agent/pre-step` and appends the JSON as one extra text block on the **same** user message, keeping `source.kind: 'user'` so the auto reviewer reads it as a user instruction. |
 | Consumed on send | Once the attachment is consumed (or manually removed), the set clears — it never sticks to the next message. |
 
 ## Payload format
 
-The model receives one extra message whose entire body is a self-describing JSON block:
+The model receives the self-describing JSON block appended to your message as its own text block:
 
 ```json
 {
@@ -131,10 +131,10 @@ selection ──▶ annotation { quote, source, note }
    user text + annotation attachment = one message with content [ {type:'text'}, {type:'file'} ]
                                                 │
                                                 ▼
-        host `agent/pre-step`: drop the file block ──▶ append a separate user message (the JSON)
+   host `agent/pre-step`: drop the file block ──▶ append the JSON as a text block on this message
                                                 │
                                                 ▼
-              model receives: your text (one message) + the annotation JSON (another), unmixed
+       model receives one user message: your text, then the annotation JSON; source stays 'user'
 ```
 
 ### Why this seam
@@ -277,8 +277,8 @@ that assembles these capabilities.
 
 The suite runs in plain Node — no browser, no DSH install:
 
-- `test/host-pre-step.test.mjs` — host half: stripping the file block, appending the JSON message,
-  content-based claiming, merging, config branches.
+- `test/host-pre-step.test.mjs` — host half: stripping the file block, folding the JSON into the
+  same user message, content-based claiming, merging, config branches.
 - `test/client-half.test.mjs` — a minimal DOM + React + Cordis harness around `client.js` that
   drives the whole data path (annotation → JSON payload → runtime draft attachment → input state →
   cleared after send) plus anchor re-location and character-range capture.

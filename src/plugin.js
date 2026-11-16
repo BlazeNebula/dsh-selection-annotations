@@ -54,6 +54,7 @@ import {
 import { createWebPicker, PICK_SCRIPT } from './core/web-picker.js'
 import { createPreviewBridge } from './core/preview-bridge.js'
 import { createSentStore } from './core/sent-store.js'
+import { createPayloadHidingRule } from './core/hidden-payload.js'
 import { createRemoteSync } from './core/remote-sync.js'
 import { createDraftCodec } from './core/draft-codec.js'
 import { createDraftStore } from './core/draft-store.js'
@@ -101,6 +102,7 @@ export function createPlugin(React, extras = {}) {
       'remote',
       'remote.workspaceFiles',
       'locale',
+      'uiConversation',
       'sidebarRight',
       'sidebarRightTabs',
       'documentPreviews',
@@ -120,6 +122,14 @@ export function createPlugin(React, extras = {}) {
     const defaultInstruction = () => locale.defaultInstruction()
     const isDefaultInstruction = (text) => locale.isDefaultInstruction(text)
     registerTurnAnchor(ctx, h)
+
+    // 宿主半边已把批注 JSON 并进用户消息正文（source 仍是 user）；这条规则只把 JSON 段
+    // 在气泡里显示为空，模型请求与会话记录都不变。没有 uiConversation 服务的宿主安静跳过。
+    ctx.effect(() => {
+      const ui = safe(() => ctx.uiConversation)
+      if (ui === undefined || ui === null || typeof ui.userText?.register !== 'function') return
+      return ui.userText.register(createPayloadHidingRule())
+    }, 'selection-annotations: hide payload in user bubble')
 
     /** 草稿在本地存储里的体积上限；超了先丢最旧批注的图片。*/
         /* ------------------------------------------------------------------ 状态*/
@@ -4568,7 +4578,7 @@ const rewindHandled = new Map()
             const shell = inputShell()
             if (shell !== undefined) ensureFallbackPrompt(shell)
           },
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar },
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule },
         }
     },
   }

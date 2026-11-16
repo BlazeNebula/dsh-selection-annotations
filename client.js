@@ -421,7 +421,7 @@
   var FALLBACK_SETTINGS_KEY = "dsh-selection-annotations:fallback-settings";
   var DEFAULT_FALLBACK_TEXT = "此轮对话内容均在批注中给出，总计 {count} 条批注。\n此轮消息发起时间：{time}";
   var DEFAULT_INSTRUCTION = [
-    "这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n",
+    "这是用户随消息附上的批注数据块，与本轮用户正文同属一条用户消息：正文可能在前，也可能只有这份数据。\n",
     "\n",
     "## 怎么读\n",
     "- `quote`：用户选中的原文。\n",
@@ -439,7 +439,7 @@
     "- 正文只写整体说明或需要澄清的问题。"
   ].join("");
   var DEFAULT_INSTRUCTION_EN = [
-    "This is an annotation payload sent by the user. It is independent of the user message body, which may or may not be present.\n",
+    "This annotation payload was attached by the user to this message and is part of the user instruction, together with the body (which may come before it, or be absent entirely).\n",
     "\n",
     "## How to read it\n",
     "- `quote`: the text the user selected.\n",
@@ -2787,6 +2787,33 @@ ${PICK_SCRIPT}<\/script>`;
     return { loadSent, saveSent, recordSent };
   }
 
+  // src/core/hidden-payload.js
+  var KIND_LINE = '"kind": "dsh-selection-annotations"';
+  function createPayloadHidingRule() {
+    return {
+      id: "selection-annotations:payload",
+      order: 900,
+      match(text, from) {
+        if (typeof text !== "string" || text === "") return void 0;
+        const kindAt = text.indexOf(KIND_LINE, from);
+        if (kindAt === -1) return void 0;
+        const start = text.lastIndexOf("{", kindAt);
+        if (start === -1 || start < from) return void 0;
+        const candidate = text.slice(start);
+        let payload;
+        try {
+          payload = JSON.parse(candidate);
+        } catch {
+          return void 0;
+        }
+        if (payload === null || typeof payload !== "object" || payload.kind !== "dsh-selection-annotations") {
+          return void 0;
+        }
+        return { id: "text", start, end: text.length, data: { text: candidate, display: "" } };
+      }
+    };
+  }
+
   // src/core/remote-sync.js
   function createRemoteSync(getSnapshot) {
     let state;
@@ -3148,6 +3175,7 @@ ${PICK_SCRIPT}<\/script>`;
         "remote",
         "remote.workspaceFiles",
         "locale",
+        "uiConversation",
         "sidebarRight",
         "sidebarRightTabs",
         "documentPreviews"
@@ -3166,6 +3194,11 @@ ${PICK_SCRIPT}<\/script>`;
         const defaultInstruction = () => locale.defaultInstruction();
         const isDefaultInstruction = (text) => locale.isDefaultInstruction(text);
         registerTurnAnchor(ctx, h);
+        ctx.effect(() => {
+          const ui = safe(() => ctx.uiConversation);
+          if (ui === void 0 || ui === null || typeof ui.userText?.register !== "function") return;
+          return ui.userText.register(createPayloadHidingRule());
+        }, "selection-annotations: hide payload in user bubble");
         let annotations = [];
         let draftIds = [];
         let syncing = false;
@@ -6882,7 +6915,7 @@ ${PICK_SCRIPT}`;
             const shell = inputShell();
             if (shell !== void 0) ensureFallbackPrompt(shell);
           },
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar }
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule }
         };
       }
     };

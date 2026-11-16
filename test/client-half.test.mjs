@@ -545,7 +545,18 @@ function makeHarness(options = {}) {
     publish()
   }
 
+  /** 捕获插件注册的 UserText 规则（把批注 JSON 从气泡里隐藏）。 */
+  const userTextRules = []
+
   const ctx = {
+    uiConversation: {
+      userText: {
+        register(rule) {
+          userTextRules.push(rule)
+          return () => {}
+        },
+      },
+    },
     get(name) {
       if (name === 'uiSession' && options.noSession !== true) {
         return { adapter: { current: { getSnapshot: () => ({ key: options.sessionId ?? 's1' }) } } }
@@ -601,6 +612,7 @@ function makeHarness(options = {}) {
     sourceReads,
     released,
     registrations,
+    userTextRules,
     locale: localeService,
     localeDictionaries,
     shell,
@@ -1671,7 +1683,7 @@ test('locale：中英词典注册给 DSH 语言服务，默认仍按中文出文
   assert.equal(dictionaries.en['annotate.adopt'], 'Adopt')
   assert.equal(dictionaries.en['replies.title'], 'Annotation replies ×{n}')
   const payload = JSON.parse(harness.debug.payload())
-  assert.ok(payload.instruction.startsWith('这是用户发来的批注数据块'), '默认语言下指令仍是中文')
+  assert.ok(payload.instruction.startsWith('这是用户随消息附上的批注数据块'), '默认语言下指令仍是中文')
 })
 
 test('locale：切到英文后按钮与指令一起换，切回中文恢复', () => {
@@ -1686,11 +1698,43 @@ test('locale：切到英文后按钮与指令一起换，切回中文恢复', ()
 
   harness.locale.setActive('en')
   const english = JSON.parse(harness.debug.payload())
-  assert.ok(english.instruction.startsWith('This is an annotation payload sent by the user'), '指令跟着切成英文')
+  assert.ok(english.instruction.startsWith('This annotation payload was attached by the user'), '指令跟着切成英文')
   assert.equal(chipLabel(), 'Annotate', '按钮文案跟着切成英文')
 
   harness.locale.setActive('zh')
   const chinese = JSON.parse(harness.debug.payload())
-  assert.ok(chinese.instruction.startsWith('这是用户发来的批注数据块'), '切回中文后指令恢复')
+  assert.ok(chinese.instruction.startsWith('这是用户随消息附上的批注数据块'), '切回中文后指令恢复')
   assert.equal(chipLabel(), '批注')
+})
+
+test('声明 uiConversation：把批注 JSON 隐藏规则注册给用户气泡', () => {
+  const harness = makeHarness()
+  assert.ok(harness.mod.inject.includes('uiConversation'), '声明 uiConversation 才能拿到 userText 注册表')
+  assert.equal(harness.userTextRules.length, 1)
+  assert.equal(harness.userTextRules[0].id, 'selection-annotations:payload')
+  assert.equal(typeof harness.userTextRules[0].match, 'function')
+})
+
+test('隐藏规则：只把并入消息末尾的批注 JSON 段显示为空', () => {
+  const harness = makeHarness()
+  const rule = harness.userTextRules[0]
+  const payload = '{\n  "kind": "dsh-selection-annotations",\n  "version": 1,\n  "count": 1,\n  "annotations": [\n    {\n      "index": 1,\n      "quote": "设计要点",\n      "note": "这里有歧义"\n    }\n  ]\n}'
+  const text = `这段为什么这么写？\n\n${payload}`
+
+  const node = rule.match(text, 0, { read: () => true })
+  assert.equal(node.id, 'text')
+  assert.equal(node.start, text.indexOf('{'))
+  assert.equal(node.end, text.length)
+  assert.equal(node.data.display, '', '只影响显示：渲染为空')
+  assert.equal(node.data.text, text.slice(node.start, node.end), '候选必须原样保留原文切片')
+
+  // 普通消息（没有批注块）不产生节点，气泡照常显示。
+  assert.equal(rule.match('这段为什么这么写？', 0, { read: () => true }), undefined)
+  // 只有批注、没有正文时也能从头隐藏。
+  const only = `\n\n${payload}`
+  const onlyNode = rule.match(only, 0, { read: () => true })
+  assert.equal(onlyNode.start, only.indexOf('{'))
+  assert.equal(onlyNode.end, only.length)
+  // 文本里出现同样的标记但无法解析成批注负载时，不隐藏（避免误伤用户自己的正文）。
+  assert.equal(rule.match('{ "kind": "dsh-selection-annotations", 坏掉的 JSON', 0, { read: () => true }), undefined)
 })

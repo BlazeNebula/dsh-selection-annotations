@@ -22,7 +22,7 @@ export const FALLBACK_SETTINGS_KEY = 'dsh-selection-annotations:fallback-setting
 export const DEFAULT_FALLBACK_TEXT = '此轮对话内容均在批注中给出，总计 {count} 条批注。\n此轮消息发起时间：{time}'
     /** 默认批注指令；删掉「必须调用annotation_replies」这句，逐条答复会退化成正文自由文本。*/
 export const DEFAULT_INSTRUCTION = [
-      '这是用户发来的批注数据块，与用户消息正文相互独立：正文可能同时存在，也可能没有。\n',
+      '这是用户随消息附上的批注数据块，与本轮用户正文同属一条用户消息：正文可能在前，也可能只有这份数据。\n',
       '\n',
       '## 怎么读\n',
       '- `quote`：用户选中的原文。\n',
@@ -42,7 +42,7 @@ export const DEFAULT_INSTRUCTION = [
 
     /** 英文界面下的批注指令；结构与中文版逐项对应。*/
 export const DEFAULT_INSTRUCTION_EN = [
-      'This is an annotation payload sent by the user. It is independent of the user message body, which may or may not be present.\n',
+      'This annotation payload was attached by the user to this message and is part of the user instruction, together with the body (which may come before it, or be absent entirely).\n',
       '\n',
       '## How to read it\n',
       '- `quote`: the text the user selected.\n',
