@@ -6,13 +6,15 @@ import { safe } from './util.js'
  */
 export function createSessionApi(ctx, getLatestSessionId) {
   function currentSessionId() {
-    const latest = getLatestSessionId()
-    if (typeof latest === 'string' && latest !== '') return latest
+    // uiSession 的 current 绑定跟随当前打开的会话；槽位 props 里的 id 可能来自
+    // 另一个仍挂载的会话（侧栏/悬浮卡），先信 uiSession，避免读到别的会话台账。
     const fromUi = safe(() => {
       const binding = ctx.get('uiSession')?.adapter?.current?.getSnapshot?.()
       return typeof binding?.key === 'string' && binding.key !== '' ? binding.key : undefined
     })
     if (fromUi !== undefined) return fromUi
+    const latest = getLatestSessionId()
+    if (typeof latest === 'string' && latest !== '') return latest
     return safe(() => {
       const snap = ctx.sessions?.list?.getSnapshot?.()
       if (snap === undefined || snap === null) return undefined

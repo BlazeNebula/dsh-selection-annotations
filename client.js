@@ -862,13 +862,13 @@
   // src/core/session.js
   function createSessionApi(ctx, getLatestSessionId) {
     function currentSessionId() {
-      const latest = getLatestSessionId();
-      if (typeof latest === "string" && latest !== "") return latest;
       const fromUi = safe(() => {
         const binding = ctx.get("uiSession")?.adapter?.current?.getSnapshot?.();
         return typeof binding?.key === "string" && binding.key !== "" ? binding.key : void 0;
       });
       if (fromUi !== void 0) return fromUi;
+      const latest = getLatestSessionId();
+      if (typeof latest === "string" && latest !== "") return latest;
       return safe(() => {
         const snap = ctx.sessions?.list?.getSnapshot?.();
         if (snap === void 0 || snap === null) return void 0;
