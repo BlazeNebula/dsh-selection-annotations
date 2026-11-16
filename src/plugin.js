@@ -47,6 +47,7 @@ import { createCards, VERDICT_LABELS } from './core/cards.js'
 import { createMarkdown } from './core/markdown.js'
 import { createPanelRenderer } from './core/panel-render.js'
 import { createWebPicker, PICK_SCRIPT } from './core/web-picker.js'
+import { createPreviewBridge } from './core/preview-bridge.js'
 import { createSentStore } from './core/sent-store.js'
 import { createRemoteSync } from './core/remote-sync.js'
 import { createDraftCodec } from './core/draft-codec.js'
@@ -3143,6 +3144,22 @@ export function createPlugin(React, extras = {}) {
         webPickerHandle = webPicker
         webPicker.start()
 
+        // 装了 dsh-better-sidebar 时，文件预览走它自己的沙箱 iframe；这里在它生成
+        // HTML blob 时补一份拾取脚本，让它的预览也能批注。没有该类预览时它不生效。
+        const previewBridge = createPreviewBridge({
+          onPick: acceptWebPick,
+          getNotes: () =>
+            annotations
+              .filter((item) => item.source !== null && item.source !== undefined && item.source.kind === 'web')
+              .map((item) => ({
+                id: item.id,
+                path: item.source.path,
+                selector: item.source.anchorKey,
+                adopt: hasAdoptNote(item.note),
+              })),
+        })
+        previewBridge.start()
+
         /**
          * HTML 文件预览：DSH 内置预览用 sandbox iframe，父页面读不到里面的 DOM。
          * 我们注册一个更高优先级的 HTML 预览实现，自己生成同源受限的 iframe，
@@ -4100,6 +4117,7 @@ export function createPlugin(React, extras = {}) {
           document.addEventListener('click', onTurnProcessClick, true)
           return () => {
             document.removeEventListener('click', onTurnProcessClick, true)
+            previewBridge.dispose()
             webPicker.dispose()
           }
         })

@@ -2398,6 +2398,163 @@
     }
   }
 
+  // src/core/preview-bridge.js
+  var BRIDGE = String.raw`(function () {
+  try {
+    Object.defineProperty(window, '__saPicked', {
+      configurable: true,
+      get: function () { return null },
+      set: function (value) {
+        if (value && window.parent !== window) window.parent.postMessage({ __saPreviewPick: value }, '*')
+      },
+    })
+  } catch (error) {}
+  window.addEventListener('message', function (event) {
+    var data = event.data
+    if (!data || !Array.isArray(data.__saPreviewNotes)) return
+    window.__saWebNotes = data.__saPreviewNotes
+    try { window.__saWebRender && window.__saWebRender() } catch (error) {}
+  })
+})();`;
+  var INJECTED_MARK = "data-sa-preview-picker";
+  function injectIntoHtml(html) {
+    if (typeof html !== "string" || html.includes(INJECTED_MARK)) return void 0;
+    const script = `<script ${INJECTED_MARK}="1">${BRIDGE}
+${PICK_SCRIPT}<\/script>`;
+    const bodyEnd = html.search(/<\/body\s*>/iu);
+    if (bodyEnd >= 0) return `${html.slice(0, bodyEnd)}${script}${html.slice(bodyEnd)}`;
+    return `${html}${script}`;
+  }
+  function createPreviewBridge({ onPick, getNotes }) {
+    let installed = false;
+    let swapTimer = 0;
+    let syncTimer = 0;
+    let observer = null;
+    const pending = /* @__PURE__ */ new Map();
+    const originalCreate = URL.createObjectURL.bind(URL);
+    function swapPreviews() {
+      for (const frame of document.querySelectorAll("iframe")) {
+        const src = frame.getAttribute("src") ?? "";
+        const next = pending.get(src);
+        if (next === void 0) continue;
+        const className = typeof frame.className === "string" ? frame.className : "";
+        const host = frame.closest('[class*="editorHtml" i]') !== null;
+        if (!className.toLowerCase().includes("editorhtml") && !host) continue;
+        pending.delete(src);
+        frame.setAttribute("src", next);
+      }
+    }
+    function installCreateObjectUrl() {
+      if (installed) return;
+      installed = true;
+      URL.createObjectURL = function patchedCreateObjectURL(blob) {
+        const url = originalCreate(blob);
+        try {
+          const type = blob !== null && blob !== void 0 && typeof blob.type === "string" ? blob.type : "";
+          if (type.startsWith("text/html") && typeof blob.text === "function") {
+            blob.text().then((text) => {
+              const injected = injectIntoHtml(text);
+              if (injected === void 0) return;
+              const next = originalCreate(new Blob([injected], { type: "text/html;charset=utf-8" }));
+              pending.set(url, next);
+              swapPreviews();
+            }).catch(() => {
+            });
+          }
+        } catch {
+        }
+        return url;
+      };
+    }
+    function onMessage(event) {
+      const data = event.data;
+      if (data === null || typeof data !== "object") return;
+      const picked = data.__saPreviewPick;
+      if (picked === null || picked === void 0) return;
+      let frame = null;
+      for (const candidate of document.querySelectorAll("iframe")) {
+        if (candidate.contentWindow === event.source) {
+          frame = candidate;
+          break;
+        }
+      }
+      if (frame === null) return;
+      const className = typeof frame.className === "string" ? frame.className : "";
+      const host = frame.closest('[class*="editorHtml" i]') !== null;
+      if (!className.toLowerCase().includes("editorhtml") && !host) return;
+      const base = frame.getBoundingClientRect();
+      const inner = picked.rect ?? {};
+      const rect = {
+        left: Number(inner.left ?? 0),
+        top: Number(inner.top ?? 0),
+        width: Number(inner.width ?? 0),
+        height: Number(inner.height ?? 0)
+      };
+      const anchor = {
+        getBoundingClientRect: () => ({
+          left: base.left + rect.left,
+          top: base.top + rect.top,
+          width: rect.width,
+          height: rect.height,
+          right: base.left + rect.left + rect.width,
+          bottom: base.top + rect.top + rect.height
+        })
+      };
+      try {
+        onPick({
+          action: picked.action,
+          id: picked.id,
+          quote: typeof picked.label === "string" ? picked.label : "",
+          selector: typeof picked.selector === "string" ? picked.selector : "",
+          text: typeof picked.text === "string" ? picked.text : "",
+          url: frame.title !== "" ? frame.title : typeof picked.url === "string" ? picked.url : "",
+          rect,
+          anchor,
+          fromPreview: true
+        });
+      } catch {
+      }
+    }
+    function syncNotes() {
+      const notes = typeof getNotes === "function" ? getNotes() : [];
+      for (const frame of document.querySelectorAll("iframe")) {
+        const className = typeof frame.className === "string" ? frame.className : "";
+        const host = frame.closest('[class*="editorHtml" i]') !== null;
+        if (!className.toLowerCase().includes("editorhtml") && !host) continue;
+        const path = frame.title;
+        const list = notes.filter((note) => note.path === path).map((note) => ({ id: note.id, selector: note.selector, adopt: note.adopt }));
+        try {
+          frame.contentWindow?.postMessage({ __saPreviewNotes: list }, "*");
+        } catch {
+        }
+      }
+    }
+    function start() {
+      installCreateObjectUrl();
+      window.addEventListener("message", onMessage);
+      observer = new MutationObserver(() => swapPreviews());
+      observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["src", "class"]
+      });
+      swapTimer = window.setInterval(swapPreviews, 500);
+      syncTimer = window.setInterval(syncNotes, 800);
+    }
+    function dispose() {
+      if (!installed) return;
+      window.removeEventListener("message", onMessage);
+      if (observer !== null) observer.disconnect();
+      observer = null;
+      if (swapTimer !== 0) window.clearInterval(swapTimer);
+      if (syncTimer !== 0) window.clearInterval(syncTimer);
+      swapTimer = 0;
+      syncTimer = 0;
+    }
+    return { start, dispose };
+  }
+
   // src/core/sent-store.js
   function isSentItem2(value) {
     if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
@@ -5300,6 +5457,16 @@
         });
         webPickerHandle = webPicker;
         webPicker.start();
+        const previewBridge = createPreviewBridge({
+          onPick: acceptWebPick,
+          getNotes: () => annotations.filter((item) => item.source !== null && item.source !== void 0 && item.source.kind === "web").map((item) => ({
+            id: item.id,
+            path: item.source.path,
+            selector: item.source.anchorKey,
+            adopt: hasAdoptNote(item.note)
+          }))
+        });
+        previewBridge.start();
         const HTML_PREVIEW_ID = "@u2a5f/dsh-selection-annotations/html-preview";
         const HTML_PREVIEW_BRIDGE = String.raw`(function () {
   try {
@@ -6164,6 +6331,7 @@ ${PICK_SCRIPT}`;
           document.addEventListener("click", onTurnProcessClick, true);
           return () => {
             document.removeEventListener("click", onTurnProcessClick, true);
+            previewBridge.dispose();
             webPicker.dispose();
           };
         });
