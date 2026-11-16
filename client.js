@@ -3427,9 +3427,19 @@ ${PICK_SCRIPT}<\/script>`;
         }
         const pushRemoteSession = (sessionId) => remoteSync.push(sessionId);
         const scheduleRemotePush = (sessionId) => remoteSync.schedule(sessionId);
+        const hydratedSessions = /* @__PURE__ */ new Set();
+        const pendingRemotePush = /* @__PURE__ */ new Set();
+        const flushPendingRemotePush = (sessionId) => {
+          if (!pendingRemotePush.delete(sessionId)) return;
+          scheduleRemotePush(sessionId);
+        };
         async function hydrateRemoteSession(sessionId) {
           const remote = await pullRemoteSession(sessionId);
-          if (remote === null || remote === void 0) return;
+          if (remote === null || remote === void 0) {
+            hydratedSessions.add(sessionId);
+            flushPendingRemotePush(sessionId);
+            return;
+          }
           let touched = absorbRemoteReplies(sessionId, remote);
           if (Array.isArray(remote.drafts) && remote.drafts.length > 0) {
             const items = remote.drafts.filter(isDraftItem).slice(0, DRAFT_MAX_ITEMS).map(restoreDraftItem);
@@ -3470,6 +3480,8 @@ ${PICK_SCRIPT}<\/script>`;
             }
           }
           if (touched) scheduleRepaint();
+          hydratedSessions.add(sessionId);
+          flushPendingRemotePush(sessionId);
         }
         const draftCodec = createDraftCodec({ t, prefix: DRAFT_STORAGE_PREFIX, maxBytes: DRAFT_MAX_BYTES });
         const draftKey = (sessionId) => draftCodec.draftKey(sessionId);
@@ -3702,7 +3714,13 @@ ${PICK_SCRIPT}<\/script>`;
           maxEntries: SENT_MAX_ENTRIES,
           maxBytes: SENT_MAX_BYTES,
           maxItems: DRAFT_MAX_ITEMS,
-          onChanged: (sessionId) => scheduleRemotePush(sessionId)
+          onChanged: (sessionId) => {
+            if (!hydratedSessions.has(sessionId)) {
+              pendingRemotePush.add(sessionId);
+              return;
+            }
+            scheduleRemotePush(sessionId);
+          }
         });
         const loadSent = (sessionId) => sentStore.loadSent(sessionId);
         const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table);

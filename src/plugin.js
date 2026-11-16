@@ -464,10 +464,22 @@ const rewindHandled = new Map()
         const pushRemoteSession = (sessionId) => remoteSync.push(sessionId)
         const scheduleRemotePush = (sessionId) => remoteSync.schedule(sessionId)
 
+        // 会话首次落盘前必须先合并远端台账：否则本地空表一旦先推送，会把宿主里的历史记录冲掉。
+        const hydratedSessions = new Set()
+        const pendingRemotePush = new Set()
+        const flushPendingRemotePush = (sessionId) => {
+          if (!pendingRemotePush.delete(sessionId)) return
+          scheduleRemotePush(sessionId)
+        }
+
         /** 把落盘记录并入内存：本地为空时用远端，本地有内容时保留本地并推上去。*/
         async function hydrateRemoteSession(sessionId) {
           const remote = await pullRemoteSession(sessionId)
-          if (remote === null || remote === undefined) return
+          if (remote === null || remote === undefined) {
+            hydratedSessions.add(sessionId)
+            flushPendingRemotePush(sessionId)
+            return
+          }
           let touched = absorbRemoteReplies(sessionId, remote)
           if (Array.isArray(remote.drafts) && remote.drafts.length > 0) {
             const items = remote.drafts.filter(isDraftItem).slice(0, DRAFT_MAX_ITEMS).map(restoreDraftItem)
@@ -509,6 +521,8 @@ const rewindHandled = new Map()
             }
           }
           if (touched) scheduleRepaint()
+          hydratedSessions.add(sessionId)
+          flushPendingRemotePush(sessionId)
         }
 
         const draftCodec = createDraftCodec({ t, prefix: DRAFT_STORAGE_PREFIX, maxBytes: DRAFT_MAX_BYTES })
@@ -797,7 +811,13 @@ const rewindHandled = new Map()
           maxEntries: SENT_MAX_ENTRIES,
           maxBytes: SENT_MAX_BYTES,
           maxItems: DRAFT_MAX_ITEMS,
-          onChanged: (sessionId) => scheduleRemotePush(sessionId),
+          onChanged: (sessionId) => {
+            if (!hydratedSessions.has(sessionId)) {
+              pendingRemotePush.add(sessionId)
+              return
+            }
+            scheduleRemotePush(sessionId)
+          },
         })
         const loadSent = (sessionId) => sentStore.loadSent(sessionId)
         const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table)
