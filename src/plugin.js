@@ -617,18 +617,24 @@ const rewindHandled = new Map()
           return item
         }
 
-        /** 总览右上角的提示位：临时换成一条反馈，1.6 秒后恢复。 */
+        /** 总览右上角的提示位：横向滚出、换文案、再滚入；1.6 秒后滚回默认说明。 */
         function flashPanelHint(message) {
           const hint = document.querySelector('.sa-panel-hint')
           if (hint === null) return
-          const previous = hint.textContent
-          hint.textContent = message
-          hint.title = message
-          window.setTimeout(() => {
+          const roll = (next) => {
             if (!hint.isConnected) return
-            hint.textContent = previous
-            hint.title = previous
-          }, 1600)
+            hint.classList.remove('sa-hint-roll')
+            // 强制回流，让同一段动画可以连续播放。
+            void hint.offsetWidth
+            hint.classList.add('sa-hint-roll')
+            window.setTimeout(() => {
+              if (!hint.isConnected) return
+              hint.textContent = next
+              hint.title = next
+            }, 236)
+          }
+          roll(message)
+          window.setTimeout(() => roll(t('panel.foot')), 1600)
         }
 
         function copyAnnotationsToClipboard(items) {
@@ -637,12 +643,10 @@ const rewindHandled = new Map()
           copyPlainText(serializeAnnotations(list))
         }
 
-        /** 粘贴导入：与回放同义，追加成新批注，已存在的同一条跳过（不覆盖、不重复）。 */
-        function importAnnotations(items) {
-          const list = Array.isArray(items) ? items : []
-          if (list.length === 0) return 0
-          const seen = new Set(annotations.map((item) => annotationSignature(item)))
+        /** 追加批注并去重：粘贴导入与「回放」共用同一套内容指纹判重。 */
+        function addUniqueAnnotations(list) {
           let added = 0
+          const seen = new Set(annotations.map((item) => annotationSignature(item)))
           for (const item of list) {
             const signature = annotationSignature(item)
             if (seen.has(signature)) continue
@@ -655,6 +659,14 @@ const rewindHandled = new Map()
             })
             if (created !== undefined) added += 1
           }
+          return added
+        }
+
+        /** 粘贴导入：与回放同义，追加成新批注，已存在的同一条跳过（不覆盖、不重复）。 */
+        function importAnnotations(items) {
+          const list = Array.isArray(items) ? items : []
+          if (list.length === 0) return 0
+          const added = addUniqueAnnotations(list)
           if (added > 0) {
             flashPanelHint(t('panel.pasteDone', { n: added }))
             scheduleRepaint()
@@ -2689,7 +2701,7 @@ const rewindHandled = new Map()
         /** 把一条已发送记录里的批注原样追加回待发送列表（图片也带上）。*/
         function reuseSentItems(items) {
           const list = Array.isArray(items) ? items : []
-          let added = 0
+          const normalized = []
           for (const item of list) {
             if (typeof item?.quote !== 'string' && typeof item?.note !== 'string') continue
             const images = (Array.isArray(item.thumbs) ? item.thumbs : [])
@@ -2705,15 +2717,14 @@ const rewindHandled = new Map()
                   bytes: Math.round((full.length * 3) / 4),
                 }
               })
-            addAnnotation({
+            normalized.push({
               quote: typeof item.quote === 'string' ? item.quote : '',
               note: typeof item.note === 'string' ? item.note : '',
               images,
-              source: item.source ?? { kind: 'dom' },
+              source: item.source,
             })
-            added += 1
           }
-          return added
+          return addUniqueAnnotations(normalized)
         }
 
         function deleteFromPopover() {
@@ -3438,6 +3449,25 @@ const rewindHandled = new Map()
         const SIDE_TAB_KIND = 'selection-annotations'
 
         /** 总览右下角的按钮：在 DSH 右侧边栏开一个批注标签页。 */
+        /** 侧栏里是否已经挂着我们的批注页签（keepMounted 的容器在关闭侧栏时会卸载）。 */
+        function sideAnnotationsTabOpen() {
+          return document.querySelector('[data-sa-ui="side"]') !== null
+        }
+
+        /** 总览右下角按钮的语义：没开就开页签，已开就收起右侧栏。 */
+        function toggleSideAnnotationsTab() {
+          if (!sideAnnotationsTabOpen()) {
+            openSideAnnotationsTab()
+            return
+          }
+          const layout = safe(() => ctx.layout)
+          if (layout !== undefined && layout !== null && typeof layout.closeRightbar === 'function') {
+            safe(() => layout.closeRightbar())
+            return
+          }
+          warn('[selection-annotations] 右侧边栏没有可用的收起方法')
+        }
+
         function openSideAnnotationsTab() {
           const service = safe(() => ctx.sidebarRight)
           if (service === undefined || service === null) {
@@ -3588,7 +3618,7 @@ const rewindHandled = new Map()
           imageSettingsRow: () => imageSettingsRow(),
           instructionSettingsRow: () => instructionSettingsRow(),
           fallbackSettingsRow: () => fallbackSettingsRow(),
-          openSideTab: () => openSideAnnotationsTab(),
+          openSideTab: () => toggleSideAnnotationsTab(),
           isAdopt: hasAdoptNote,
         })
         const renderPanel = () => panelRenderer.render(panelEl)

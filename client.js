@@ -160,8 +160,11 @@
 .sa-side-quote { font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, #a3a3ab); }
 .sa-side-note { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); white-space: pre-wrap; word-break: break-word; }
 .sa-side-adopt { color: var(--dsw-alias-state-success-primary, #3fb950); }
-.sa-panel-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
+.sa-panel-hint { min-width: 0; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
   color: var(--dsw-alias-label-tertiary, GrayText); }
+@keyframes sa-hint-roll { 0% { transform: translateX(0); opacity: 1; } 42% { transform: translateX(-120%); opacity: 0; }
+  58% { transform: translateX(120%); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
+.sa-panel-hint.sa-hint-roll { animation: sa-hint-roll 560ms cubic-bezier(.22, .61, .36, 1); }
 .sa-panel-count { padding: 2px 7px; border-radius: 999px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-secondary, GrayText); background: var(--dsw-alias-bg-layer-2, ButtonFace); }
 .sa-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 8px 10px; }
@@ -3528,25 +3531,28 @@ ${PICK_SCRIPT}<\/script>`;
         function flashPanelHint(message) {
           const hint = document.querySelector(".sa-panel-hint");
           if (hint === null) return;
-          const previous = hint.textContent;
-          hint.textContent = message;
-          hint.title = message;
-          window.setTimeout(() => {
+          const roll = (next) => {
             if (!hint.isConnected) return;
-            hint.textContent = previous;
-            hint.title = previous;
-          }, 1600);
+            hint.classList.remove("sa-hint-roll");
+            void hint.offsetWidth;
+            hint.classList.add("sa-hint-roll");
+            window.setTimeout(() => {
+              if (!hint.isConnected) return;
+              hint.textContent = next;
+              hint.title = next;
+            }, 236);
+          };
+          roll(message);
+          window.setTimeout(() => roll(t("panel.foot")), 1600);
         }
         function copyAnnotationsToClipboard(items) {
           const list = Array.isArray(items) ? items : [];
           if (list.length === 0) return;
           copyPlainText(serializeAnnotations(list));
         }
-        function importAnnotations(items) {
-          const list = Array.isArray(items) ? items : [];
-          if (list.length === 0) return 0;
-          const seen = new Set(annotations.map((item) => annotationSignature(item)));
+        function addUniqueAnnotations(list) {
           let added = 0;
+          const seen = new Set(annotations.map((item) => annotationSignature(item)));
           for (const item of list) {
             const signature = annotationSignature(item);
             if (seen.has(signature)) continue;
@@ -3559,6 +3565,12 @@ ${PICK_SCRIPT}<\/script>`;
             });
             if (created !== void 0) added += 1;
           }
+          return added;
+        }
+        function importAnnotations(items) {
+          const list = Array.isArray(items) ? items : [];
+          if (list.length === 0) return 0;
+          const added = addUniqueAnnotations(list);
           if (added > 0) {
             flashPanelHint(t("panel.pasteDone", { n: added }));
             scheduleRepaint();
@@ -5219,7 +5231,7 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function reuseSentItems(items) {
           const list = Array.isArray(items) ? items : [];
-          let added = 0;
+          const normalized = [];
           for (const item of list) {
             if (typeof item?.quote !== "string" && typeof item?.note !== "string") continue;
             const images = (Array.isArray(item.thumbs) ? item.thumbs : []).filter((thumb) => typeof thumb?.dataUrl === "string" && thumb.dataUrl !== "").map((thumb, index) => {
@@ -5233,15 +5245,14 @@ ${PICK_SCRIPT}<\/script>`;
                 bytes: Math.round(full.length * 3 / 4)
               };
             });
-            addAnnotation({
+            normalized.push({
               quote: typeof item.quote === "string" ? item.quote : "",
               note: typeof item.note === "string" ? item.note : "",
               images,
-              source: item.source ?? { kind: "dom" }
+              source: item.source
             });
-            added += 1;
           }
-          return added;
+          return addUniqueAnnotations(normalized);
         }
         function deleteFromPopover() {
           const target = popoverTargetId;
@@ -5874,6 +5885,21 @@ ${PICK_SCRIPT}`;
         }, "selection-annotations: html preview body");
         const SIDE_TAB_ID = "@u2a5f/dsh-selection-annotations";
         const SIDE_TAB_KIND = "selection-annotations";
+        function sideAnnotationsTabOpen() {
+          return document.querySelector('[data-sa-ui="side"]') !== null;
+        }
+        function toggleSideAnnotationsTab() {
+          if (!sideAnnotationsTabOpen()) {
+            openSideAnnotationsTab();
+            return;
+          }
+          const layout = safe(() => ctx.layout);
+          if (layout !== void 0 && layout !== null && typeof layout.closeRightbar === "function") {
+            safe(() => layout.closeRightbar());
+            return;
+          }
+          warn("[selection-annotations] 右侧边栏没有可用的收起方法");
+        }
         function openSideAnnotationsTab() {
           const service = safe(() => ctx.sidebarRight);
           if (service === void 0 || service === null) {
@@ -6006,7 +6032,7 @@ ${PICK_SCRIPT}`;
           imageSettingsRow: () => imageSettingsRow(),
           instructionSettingsRow: () => instructionSettingsRow(),
           fallbackSettingsRow: () => fallbackSettingsRow(),
-          openSideTab: () => openSideAnnotationsTab(),
+          openSideTab: () => toggleSideAnnotationsTab(),
           isAdopt: hasAdoptNote
         });
         const renderPanel = () => panelRenderer.render(panelEl);

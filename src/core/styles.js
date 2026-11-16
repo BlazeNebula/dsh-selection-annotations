@@ -158,8 +158,11 @@ export const CSS = `
 .sa-side-quote { font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, #a3a3ab); }
 .sa-side-note { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); white-space: pre-wrap; word-break: break-word; }
 .sa-side-adopt { color: var(--dsw-alias-state-success-primary, #3fb950); }
-.sa-panel-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
+.sa-panel-hint { min-width: 0; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
   color: var(--dsw-alias-label-tertiary, GrayText); }
+@keyframes sa-hint-roll { 0% { transform: translateX(0); opacity: 1; } 42% { transform: translateX(-120%); opacity: 0; }
+  58% { transform: translateX(120%); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
+.sa-panel-hint.sa-hint-roll { animation: sa-hint-roll 560ms cubic-bezier(.22, .61, .36, 1); }
 .sa-panel-count { padding: 2px 7px; border-radius: 999px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-secondary, GrayText); background: var(--dsw-alias-bg-layer-2, ButtonFace); }
 .sa-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 8px 10px; }
