@@ -4050,40 +4050,34 @@ ${PICK_SCRIPT}<\/script>`;
           }
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)];
-            const probe = document.querySelector(`[data-chat-turn="${turn}"][data-chat-flow-kind]`);
-            const flow = probe?.parentElement ?? null;
-            if (flow !== null) {
-              const key = String(turn);
-              const rows = [...flow.children].filter(
-                (el2) => el2.getAttribute?.("data-chat-turn") === key && el2.hasAttribute?.("data-chat-flow-kind")
-              );
-              const isReply = (el2) => el2.getAttribute("data-chat-flow-kind") === "assistant-step" && (el2.getAttribute("data-chat-group-part") === "response" || el2.getAttribute("data-chat-group-part") === null);
-              let ref = rows.filter(isReply).pop() ?? null;
-              if (ref === null) ref = rows.find((el2) => el2.getAttribute("data-chat-flow-kind") === "turn-tail") ?? null;
-              if (ref !== null && ref.parentElement === flow && ref.closest("[data-step-process-body],[data-turn-process-inline],.xMeOpW_body,[data-turn-process-member]") === null) {
-                moveSection(section, flow, ref);
-                return;
+            const key = String(turn);
+            const inProcess = (el2) => typeof el2.closest === "function" && el2.closest("[data-step-process-body],[data-turn-process-inline]") !== null;
+            const isProcessRow = (el2) => {
+              const kind = el2.getAttribute?.("data-chat-flow-kind") ?? "";
+              return kind === "turn-process" || el2.hasAttribute?.("data-turn-process-member") || el2.hasAttribute?.("data-turn-process-inline");
+            };
+            const isAnswerRow = (el2) => {
+              const kind = el2.getAttribute?.("data-chat-flow-kind") ?? "";
+              if (kind !== "assistant" && kind !== "assistant-step") return false;
+              const part = el2.getAttribute?.("data-chat-group-part");
+              return part === null || part === "response";
+            };
+            const rows = [...document.querySelectorAll(`[data-chat-turn="${key}"][data-chat-flow-kind]`)].filter((el2) => !inProcess(el2));
+            let lastProcess = -1;
+            rows.forEach((el2, index) => {
+              if (isProcessRow(el2)) lastProcess = index;
+            });
+            let target = rows.find((el2, index) => index > lastProcess && isAnswerRow(el2)) ?? null;
+            if (target === null) target = [...rows].reverse().find(isAnswerRow) ?? null;
+            if (target !== null) {
+              let top = target;
+              while (top.parentElement !== null && top.parentElement.getAttribute?.("data-chat-turn") === key) {
+                top = top.parentElement;
               }
-              if (ref === null) {
-                const nested = [...document.querySelectorAll(`[data-chat-turn="${key}"][data-chat-flow-kind]`)].filter((el2) => {
-                  const kind = el2.getAttribute("data-chat-flow-kind") ?? "";
-                  if (kind !== "assistant" && kind !== "assistant-step") return false;
-                  const part = el2.getAttribute("data-chat-group-part");
-                  if (part !== null && part !== "response") return false;
-                  return el2.closest("[data-step-process-body],[data-turn-process-inline],[data-turn-process-member]") === null;
-                });
-                const pick = nested[nested.length - 1] ?? null;
-                if (pick !== null) {
-                  let top = pick;
-                  while (top.parentElement !== null && top.parentElement.getAttribute?.("data-chat-turn") === key) {
-                    top = top.parentElement;
-                  }
-                  const container2 = top.parentElement;
-                  if (container2 !== null && container2 !== section) {
-                    moveSection(section, container2, top);
-                    return;
-                  }
-                }
+              const container2 = top.parentElement;
+              if (container2 !== null && container2 !== section) {
+                moveSection(section, container2, top);
+                return;
               }
             }
             let lastMember = null;

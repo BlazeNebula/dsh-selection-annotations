@@ -1267,60 +1267,48 @@ const rewindHandled = new Map()
               return
             }
           }
-          // 答复卡紧跟在最终输出之后：找到该轮最后一个助手内容块，插在它后面；
-          // 下方即使还有插队消息，答复也不会被推远。
+          // 答复卡要放在「工具链之后、整段最终正文之前」。
+          // 最终正文常由多行 assistant-step 组成，只取最后一行会把卡片塞进正文中间；
+          // 所以先定位该轮最后一个过程行，再取它之后的第一个正文行作为参照。
           if (Number.isFinite(turn)) {
             const items = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)]
-            // 0.2.2 的结构：flow 容器直接挂着「过程组」和「最终正文」两类行。
-            // 答复卡要成为 flow 容器的直接子节点，插在最终正文行之前，
-            // 这样与过程链、正文同级，不在任何 hidden / 限高容器里。
-            const probe = document.querySelector(`[data-chat-turn="${turn}"][data-chat-flow-kind]`)
-            const flow = probe?.parentElement ?? null
-            if (flow !== null) {
-              const key = String(turn)
-              const rows = [...flow.children].filter(
-                (el) =>
-                  el.getAttribute?.('data-chat-turn') === key &&
-                  el.hasAttribute?.('data-chat-flow-kind'),
+            const key = String(turn)
+            const inProcess = (el) =>
+              typeof el.closest === 'function'
+              && el.closest('[data-step-process-body],[data-turn-process-inline]') !== null
+            const isProcessRow = (el) => {
+              const kind = el.getAttribute?.('data-chat-flow-kind') ?? ''
+              return (
+                kind === 'turn-process'
+                || el.hasAttribute?.('data-turn-process-member')
+                || el.hasAttribute?.('data-turn-process-inline')
               )
-              const isReply = (el) =>
-                el.getAttribute('data-chat-flow-kind') === 'assistant-step' &&
-                (el.getAttribute('data-chat-group-part') === 'response' ||
-                  el.getAttribute('data-chat-group-part') === null)
-              let ref = rows.filter(isReply).pop() ?? null
-              if (ref === null) ref = rows.find((el) => el.getAttribute('data-chat-flow-kind') === 'turn-tail') ?? null
-              if (
-                ref !== null &&
-                ref.parentElement === flow &&
-                ref.closest('[data-step-process-body],[data-turn-process-inline],.xMeOpW_body,[data-turn-process-member]') === null
-              ) {
-                moveSection(section, flow, ref)
-                return
+            }
+            const isAnswerRow = (el) => {
+              const kind = el.getAttribute?.('data-chat-flow-kind') ?? ''
+              if (kind !== 'assistant' && kind !== 'assistant-step') return false
+              const part = el.getAttribute?.('data-chat-group-part')
+              return part === null || part === 'response'
+            }
+            const rows = [...document.querySelectorAll(`[data-chat-turn="${key}"][data-chat-flow-kind]`)]
+              .filter((el) => !inProcess(el))
+            let lastProcess = -1
+            rows.forEach((el, index) => {
+              if (isProcessRow(el)) lastProcess = index
+            })
+            let target = rows.find((el, index) => index > lastProcess && isAnswerRow(el)) ?? null
+            if (target === null) target = [...rows].reverse().find(isAnswerRow) ?? null
+            if (target !== null) {
+              // 正文行可能被组行（同样带 data-chat-turn 的外壳）包住：上溯到组行，
+              // 让卡片与过程链、整段正文同级，不会落进正文中间或被折叠带走。
+              let top = target
+              while (top.parentElement !== null && top.parentElement.getAttribute?.('data-chat-turn') === key) {
+                top = top.parentElement
               }
-              // 最终正文有时不直接挂在 flow 下，而是被组行（带 data-chat-turn 的外壳）包住；
-              // 这时上面的直接子行匹配会落空。退一步在整轮里找最后一个助手内容行，再上溯到组行，
-              // 把卡片插在组行之前 —— 与过程链、正文同级，且不会被折叠带走。
-              if (ref === null) {
-                const nested = [...document.querySelectorAll(`[data-chat-turn="${key}"][data-chat-flow-kind]`)]
-                  .filter((el) => {
-                    const kind = el.getAttribute('data-chat-flow-kind') ?? ''
-                    if (kind !== 'assistant' && kind !== 'assistant-step') return false
-                    const part = el.getAttribute('data-chat-group-part')
-                    if (part !== null && part !== 'response') return false
-                    return el.closest('[data-step-process-body],[data-turn-process-inline],[data-turn-process-member]') === null
-                  })
-                const pick = nested[nested.length - 1] ?? null
-                if (pick !== null) {
-                  let top = pick
-                  while (top.parentElement !== null && top.parentElement.getAttribute?.('data-chat-turn') === key) {
-                    top = top.parentElement
-                  }
-                  const container = top.parentElement
-                  if (container !== null && container !== section) {
-                    moveSection(section, container, top)
-                    return
-                  }
-                }
+              const container = top.parentElement
+              if (container !== null && container !== section) {
+                moveSection(section, container, top)
+                return
               }
             }
             // 旧结构：过程成员嵌在过程容器里，先上溯到对话列的直接子节点再插。
