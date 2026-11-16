@@ -520,6 +520,11 @@
       "panel.quote": "引用",
       "panel.note": "批注",
       "panel.clear": "清空",
+      "panel.copyAll": "拷贝",
+      "panel.paste": "粘贴",
+      "panel.copy": "拷贝",
+      "panel.pasteFailed": "剪贴板里没有可导入的批注数据",
+      "panel.pasteDone": "已导入 {n} 条批注",
       "panel.webPick": "拾取网页元素",
       "panel.close": "关闭批注总览",
       "panel.collapse": "收起或展开批注总览",
@@ -641,6 +646,11 @@
       "panel.quote": "Quote",
       "panel.note": "Note",
       "panel.clear": "Clear",
+      "panel.copyAll": "Copy",
+      "panel.paste": "Paste",
+      "panel.copy": "Copy",
+      "panel.pasteFailed": "No annotation data in the clipboard",
+      "panel.pasteDone": "Imported {n} annotations",
       "panel.webPick": "Pick page element",
       "panel.close": "Close annotations",
       "panel.collapse": "Collapse or expand annotations",
@@ -1860,6 +1870,12 @@
     t,
     getAnnotations,
     clearAnnotations,
+    copyAll = () => {
+    },
+    pasteAnnotations = () => {
+    },
+    copyItem = () => {
+    },
     moveAnnotation,
     openEditPopover,
     removeAnnotation,
@@ -1895,6 +1911,10 @@
       hint.title = t("panel.foot");
       meta.appendChild(hint);
       meta.appendChild(el("span", "sa-panel-count", t("panel.count", { n: annotations.length })));
+      if (annotations.length > 0) {
+        meta.appendChild(button("sa-foot-action", t("panel.copyAll"), () => copyAll()));
+      }
+      meta.appendChild(button("sa-foot-action", t("panel.paste"), () => pasteAnnotations()));
       if (annotations.length > 0) {
         meta.appendChild(button("sa-foot-action", t("panel.clear"), () => clearAnnotations()));
       }
@@ -1948,6 +1968,7 @@
         summary.title = summary.textContent;
         head.appendChild(summary);
         const actions = el("div", "sa-item-actions");
+        actions.appendChild(button("sa-item-action", t("panel.copy"), () => copyItem(item)));
         actions.appendChild(button("sa-item-action", t("panel.edit"), () => openEditPopover(item.id, head)));
         actions.appendChild(button("sa-item-action sa-danger", t("panel.delete"), () => removeAnnotation(item.id)));
         head.appendChild(actions);
@@ -2037,6 +2058,79 @@
       panelEl.appendChild(panelFoot);
     }
     return { render, renderSide };
+  }
+
+  // src/core/annotation-clipboard.js
+  var ANNOTATION_CLIPBOARD_KIND = "dsh-selection-annotations/clipboard";
+  var PAYLOAD_KIND2 = "dsh-selection-annotations";
+  function clipboardImage(image) {
+    if (image === null || typeof image !== "object") return void 0;
+    const dataUrl = typeof image.dataUrl === "string" && image.dataUrl !== "" ? image.dataUrl : void 0;
+    if (dataUrl === void 0) return void 0;
+    const entry = { name: typeof image.name === "string" ? image.name : "image", dataUrl };
+    if (typeof image.thumb === "string" && image.thumb !== "") entry.thumb = image.thumb;
+    if (typeof image.preview === "string" && image.preview !== "") entry.preview = image.preview;
+    return entry;
+  }
+  function clipboardItem(item) {
+    const images = (Array.isArray(item?.images) ? item.images : []).map(clipboardImage).filter(Boolean);
+    return {
+      quote: typeof item?.quote === "string" ? item.quote : "",
+      note: typeof item?.note === "string" ? item.note : "",
+      ...images.length > 0 ? { images } : {},
+      ...item?.source !== null && typeof item?.source === "object" ? { source: item.source } : {}
+    };
+  }
+  function serializeAnnotations(items) {
+    const list = Array.isArray(items) ? items : [];
+    return JSON.stringify({
+      kind: ANNOTATION_CLIPBOARD_KIND,
+      version: 1,
+      count: list.length,
+      annotations: list.map(clipboardItem)
+    });
+  }
+  function normalizeItem(value) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return void 0;
+    const quote = typeof value.quote === "string" ? value.quote : "";
+    const note = typeof value.note === "string" ? value.note : "";
+    if (quote.trim() === "" && note.trim() === "") return void 0;
+    const images = (Array.isArray(value.images) ? value.images : []).map((image) => {
+      const dataUrl = typeof image?.dataUrl === "string" ? image.dataUrl : "";
+      if (dataUrl === "") return void 0;
+      return {
+        id: `img-paste-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        name: typeof image.name === "string" ? image.name : "image",
+        dataUrl,
+        thumb: typeof image.thumb === "string" && image.thumb !== "" ? image.thumb : dataUrl,
+        preview: typeof image.preview === "string" && image.preview !== "" ? image.preview : dataUrl,
+        bytes: Math.round(dataUrl.length * 3 / 4)
+      };
+    }).filter(Boolean);
+    return {
+      quote,
+      note,
+      images,
+      source: value.source !== null && typeof value.source === "object" ? value.source : void 0
+    };
+  }
+  function parseAnnotations(text) {
+    if (typeof text !== "string" || text.trim() === "") return void 0;
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return void 0;
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
+    if (parsed.kind !== ANNOTATION_CLIPBOARD_KIND && parsed.kind !== PAYLOAD_KIND2) return void 0;
+    if (!Array.isArray(parsed.annotations)) return void 0;
+    const items = parsed.annotations.map(normalizeItem).filter(Boolean);
+    return items.length > 0 ? items : void 0;
+  }
+  function annotationSignature(item) {
+    const names = (Array.isArray(item?.images) ? item.images : []).map((image) => typeof image?.name === "string" ? image.name : "").join(",");
+    return `${typeof item?.quote === "string" ? item.quote : ""}\0${typeof item?.note === "string" ? item.note : ""}\0${names}`;
   }
 
   // src/core/web-picker.js
@@ -3430,6 +3524,61 @@ ${PICK_SCRIPT}<\/script>`;
           scheduleRepaint();
           saveDraft(annotationsSession);
           return item;
+        }
+        function flashPanelHint(message) {
+          const hint = document.querySelector(".sa-panel-hint");
+          if (hint === null) return;
+          const previous = hint.textContent;
+          hint.textContent = message;
+          hint.title = message;
+          window.setTimeout(() => {
+            if (!hint.isConnected) return;
+            hint.textContent = previous;
+            hint.title = previous;
+          }, 1600);
+        }
+        function copyAnnotationsToClipboard(items) {
+          const list = Array.isArray(items) ? items : [];
+          if (list.length === 0) return;
+          copyPlainText(serializeAnnotations(list));
+        }
+        function importAnnotations(items) {
+          const list = Array.isArray(items) ? items : [];
+          if (list.length === 0) return 0;
+          const seen = new Set(annotations.map((item) => annotationSignature(item)));
+          let added = 0;
+          for (const item of list) {
+            const signature = annotationSignature(item);
+            if (seen.has(signature)) continue;
+            seen.add(signature);
+            const created = addAnnotation({
+              quote: item.quote,
+              note: item.note,
+              images: item.images,
+              source: item.source
+            });
+            if (created !== void 0) added += 1;
+          }
+          if (added > 0) {
+            flashPanelHint(t("panel.pasteDone", { n: added }));
+            scheduleRepaint();
+          }
+          return added;
+        }
+        function pasteAnnotationsFromClipboard() {
+          const read = safe(() => navigator.clipboard?.readText);
+          if (typeof read !== "function") {
+            flashPanelHint(t("panel.pasteFailed"));
+            return;
+          }
+          read.call(navigator.clipboard).then((text) => {
+            const items = parseAnnotations(text);
+            if (items === void 0) {
+              flashPanelHint(t("panel.pasteFailed"));
+              return;
+            }
+            importAnnotations(items);
+          }).catch(() => flashPanelHint(t("panel.pasteFailed")));
         }
         function updateAnnotation(id, note, images) {
           const next = typeof note === "string" ? note.trim().slice(0, MAX_NOTE) : "";
@@ -5846,6 +5995,9 @@ ${PICK_SCRIPT}`;
           closePanel: () => closePanel(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
+          copyAll: () => copyAnnotationsToClipboard(annotations),
+          pasteAnnotations: () => pasteAnnotationsFromClipboard(),
+          copyItem: (item) => copyAnnotationsToClipboard([item]),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
           removeAnnotation: (id) => removeAnnotation(id),
@@ -6271,6 +6423,27 @@ ${PICK_SCRIPT}`;
           if (items.length > 0) reuseSentItems(items);
           scheduleRepaint();
         }
+        ctx.effect(() => {
+          const onPaste = (event) => {
+            const target = elementOf2(event.target);
+            if (target === null) return;
+            const editable = target.closest('[contenteditable="true"], [contenteditable="plaintext-only"], textarea');
+            if (editable === null || editable.closest("[data-composer-card]") === null) return;
+            let text = "";
+            try {
+              text = event.clipboardData?.getData("text/plain") ?? "";
+            } catch {
+              return;
+            }
+            const items = parseAnnotations(text);
+            if (items === void 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            importAnnotations(items);
+          };
+          document.addEventListener("paste", onPaste, true);
+          return () => document.removeEventListener("paste", onPaste, true);
+        });
         ctx.effect(() => {
           let timer = null;
           let disposed = false;

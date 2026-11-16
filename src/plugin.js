@@ -46,6 +46,11 @@ import { createSourceResolver } from './core/source-resolve.js'
 import { createCards, VERDICT_LABELS } from './core/cards.js'
 import { createMarkdown } from './core/markdown.js'
 import { createPanelRenderer } from './core/panel-render.js'
+import {
+  serializeAnnotations,
+  parseAnnotations,
+  annotationSignature,
+} from './core/annotation-clipboard.js'
 import { createWebPicker, PICK_SCRIPT } from './core/web-picker.js'
 import { createPreviewBridge } from './core/preview-bridge.js'
 import { createSentStore } from './core/sent-store.js'
@@ -610,6 +615,70 @@ const rewindHandled = new Map()
           scheduleRepaint()
           saveDraft(annotationsSession)
           return item
+        }
+
+        /** 总览右上角的提示位：临时换成一条反馈，1.6 秒后恢复。 */
+        function flashPanelHint(message) {
+          const hint = document.querySelector('.sa-panel-hint')
+          if (hint === null) return
+          const previous = hint.textContent
+          hint.textContent = message
+          hint.title = message
+          window.setTimeout(() => {
+            if (!hint.isConnected) return
+            hint.textContent = previous
+            hint.title = previous
+          }, 1600)
+        }
+
+        function copyAnnotationsToClipboard(items) {
+          const list = Array.isArray(items) ? items : []
+          if (list.length === 0) return
+          copyPlainText(serializeAnnotations(list))
+        }
+
+        /** 粘贴导入：与回放同义，追加成新批注，已存在的同一条跳过（不覆盖、不重复）。 */
+        function importAnnotations(items) {
+          const list = Array.isArray(items) ? items : []
+          if (list.length === 0) return 0
+          const seen = new Set(annotations.map((item) => annotationSignature(item)))
+          let added = 0
+          for (const item of list) {
+            const signature = annotationSignature(item)
+            if (seen.has(signature)) continue
+            seen.add(signature)
+            const created = addAnnotation({
+              quote: item.quote,
+              note: item.note,
+              images: item.images,
+              source: item.source,
+            })
+            if (created !== undefined) added += 1
+          }
+          if (added > 0) {
+            flashPanelHint(t('panel.pasteDone', { n: added }))
+            scheduleRepaint()
+          }
+          return added
+        }
+
+        function pasteAnnotationsFromClipboard() {
+          const read = safe(() => navigator.clipboard?.readText)
+          if (typeof read !== 'function') {
+            flashPanelHint(t('panel.pasteFailed'))
+            return
+          }
+          read
+            .call(navigator.clipboard)
+            .then((text) => {
+              const items = parseAnnotations(text)
+              if (items === undefined) {
+                flashPanelHint(t('panel.pasteFailed'))
+                return
+              }
+              importAnnotations(items)
+            })
+            .catch(() => flashPanelHint(t('panel.pasteFailed')))
         }
 
         /** 改写一条既有批注的批注文字与图片；原文与出处不变。*/
@@ -3508,6 +3577,9 @@ const rewindHandled = new Map()
           closePanel: () => closePanel(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
+          copyAll: () => copyAnnotationsToClipboard(annotations),
+          pasteAnnotations: () => pasteAnnotationsFromClipboard(),
+          copyItem: (item) => copyAnnotationsToClipboard([item]),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
           removeAnnotation: (id) => removeAnnotation(id),
@@ -3984,6 +4056,29 @@ const rewindHandled = new Map()
           if (items.length > 0) reuseSentItems(items)
           scheduleRepaint()
         }
+
+        // 输入区里整段粘贴我们的导出数据时，拦下这次输入，转成导入批注。
+        ctx.effect(() => {
+          const onPaste = (event) => {
+            const target = elementOf(event.target)
+            if (target === null) return
+            const editable = target.closest('[contenteditable="true"], [contenteditable="plaintext-only"], textarea')
+            if (editable === null || editable.closest('[data-composer-card]') === null) return
+            let text = ''
+            try {
+              text = event.clipboardData?.getData('text/plain') ?? ''
+            } catch {
+              return
+            }
+            const items = parseAnnotations(text)
+            if (items === undefined) return
+            event.preventDefault()
+            event.stopPropagation()
+            importAnnotations(items)
+          }
+          document.addEventListener('paste', onPaste, true)
+          return () => document.removeEventListener('paste', onPaste, true)
+        })
 
         // 逐条答复由宿主写进会话文件：轮询本机路由，把新答复挂到历史卡片后面。
         ctx.effect(() => {

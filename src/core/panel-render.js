@@ -9,6 +9,9 @@ export function createPanelRenderer({
   t,
   getAnnotations,
   clearAnnotations,
+  copyAll = () => {},
+  pasteAnnotations = () => {},
+  copyItem = () => {},
   moveAnnotation,
   openEditPopover,
   removeAnnotation,
@@ -50,6 +53,10 @@ export function createPanelRenderer({
     hint.title = t('panel.foot')
     meta.appendChild(hint)
     meta.appendChild(el('span', 'sa-panel-count', t('panel.count', { n: annotations.length })))
+    if (annotations.length > 0) {
+      meta.appendChild(button('sa-foot-action', t('panel.copyAll'), () => copyAll()))
+    }
+    meta.appendChild(button('sa-foot-action', t('panel.paste'), () => pasteAnnotations()))
     if (annotations.length > 0) {
       meta.appendChild(button('sa-foot-action', t('panel.clear'), () => clearAnnotations()))
     }
@@ -105,6 +112,7 @@ export function createPanelRenderer({
       summary.title = summary.textContent
       head.appendChild(summary)
       const actions = el('div', 'sa-item-actions')
+      actions.appendChild(button('sa-item-action', t('panel.copy'), () => copyItem(item)))
       actions.appendChild(button('sa-item-action', t('panel.edit'), () => openEditPopover(item.id, head)))
       actions.appendChild(button('sa-item-action sa-danger', t('panel.delete'), () => removeAnnotation(item.id)))
       head.appendChild(actions)
