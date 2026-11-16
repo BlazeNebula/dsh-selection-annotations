@@ -866,6 +866,15 @@
   // src/core/session.js
   function createSessionApi(ctx, getLatestSessionId) {
     function currentSessionId() {
+      const main = safe(() => {
+        const byId = ctx.sessions?.list?.getSnapshot?.()?.byId;
+        if (byId === void 0 || byId === null) return void 0;
+        for (const candidate of Object.values(byId)) {
+          if ((candidate?.retainedBy?.mainView ?? 0) > 0 && typeof candidate.id === "string") return candidate.id;
+        }
+        return void 0;
+      });
+      if (main !== void 0) return main;
       const fromUi = safe(() => {
         const binding = ctx.get("uiSession")?.adapter?.current?.getSnapshot?.();
         return typeof binding?.key === "string" && binding.key !== "" ? binding.key : void 0;
@@ -877,11 +886,6 @@
         const snap = ctx.sessions?.list?.getSnapshot?.();
         if (snap === void 0 || snap === null) return void 0;
         if (typeof snap.current === "string" && snap.current !== "") return snap.current;
-        const ids = Array.isArray(snap.ids) ? snap.ids : Object.keys(snap.byId ?? {});
-        for (const id of ids) {
-          const retained = snap.byId?.[id]?.retainedBy;
-          if (retained !== null && typeof retained === "object" && retained.mainView > 0) return id;
-        }
         return void 0;
       });
     }

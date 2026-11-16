@@ -1,13 +1,23 @@
 import { safe } from './util.js'
 
 /**
- * 会话定位：优先槽位 props 给的 id，其次 uiSession 的 current 绑定，最后退回会话列表。
+ * 会话定位：优先 sessions.list 里主视图保留的会话（retainedBy.mainView > 0），
+ * 其次 uiSession 的 current 绑定，再退回槽位 props 与快照里的 current。
  * latestSessionId 由 React 组件在渲染时回填，所以这里通过 getter 读取，避免拷贝。
  */
 export function createSessionApi(ctx, getLatestSessionId) {
   function currentSessionId() {
-    // uiSession 的 current 绑定跟随当前打开的会话；槽位 props 里的 id 可能来自
-    // 另一个仍挂载的会话（侧栏/悬浮卡），先信 uiSession，避免读到别的会话台账。
+    // 主视图只保留一个会话：sessions.list 的 byId 里 retainedBy.mainView > 0 的那条
+    // 才是用户正在看的会话。槽位 props 里的 id 会被其他仍挂载的会话覆盖，不能优先。
+    const main = safe(() => {
+      const byId = ctx.sessions?.list?.getSnapshot?.()?.byId
+      if (byId === undefined || byId === null) return undefined
+      for (const candidate of Object.values(byId)) {
+        if ((candidate?.retainedBy?.mainView ?? 0) > 0 && typeof candidate.id === 'string') return candidate.id
+      }
+      return undefined
+    })
+    if (main !== undefined) return main
     const fromUi = safe(() => {
       const binding = ctx.get('uiSession')?.adapter?.current?.getSnapshot?.()
       return typeof binding?.key === 'string' && binding.key !== '' ? binding.key : undefined
@@ -19,11 +29,6 @@ export function createSessionApi(ctx, getLatestSessionId) {
       const snap = ctx.sessions?.list?.getSnapshot?.()
       if (snap === undefined || snap === null) return undefined
       if (typeof snap.current === 'string' && snap.current !== '') return snap.current
-      const ids = Array.isArray(snap.ids) ? snap.ids : Object.keys(snap.byId ?? {})
-      for (const id of ids) {
-        const retained = snap.byId?.[id]?.retainedBy
-        if (retained !== null && typeof retained === 'object' && retained.mainView > 0) return id
-      }
       return undefined
     })
   }
