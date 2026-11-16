@@ -123,7 +123,7 @@ export const CSS = `
   transition: opacity 180ms ease, transform 180ms ease, visibility 180ms; }
 .sa-float[data-open="1"] .sa-panel { opacity: 1; visibility: visible; transform: none; }
 .sa-side-host { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
-.sa-panel-side { width: 100%; max-height: none; height: 100%; border: 0; border-radius: 0; box-shadow: none;
+.sa-panel-in-side { width: 100%; max-height: none; height: 100%; border: 0; border-radius: 0; box-shadow: none;
   background: transparent; opacity: 1; visibility: visible; transform: none; }
 .sa-panel-head { display: flex; align-items: center; flex-wrap: wrap; row-gap: 4px; gap: 8px; flex: none; padding: 12px 14px 10px;
   border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
@@ -369,6 +369,13 @@ export const CSS = `
   border-left: 2px solid var(--sa-tone, var(--dsw-alias-border-l1, ButtonBorder));
   background: var(--dsw-alias-bg-layer-2, #ffffff08); font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;
   color: var(--dsw-alias-label-secondary, #8b949e); }
+/* 「下一步」用 Markdown 渲染后，DSH 的正文样式会把字号与颜色拉回与答复一致；
+   这里把它按原来的层级压回去：字号 12.5、次要色、80% 亮度。 */
+.sa-a-next-text[data-sa-md="1"] { white-space: normal; }
+.sa-a-next-text[data-sa-md="1"] :where(p, ul, ol, li, div, span, strong, em, code, a, blockquote) {
+  font-size: inherit; line-height: inherit; color: inherit; }
+.sa-a-next-text[data-sa-md="1"] :where(p, ul, ol, blockquote) { margin: 0; }
+.sa-a-next-text[data-sa-md="1"] :where(p + p) { margin-top: 4px; }
 .sa-sent { display: block; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; }
 .sa-sent-body { margin: 0; padding: 6px 8px; box-sizing: border-box; border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: var(--dsw-alias-bg-layer-1, Canvas); }
