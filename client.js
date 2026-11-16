@@ -2421,8 +2421,6 @@
     if (typeof html !== "string" || html.includes(INJECTED_MARK)) return void 0;
     const script = `<script ${INJECTED_MARK}="1">${BRIDGE}
 ${PICK_SCRIPT}<\/script>`;
-    const bodyEnd = html.search(/<\/body\s*>/iu);
-    if (bodyEnd >= 0) return `${html.slice(0, bodyEnd)}${script}${html.slice(bodyEnd)}`;
     return `${html}${script}`;
   }
   function createPreviewBridge({ onPick, getNotes }) {

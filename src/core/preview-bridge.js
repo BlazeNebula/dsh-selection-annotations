@@ -34,8 +34,8 @@ const INJECTED_MARK = 'data-sa-preview-picker'
 function injectIntoHtml(html) {
   if (typeof html !== 'string' || html.includes(INJECTED_MARK)) return undefined
   const script = `<script ${INJECTED_MARK}="1">${BRIDGE}\n${PICK_SCRIPT}</script>`
-  const bodyEnd = html.search(/<\/body\s*>/iu)
-  if (bodyEnd >= 0) return `${html.slice(0, bodyEnd)}${script}${html.slice(bodyEnd)}`
+  // 追加到文档最末尾：页面里可能在脚本字符串或模板中出现 </body>，
+  // 按第一个 </body> 插入会把脚本塞进字符串里，永远不执行。
   return `${html}${script}`
 }
 
