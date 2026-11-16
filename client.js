@@ -363,14 +363,15 @@
   white-space: pre-wrap; word-break: break-word; }
 /* Markdown 渲染后不要再保留 pre-wrap：源码里的换行会被当成额外空行。 */
 .sa-a-reason[data-sa-md="1"] { white-space: normal; }
-.sa-a-next-label { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 4px; vertical-align: 1px;
-  font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: .02em;
+.sa-a-next-label { flex: none; writing-mode: vertical-rl; text-orientation: upright; margin: 0; padding: 4px 2px; border-radius: 4px;
+  font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: .08em; line-height: 1;
   color: var(--sa-tone, var(--dsw-alias-label-secondary, #8b949e));
   background: color-mix(in srgb, var(--sa-tone, var(--dsw-alias-border-l1, #888)) 16%, transparent); }
-.sa-a-next { margin-top: 2px; padding: 6px 10px; border-radius: 6px;
+.sa-a-next { display: flex; align-items: stretch; gap: 8px; margin-top: 2px; padding: 6px 10px; border-radius: 6px;
   border-left: 2px solid var(--sa-tone, var(--dsw-alias-border-l1, ButtonBorder));
   background: var(--dsw-alias-bg-layer-2, #ffffff08); font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;
   color: var(--dsw-alias-label-secondary, #8b949e); }
+.sa-a-next-text { flex: 1 1 auto; min-width: 0; }
 /* 「下一步」用 Markdown 渲染后，DSH 的正文样式会把字号与颜色拉回与答复一致；
    这里把它按原来的层级压回去：字号 12.5、次要色、80% 亮度。 */
 .sa-a-next-text[data-sa-md="1"] { white-space: normal; }
@@ -606,7 +607,7 @@
       "label.next": "下一步",
       "reply.index": "批注 {n}",
       "reply.fallbackLabel": "批注 {n} · 答复",
-      "next.label": "下一步",
+      "next.label": "接下来",
       "next.prefix": "下一步：{text}",
       expand: "点击展开全文",
       "source.unknown": "未知出处",
@@ -4007,7 +4008,7 @@ ${PICK_SCRIPT}<\/script>`;
           let learnedTurn = false;
           for (const [storedKey, record] of table) {
             if (record.items.length === 0) continue;
-            const anchorKey = resolveLegacyAnchor(storedKey);
+            const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
             const row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`);
             let turn = turnOfRecord(record, storedKey);
             if (!Number.isFinite(turn) && row !== null) {
@@ -4269,7 +4270,7 @@ ${PICK_SCRIPT}<\/script>`;
           }
           const byAnchor = /* @__PURE__ */ new Map();
           for (const [storedKey, record] of table) {
-            const anchorKey = resolveLegacyAnchor(storedKey);
+            const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
             const current = byAnchor.get(anchorKey);
             if (current === void 0 || current.record.savedAt < record.savedAt) {
               byAnchor.set(anchorKey, { record, turn: turnOfRecord(record, storedKey) });

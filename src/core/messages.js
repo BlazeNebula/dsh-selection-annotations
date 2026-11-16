@@ -101,7 +101,7 @@ export const MESSAGES = {
         'label.next': '下一步',
         'reply.index': '批注 {n}',
         'reply.fallbackLabel': '批注 {n} · 答复',
-        'next.label': '下一步',
+        'next.label': '接下来',
         'next.prefix': '下一步：{text}',
         expand: '点击展开全文',
         'source.unknown': '未知出处',

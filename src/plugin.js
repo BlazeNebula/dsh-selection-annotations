@@ -1162,7 +1162,9 @@ const rewindHandled = new Map()
           let learnedTurn = false
           for (const [storedKey, record] of table) {
             if (record.items.length === 0) continue
-            const anchorKey = resolveLegacyAnchor(storedKey)
+            const anchorKey = typeof record.anchorKey === 'string' && record.anchorKey !== ''
+              ? record.anchorKey
+              : resolveLegacyAnchor(storedKey)
             const row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`)
             let turn = turnOfRecord(record, storedKey)
             // 旧记录第一次看到「已完成」时把轮次记下来，之后即使消息行没加载也能定位。
@@ -1486,7 +1488,9 @@ const rewindHandled = new Map()
           }
           const byAnchor = new Map()
           for (const [storedKey, record] of table) {
-            const anchorKey = resolveLegacyAnchor(storedKey)
+            const anchorKey = typeof record.anchorKey === 'string' && record.anchorKey !== ''
+              ? record.anchorKey
+              : resolveLegacyAnchor(storedKey)
             const current = byAnchor.get(anchorKey)
             if (current === undefined || current.record.savedAt < record.savedAt) {
               byAnchor.set(anchorKey, { record, turn: turnOfRecord(record, storedKey) })
