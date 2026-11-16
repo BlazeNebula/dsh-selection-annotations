@@ -23,6 +23,7 @@ export function createPanelRenderer({
   closePanel = () => {},
   openSideTab = () => {},
   isAdopt = () => false,
+  sentStats = () => null,
 }) {
   function render(panelEl) {
     paint(panelEl, { surface: 'panel' })
@@ -193,6 +194,12 @@ export function createPanelRenderer({
     const build = el('span', 'sa-build', `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`)
     build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`
     panelFoot.appendChild(build)
+    const stats = sentStats()
+    if (stats !== null && typeof stats === 'object') {
+      const diag = el('span', 'sa-build', `已发送 ${stats.size} · 卡片 ${stats.cards} · 跳过 ${stats.skipped}`)
+      diag.title = `session ${stats.sessionId ?? '?'} · 错误 ${stats.errors ?? 0} ${stats.lastError ?? ''}`
+      panelFoot.appendChild(diag)
+    }
     if (!side) {
       const sideTab = button('sa-panel-side', '', openSideTab)
       sideTab.title = t('panel.sideTab')

@@ -1905,7 +1905,8 @@
     },
     openSideTab = () => {
     },
-    isAdopt = () => false
+    isAdopt = () => false,
+    sentStats = () => null
   }) {
     function render(panelEl) {
       paint(panelEl, { surface: "panel" });
@@ -2054,6 +2055,12 @@
       const build = el("span", "sa-build", `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`);
       build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`;
       panelFoot.appendChild(build);
+      const stats = sentStats();
+      if (stats !== null && typeof stats === "object") {
+        const diag = el("span", "sa-build", `已发送 ${stats.size} · 卡片 ${stats.cards} · 跳过 ${stats.skipped}`);
+        diag.title = `session ${stats.sessionId ?? "?"} · 错误 ${stats.errors ?? 0} ${stats.lastError ?? ""}`;
+        panelFoot.appendChild(diag);
+      }
       if (!side) {
         const sideTab = button("sa-panel-side", "", openSideTab);
         sideTab.title = t("panel.sideTab");
@@ -3996,6 +4003,7 @@ ${PICK_SCRIPT}<\/script>`;
           if (button3 === null) return null;
           return button3.closest('[data-chat-flow-kind="turn-process"]') ?? button3;
         }
+        let sentRenderStats = null;
         function renderSentCards() {
           const sessionId = currentSessionId();
           if (sessionId === void 0) return;
@@ -4006,8 +4014,12 @@ ${PICK_SCRIPT}<\/script>`;
             if (key === null || !table.has(key)) stale.remove();
           }
           let learnedTurn = false;
+          const stats = { size: table.size, cards: 0, skipped: 0, errors: 0, lastError: "", sessionId };
           for (const [storedKey, record] of table) {
-            if (record.items.length === 0) continue;
+            if (record.items.length === 0) {
+              stats.skipped += 1;
+              continue;
+            }
             const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
             const row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`);
             let turn = turnOfRecord(record, storedKey);
@@ -4020,7 +4032,10 @@ ${PICK_SCRIPT}<\/script>`;
               }
             }
             const footer = footerBlockForTurn(turn);
-            if (row === null && footer === null) continue;
+            if (row === null && footer === null) {
+              stats.skipped += 1;
+              continue;
+            }
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
             const cardOptions = {
               onReuse: () => reuseSentItems(record.items),
@@ -4083,6 +4098,8 @@ ${PICK_SCRIPT}<\/script>`;
             }
           }
           if (learnedTurn) saveSent(sessionId, table);
+          stats.cards = document.querySelectorAll('[data-sa-ui="sent"]').length;
+          sentRenderStats = stats;
         }
         const buildReplySection = (batches, items, options) => cards.buildReplySection(batches, items, options);
         function syncReplyCollapse(origin) {
@@ -6182,7 +6199,8 @@ ${PICK_SCRIPT}`;
           instructionSettingsRow: () => instructionSettingsRow(),
           fallbackSettingsRow: () => fallbackSettingsRow(),
           openSideTab: () => toggleSideAnnotationsTab(),
-          isAdopt: hasAdoptNote
+          isAdopt: hasAdoptNote,
+          sentStats: () => sentRenderStats
         });
         const renderPanel = () => panelRenderer.render(panelEl);
         function settingsChevron() {

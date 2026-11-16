@@ -1148,6 +1148,9 @@ const rewindHandled = new Map()
           return button.closest('[data-chat-flow-kind="turn-process"]') ?? button
         }
 
+        /** 已发送卡片的最近一次渲染统计，给面板底部诊断行用。 */
+        let sentRenderStats = null
+
         /** 在所属轮次的「已完成」之前补出已提交批注卡片；按轮次定位，不依赖消息行是否已加载。*/
         function renderSentCards() {
           const sessionId = currentSessionId()
@@ -1160,8 +1163,9 @@ const rewindHandled = new Map()
             if (key === null || !table.has(key)) stale.remove()
           }
           let learnedTurn = false
+          const stats = { size: table.size, cards: 0, skipped: 0, errors: 0, lastError: '', sessionId }
           for (const [storedKey, record] of table) {
-            if (record.items.length === 0) continue
+            if (record.items.length === 0) { stats.skipped += 1; continue }
             const anchorKey = typeof record.anchorKey === 'string' && record.anchorKey !== ''
               ? record.anchorKey
               : resolveLegacyAnchor(storedKey)
@@ -1177,7 +1181,7 @@ const rewindHandled = new Map()
               }
             }
             const footer = footerBlockForTurn(turn)
-            if (row === null && footer === null) continue
+            if (row === null && footer === null) { stats.skipped += 1; continue }
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
             const cardOptions = {
               onReuse: () => reuseSentItems(record.items),
@@ -1255,6 +1259,8 @@ const rewindHandled = new Map()
             }
           }
           if (learnedTurn) saveSent(sessionId, table)
+          stats.cards = document.querySelectorAll('[data-sa-ui="sent"]').length
+          sentRenderStats = stats
         }
 
         const buildReplySection = (batches, items, options) => cards.buildReplySection(batches, items, options)
@@ -3761,6 +3767,7 @@ const rewindHandled = new Map()
           fallbackSettingsRow: () => fallbackSettingsRow(),
           openSideTab: () => toggleSideAnnotationsTab(),
           isAdopt: hasAdoptNote,
+          sentStats: () => sentRenderStats,
         })
         const renderPanel = () => panelRenderer.render(panelEl)
 
