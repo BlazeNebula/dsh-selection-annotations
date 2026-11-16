@@ -2046,15 +2046,18 @@
   var host = document.createElement('div')
   host.setAttribute('data-sa-web-picker', '')
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483000;pointer-events:none;contain:layout style;'
+  // 页面自己的 button/svg 样式会污染按钮组（圆角、隐藏图标、字号），整组放进
+  // Shadow DOM 隔离；宿主要 pointer-events:none，内部按钮再单独打开命中。
+  var root = typeof host.attachShadow === 'function' ? host.attachShadow({ mode: 'open' }) : host
   var box = document.createElement('div')
   box.style.cssText = 'position:fixed;border:2px solid rgba(36,123,191,.95);border-radius:0;background:transparent;display:none;pointer-events:none;box-sizing:border-box;'
   var actions = document.createElement('div')
-  actions.style.cssText = 'position:fixed;display:none;pointer-events:auto;z-index:2147483001;align-items:center;gap:0;padding:0 6px;border-radius:6px;background:rgba(0,0,0,.1);-webkit-mask-image:linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent);mask-image:linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent);'
+  actions.style.cssText = 'position:fixed;display:none;pointer-events:auto;z-index:2147483001;align-items:center;gap:0;padding:0;border-radius:8px;overflow:hidden;background:rgba(0,0,0,.1);-webkit-mask-image:linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent);mask-image:linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent);transition:background .12s;'
   var layers = document.createElement('div')
   layers.setAttribute('data-sa-web-notes', '')
-  host.appendChild(layers)
-  host.appendChild(box)
-  host.appendChild(actions)
+  root.appendChild(layers)
+  root.appendChild(box)
+  root.appendChild(actions)
   document.documentElement.appendChild(host)
 
   var ICONS = {
@@ -2065,14 +2068,38 @@
     ],
   }
 
+  var FEATHER = 'linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent)'
+
+  function buttonsOf() {
+    return actions.querySelectorAll('button')
+  }
+
+  /** 未进入按钮组：整组 10% 底、两侧羽化（羽化宽度为字号的一半），按钮本身透明。 */
   function resetTone() {
     actions.style.background = 'rgba(0,0,0,.1)'
-    var buttons = actions.querySelectorAll('button')
+    actions.style.webkitMaskImage = FEATHER
+    actions.style.maskImage = FEATHER
+    var buttons = buttonsOf()
     for (var i = 0; i < buttons.length; i += 1) {
       buttons[i].style.background = 'transparent'
       buttons[i].style.color = 'rgba(255,255,255,.8)'
     }
   }
+
+  /** 已进入按钮组：取消羽化，未悬停的按钮 50%，指针下的按钮 80%。 */
+  function toneOnEnter() {
+    actions.style.background = 'transparent'
+    actions.style.webkitMaskImage = 'none'
+    actions.style.maskImage = 'none'
+    var buttons = buttonsOf()
+    for (var i = 0; i < buttons.length; i += 1) {
+      buttons[i].style.background = 'rgba(0,0,0,.5)'
+      buttons[i].style.color = '#fff'
+    }
+  }
+
+  actions.addEventListener('pointerenter', toneOnEnter)
+  actions.addEventListener('pointerleave', resetTone)
 
   function iconFor(action) {
     var svgNS = 'http://www.w3.org/2000/svg'
@@ -2082,6 +2109,7 @@
     svg.setAttribute('height', '14')
     svg.setAttribute('fill', 'none')
     svg.setAttribute('stroke-width', '1')
+    svg.style.cssText = 'flex:0 0 auto;display:block;'
     var paths = action === 'delete'
       ? ['M3 4.2h10', 'M6 4.2V2.8h4v1.4', 'M4.4 4.2l.5 8h6.2l.5-8']
       : (ICONS[action] || ICONS.feedback)
@@ -2105,11 +2133,17 @@
     var button = document.createElement('button')
     button.type = 'button'
     button.dataset.action = action
-    button.style.cssText = 'pointer-events:auto;display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:0;border-right:' + (last ? '0' : '1px solid rgba(255,255,255,.16)') + ';background:transparent;color:rgba(255,255,255,.8);font:12px/1.4 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.85);transition:background .12s;'
+    button.style.cssText = 'pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:24px;padding:0 9px;border:0;border-radius:0;border-right:' + (last ? '0' : '1px solid rgba(255,255,255,.16)') + ';background:transparent;color:rgba(255,255,255,.8);font:12px/1 system-ui,sans-serif;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.85);transition:background .12s;'
     button.appendChild(iconFor(action))
     button.appendChild(document.createTextNode(label))
-    button.addEventListener('pointerenter', function () { button.style.background = 'rgba(0,0,0,.8)' })
-    button.addEventListener('pointerleave', function () { button.style.background = 'transparent' })
+    button.addEventListener('pointerenter', function () {
+      button.style.background = 'rgba(0,0,0,.8)'
+      button.style.color = '#fff'
+    })
+    button.addEventListener('pointerleave', function () {
+      button.style.background = 'rgba(0,0,0,.5)'
+      button.style.color = '#fff'
+    })
     button.addEventListener('click', function (event) { onClick(event, action, id) })
     return button
   }
