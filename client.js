@@ -3187,6 +3187,8 @@ ${PICK_SCRIPT}<\/script>`;
         let attachedSessionId = void 0;
         let lastAnnotatedKeys = /* @__PURE__ */ new Set();
         let draftSeen = false;
+        let stagedAt = 0;
+        let sendGestureAt = 0;
         let maintaining = false;
         let watchUnsub = void 0;
         let watchTimer = null;
@@ -3338,7 +3340,7 @@ ${PICK_SCRIPT}<\/script>`;
                 draftSeen = true;
                 return;
               }
-              if (!draftSeen) return;
+              if (!draftSeen && sendGestureAt < stagedAt) return;
               scheduleConsumeCheck();
             });
           }
@@ -4384,6 +4386,20 @@ ${PICK_SCRIPT}<\/script>`;
           const apply = typeof shell?.setDraft === "function" ? shell.setDraft.bind(shell) : shell?.actions?.setDraft;
           if (typeof apply !== "function") return;
           safe(() => apply(text));
+        }
+        function armSendConsumeCheck() {
+          const at = Date.now();
+          sendGestureAt = at;
+          window.setTimeout(() => {
+            if (sendGestureAt !== at) return;
+            if (draftIds.length === 0 || annotations.length === 0) return;
+            const shell = inputShell();
+            if (shell === void 0) return;
+            const live = liveAttachmentIds(shell);
+            const held = live === void 0 ? true : draftIds.some((id) => live.includes(id));
+            if (held) return;
+            markConsumed("发送手势后附件已离开输入框");
+          }, 2e3);
         }
         const overlay = document.createElement("div");
         overlay.className = "sa-overlay";
@@ -6584,6 +6600,7 @@ ${PICK_SCRIPT}`;
             const shell = inputShell();
             if (shell === void 0) return;
             ensureFallbackPrompt(shell);
+            armSendConsumeCheck();
           };
           const onDocumentClick = (event) => {
             const target = elementOf2(event.target);

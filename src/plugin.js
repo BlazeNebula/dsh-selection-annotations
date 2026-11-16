@@ -160,6 +160,10 @@ export function createPlugin(React, extras = {}) {
         let lastAnnotatedKeys = new Set()
         /** 批注附件是否已被 composer 确认挂上（用来区分「还没同步」与「已被发送消费」）。*/
         let draftSeen = false
+        /** 这一批附件挂上输入框的时刻；用来和「用户点发送」的时刻比较。*/
+        let stagedAt = 0
+        /** 用户最近一次点发送/按 Enter 提交的时刻；排队发送时输入态可能还没被观察到「在场」。*/
+        let sendGestureAt = 0
         /** 本插件正在自己摘/挂附件时为真：这段发布不能被当成「消息已发送」。*/
         let maintaining = false
         let watchUnsub = undefined
@@ -379,8 +383,10 @@ const rewindHandled = new Map()
                 draftSeen = true
                 return
               }
-              // 首次「在场」没被看到之前不敢下结论：那可能只是还没挂上去。
-              if (!draftSeen) return
+            // 首次「在场」没被看到之前不敢下结论：那可能只是还没挂上去。
+            // 例外：用户已经点过发送/按过 Enter。排队发送时回合还没结束，输入态可能从未被观察到
+            // 「在场」就被搬进队列，附件此后也不会回到输入框；只认 draftSeen 会让这批批注永远挂在界面上。
+            if (!draftSeen && sendGestureAt < stagedAt) return
               scheduleConsumeCheck()
             })
           }
@@ -1664,8 +1670,7 @@ const rewindHandled = new Map()
         /* ------------------------------------------------------------------ 覆盖层绘到*/
 
         /** 只带批注、正文为空时补一句正文：有的插件会拦截空正文的发送。 */
-        function ensureFallbackPrompt(shell) {
-          let text = fallbackTextOf()
+        function ensureFallbackPrompt(shell) {          let text = fallbackTextOf()
           if (typeof text !== 'string' || text.trim() === '') return
           const now = new Date()
           const stamp = [
@@ -1686,6 +1691,27 @@ const rewindHandled = new Map()
           const apply = typeof shell?.setDraft === 'function' ? shell.setDraft.bind(shell) : shell?.actions?.setDraft
           if (typeof apply !== 'function') return
           safe(() => apply(text))
+        }
+
+        /**
+         * 用户按下发送后补一道兜底：排队发送时消息还没进入会话，输入框里的附件会先离开，
+         * 而那个瞬间的「在场→离场」不一定被轮询看到；只靠 watchDraft 时这批批注会一直挂在界面上。
+         * 这里在发送手势后等两秒：附件确实不在输入框里而批注还在，就按已发送处理。
+         */
+        function armSendConsumeCheck() {
+          const at = Date.now()
+          sendGestureAt = at
+          window.setTimeout(() => {
+            // 期间又按了一次或已经被正常消费，交给原路径处理。
+            if (sendGestureAt !== at) return
+            if (draftIds.length === 0 || annotations.length === 0) return
+            const shell = inputShell()
+            if (shell === undefined) return
+            const live = liveAttachmentIds(shell)
+            const held = live === undefined ? true : draftIds.some((id) => live.includes(id))
+            if (held) return
+            markConsumed('发送手势后附件已离开输入框')
+          }, 2000)
         }
 
         const overlay = document.createElement('div')
@@ -4237,6 +4263,7 @@ const rewindHandled = new Map()
             const shell = inputShell()
             if (shell === undefined) return
             ensureFallbackPrompt(shell)
+            armSendConsumeCheck()
           }
           const onDocumentClick = (event) => {
             const target = elementOf(event.target)
