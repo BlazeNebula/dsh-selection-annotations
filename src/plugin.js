@@ -2319,16 +2319,30 @@ const rewindHandled = new Map()
           popover.style.maxHeight = `${Math.floor(available)}px`
           const effectiveHeight = Math.min(height, available)
           top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap
-          // 从总览里点开时，弹层不能压住总览：放到面板左侧，放不下再放右侧，纵向与条目同高。
-          const panelEl = popoverSource === 'manual' ? document.querySelector('[data-sa-ui="panel"]') : null
-          const panelRect = panelEl === null ? null : safe(() => panelEl.getBoundingClientRect())
-          if (panelRect !== undefined && panelRect !== null && panelRect.width > 0) {
-            // 先放面板右侧；右边放不下再放左侧。
-            const rightOfPanel = panelRect.right + gap
-            left =
-              rightOfPanel + width <= window.innerWidth - margin
-                ? rightOfPanel
-                : Math.max(margin, panelRect.left - width - gap)
+          // 从总览里点开时，弹层不能压住总览：先找左右视野的空位，
+          // 只有左右都放不下时才退回到条目的上方/下方。
+          const surface =
+            popoverSource === 'manual'
+              ? (document.querySelector('[data-sa-ui="panel"]')
+                ?? document.querySelector('[data-sa-ui="side"]'))
+              : null
+          const surfaceRect = surface === null ? null : safe(() => surface.getBoundingClientRect())
+          if (surfaceRect !== undefined && surfaceRect !== null && surfaceRect.width > 0) {
+            if (surface.getAttribute('data-sa-ui') === 'side') {
+              // 侧栏在窗口最右边：优先放到整块侧栏的左侧（对话区），左边不够再试右侧。
+              const leftOfSide = surfaceRect.left - width - gap
+              left =
+                leftOfSide >= margin
+                  ? leftOfSide
+                  : Math.min(window.innerWidth - width - margin, surfaceRect.right + gap)
+            } else {
+              // 悬浮总览：先放面板右侧；右边放不下再放左侧。
+              const rightOfPanel = surfaceRect.right + gap
+              left =
+                rightOfPanel + width <= window.innerWidth - margin
+                  ? rightOfPanel
+                  : Math.max(margin, surfaceRect.left - width - gap)
+            }
             const maxHeight = window.innerHeight - margin * 2
             const shownHeight = Math.min(height, maxHeight)
             top = Math.max(margin, Math.min(rect.top, window.innerHeight - shownHeight - margin))

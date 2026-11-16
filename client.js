@@ -4937,11 +4937,16 @@ ${PICK_SCRIPT}<\/script>`;
           popover.style.maxHeight = `${Math.floor(available)}px`;
           const effectiveHeight = Math.min(height, available);
           top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap;
-          const panelEl2 = popoverSource === "manual" ? document.querySelector('[data-sa-ui="panel"]') : null;
-          const panelRect = panelEl2 === null ? null : safe(() => panelEl2.getBoundingClientRect());
-          if (panelRect !== void 0 && panelRect !== null && panelRect.width > 0) {
-            const rightOfPanel = panelRect.right + gap;
-            left = rightOfPanel + width <= window.innerWidth - margin ? rightOfPanel : Math.max(margin, panelRect.left - width - gap);
+          const surface = popoverSource === "manual" ? document.querySelector('[data-sa-ui="panel"]') ?? document.querySelector('[data-sa-ui="side"]') : null;
+          const surfaceRect = surface === null ? null : safe(() => surface.getBoundingClientRect());
+          if (surfaceRect !== void 0 && surfaceRect !== null && surfaceRect.width > 0) {
+            if (surface.getAttribute("data-sa-ui") === "side") {
+              const leftOfSide = surfaceRect.left - width - gap;
+              left = leftOfSide >= margin ? leftOfSide : Math.min(window.innerWidth - width - margin, surfaceRect.right + gap);
+            } else {
+              const rightOfPanel = surfaceRect.right + gap;
+              left = rightOfPanel + width <= window.innerWidth - margin ? rightOfPanel : Math.max(margin, surfaceRect.left - width - gap);
+            }
             const maxHeight = window.innerHeight - margin * 2;
             const shownHeight = Math.min(height, maxHeight);
             top = Math.max(margin, Math.min(rect.top, window.innerHeight - shownHeight - margin));
