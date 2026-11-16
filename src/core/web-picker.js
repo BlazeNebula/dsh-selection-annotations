@@ -22,7 +22,7 @@ export const PICK_SCRIPT = String.raw`(function () {
   var box = document.createElement('div')
   box.style.cssText = 'position:fixed;border:2px solid rgba(36,123,191,.95);border-radius:0;background:transparent;display:none;pointer-events:none;box-sizing:border-box;'
   var actions = document.createElement('div')
-  actions.style.cssText = 'position:fixed;display:none;pointer-events:auto;z-index:2147483001;align-items:center;gap:0;padding:0;border-radius:8px;overflow:hidden;background:rgba(0,0,0,.1);-webkit-mask-image:linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent);mask-image:linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent);transition:background .12s;'
+  actions.style.cssText = 'position:fixed;display:none;pointer-events:auto;z-index:2147483001;align-items:center;gap:0;padding:0;border-radius:8px;overflow:hidden;background:rgba(0,0,0,.15);-webkit-mask-image:linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent);mask-image:linear-gradient(to right,transparent,#000 6px,#000 calc(100% - 6px),transparent);transition:background .12s;'
   var layers = document.createElement('div')
   layers.setAttribute('data-sa-web-notes', '')
   root.appendChild(layers)
@@ -44,27 +44,27 @@ export const PICK_SCRIPT = String.raw`(function () {
     return actions.querySelectorAll('button')
   }
 
-  /** 未进入按钮组：整组 10% 底、两侧羽化（羽化宽度为字号的一半），按钮本身透明。 */
+  /** 未进入按钮组：整组 15% 底、文字 50%，两侧羽化（羽化宽度为字号的一半）。 */
   function resetTone() {
-    actions.style.background = 'rgba(0,0,0,.1)'
+    actions.style.background = 'rgba(0,0,0,.15)'
     actions.style.webkitMaskImage = FEATHER
     actions.style.maskImage = FEATHER
     var buttons = buttonsOf()
     for (var i = 0; i < buttons.length; i += 1) {
       buttons[i].style.background = 'transparent'
-      buttons[i].style.color = 'rgba(255,255,255,.8)'
+      buttons[i].style.color = 'rgba(255,255,255,.5)'
     }
   }
 
-  /** 已进入按钮组：取消羽化，未悬停的按钮 50%，指针下的按钮 80%。 */
+  /** 已进入按钮组：取消羽化，未悬停的按钮背景 33%、文字 67%；指针下的按钮背景 67%、文字不透明。 */
   function toneOnEnter() {
     actions.style.background = 'transparent'
     actions.style.webkitMaskImage = 'none'
     actions.style.maskImage = 'none'
     var buttons = buttonsOf()
     for (var i = 0; i < buttons.length; i += 1) {
-      buttons[i].style.background = 'rgba(0,0,0,.5)'
-      buttons[i].style.color = '#fff'
+      buttons[i].style.background = 'rgba(0,0,0,.33)'
+      buttons[i].style.color = 'rgba(255,255,255,.67)'
     }
   }
 
@@ -107,12 +107,12 @@ export const PICK_SCRIPT = String.raw`(function () {
     button.appendChild(iconFor(action))
     button.appendChild(document.createTextNode(label))
     button.addEventListener('pointerenter', function () {
-      button.style.background = 'rgba(0,0,0,.8)'
+      button.style.background = 'rgba(0,0,0,.67)'
       button.style.color = '#fff'
     })
     button.addEventListener('pointerleave', function () {
-      button.style.background = 'rgba(0,0,0,.5)'
-      button.style.color = '#fff'
+      button.style.background = 'rgba(0,0,0,.33)'
+      button.style.color = 'rgba(255,255,255,.67)'
     })
     button.addEventListener('click', function (event) { onClick(event, action, id) })
     return button
