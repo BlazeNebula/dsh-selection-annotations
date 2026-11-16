@@ -45,18 +45,55 @@ export function createPreviewBridge({ onPick, getNotes }) {
   let syncTimer = 0
   let observer = null
   const pending = new Map()
+  const attempted = new Set()
   const originalCreate = URL.createObjectURL.bind(URL)
+
+  function isEditorFrame(frame) {
+    const className = typeof frame.className === 'string' ? frame.className : ''
+    return className.toLowerCase().includes('editorhtml') || frame.closest('[class*="editorHtml" i]') !== null
+  }
+
+  /**
+   * 兜底：不依赖 createObjectURL 的调用时机，直接读 iframe 当前的文档内容。
+   * 预览可能是 blob（它自己生成的），也可能是同源的路由地址；两种都能 fetch 到
+   * 原文，注入后再换成新的 blob。blob 文档的相对资源本来由它内联好，直接沿用。
+   */
+  async function hydrateFrame(frame, src) {
+    try {
+      const response = await fetch(src)
+      if (!response.ok) return
+      const text = await response.text()
+      if (text.includes(INJECTED_MARK)) return
+      const injected = injectIntoHtml(text)
+      if (injected === undefined) return
+      if (!frame.isConnected || frame.getAttribute('src') !== src) return
+      frame.setAttribute('src', originalCreate(new Blob([injected], { type: 'text/html;charset=utf-8' })))
+    } catch {}
+  }
 
   function swapPreviews() {
     for (const frame of document.querySelectorAll('iframe')) {
+      if (!isEditorFrame(frame)) continue
       const src = frame.getAttribute('src') ?? ''
+      if (src === '') continue
       const next = pending.get(src)
-      if (next === undefined) continue
-      const className = typeof frame.className === 'string' ? frame.className : ''
-      const host = frame.closest('[class*="editorHtml" i]') !== null
-      if (!className.toLowerCase().includes('editorhtml') && !host) continue
-      pending.delete(src)
-      frame.setAttribute('src', next)
+      if (next !== undefined) {
+        pending.delete(src)
+        attempted.add(src)
+        attempted.add(next)
+        frame.setAttribute('src', next)
+        continue
+      }
+      if (attempted.has(src)) continue
+      if (!src.startsWith('blob:')) {
+        try {
+          if (new URL(src, location.href).origin !== location.origin) continue
+        } catch {
+          continue
+        }
+      }
+      attempted.add(src)
+      hydrateFrame(frame, src)
     }
   }
 
@@ -74,6 +111,7 @@ export function createPreviewBridge({ onPick, getNotes }) {
               const injected = injectIntoHtml(text)
               if (injected === undefined) return
               const next = originalCreate(new Blob([injected], { type: 'text/html;charset=utf-8' }))
+              attempted.add(url)
               pending.set(url, next)
               swapPreviews()
             })

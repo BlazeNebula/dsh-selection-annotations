@@ -2429,17 +2429,48 @@ ${PICK_SCRIPT}<\/script>`;
     let syncTimer = 0;
     let observer = null;
     const pending = /* @__PURE__ */ new Map();
+    const attempted = /* @__PURE__ */ new Set();
     const originalCreate = URL.createObjectURL.bind(URL);
+    function isEditorFrame(frame) {
+      const className = typeof frame.className === "string" ? frame.className : "";
+      return className.toLowerCase().includes("editorhtml") || frame.closest('[class*="editorHtml" i]') !== null;
+    }
+    async function hydrateFrame(frame, src) {
+      try {
+        const response = await fetch(src);
+        if (!response.ok) return;
+        const text = await response.text();
+        if (text.includes(INJECTED_MARK)) return;
+        const injected = injectIntoHtml(text);
+        if (injected === void 0) return;
+        if (!frame.isConnected || frame.getAttribute("src") !== src) return;
+        frame.setAttribute("src", originalCreate(new Blob([injected], { type: "text/html;charset=utf-8" })));
+      } catch {
+      }
+    }
     function swapPreviews() {
       for (const frame of document.querySelectorAll("iframe")) {
+        if (!isEditorFrame(frame)) continue;
         const src = frame.getAttribute("src") ?? "";
+        if (src === "") continue;
         const next = pending.get(src);
-        if (next === void 0) continue;
-        const className = typeof frame.className === "string" ? frame.className : "";
-        const host = frame.closest('[class*="editorHtml" i]') !== null;
-        if (!className.toLowerCase().includes("editorhtml") && !host) continue;
-        pending.delete(src);
-        frame.setAttribute("src", next);
+        if (next !== void 0) {
+          pending.delete(src);
+          attempted.add(src);
+          attempted.add(next);
+          frame.setAttribute("src", next);
+          continue;
+        }
+        if (attempted.has(src)) continue;
+        if (!src.startsWith("blob:")) {
+          try {
+            if (new URL(src, location.href).origin !== location.origin) continue;
+          } catch {
+            continue;
+          }
+        }
+        attempted.add(src);
+        hydrateFrame(frame, src);
       }
     }
     function installCreateObjectUrl() {
@@ -2454,6 +2485,7 @@ ${PICK_SCRIPT}<\/script>`;
               const injected = injectIntoHtml(text);
               if (injected === void 0) return;
               const next = originalCreate(new Blob([injected], { type: "text/html;charset=utf-8" }));
+              attempted.add(url);
               pending.set(url, next);
               swapPreviews();
             }).catch(() => {
