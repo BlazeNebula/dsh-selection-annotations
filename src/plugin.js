@@ -1,4 +1,5 @@
 import { CSS } from './core/styles.js'
+import { sideTabAction } from './core/side-tab-state.js'
 import {
   ANNOTATION_FILE,
   DEFAULT_ADOPT_TEXT,
@@ -685,29 +686,60 @@ const rewindHandled = new Map()
           }, 320)
         }
 
+        /**
+         * 反馈文案按所在的表面分开记：浮层总览与右侧标签页可能同时挂载，反馈只落在
+         * 用户点的那个界面上，互不覆盖；面板重绘时也由这份状态回填。
+         */
+        const panelHintMessages = { panel: '', side: '' }
+        const panelHintTimers = { panel: 0, side: 0 }
+
+        /** 从被点击的元素判断它属于浮层还是右侧标签页；没有来源时按浮层处理。 */
+        function hintSurfaceOf(root) {
+          return root instanceof Element && root.closest('[data-sa-ui="side"]') !== null ? 'side' : 'panel'
+        }
+
+        /** 取某个表面上当前挂载的提示位；两块都挂载时优先取可见的一块。 */
+        function livePanelHint(surface) {
+          const selector = surface === 'side' ? '[data-sa-ui="side"] .sa-panel-hint' : '[data-sa-ui="panel"] .sa-panel-hint'
+          const hints = Array.from(document.querySelectorAll(selector))
+          return hints.find((hint) => hint.getClientRects().length > 0) || hints[0] || null
+        }
+
+        function panelHintTextOf(surface) {
+          return panelHintMessages[surface] || ''
+        }
+
         /** 总览右上角的提示位：换一条反馈，1.6 秒后换回默认说明。 */
-        function flashPanelHint(message) {
-          const hint = document.querySelector('.sa-panel-hint')
-          if (hint === null) return
-          if (hint.querySelector('.sa-hint-layer') === null) {
-            hint.textContent = ''
-            const layer = document.createElement('span')
-            layer.className = 'sa-hint-layer'
-            layer.textContent = t('panel.foot')
-            hint.appendChild(layer)
+        function flashPanelHint(message, root) {
+          const surface = hintSurfaceOf(root)
+          panelHintMessages[surface] = message
+          const hint = livePanelHint(surface)
+          if (hint !== null) {
+            if (hint.querySelector('.sa-hint-layer') === null) {
+              hint.textContent = ''
+              const layer = document.createElement('span')
+              layer.className = 'sa-hint-layer'
+              layer.textContent = t('panel.foot')
+              hint.appendChild(layer)
+            }
+            swapHintText(hint, message, true)
           }
-          swapHintText(hint, message, true)
-          if (hint.__saHintTimer !== undefined) window.clearTimeout(hint.__saHintTimer)
-          hint.__saHintTimer = window.setTimeout(() => {
-            hint.__saHintTimer = undefined
-            swapHintText(hint, t('panel.foot'), true)
+          if (panelHintTimers[surface] !== 0) window.clearTimeout(panelHintTimers[surface])
+          panelHintTimers[surface] = window.setTimeout(() => {
+            panelHintTimers[surface] = 0
+            panelHintMessages[surface] = ''
+            const live = livePanelHint(surface)
+            if (live !== null) swapHintText(live, t('panel.foot'), true)
           }, 1600)
         }
 
-        function copyAnnotationsToClipboard(items) {
+        /** 拷贝批注：等剪贴板写入有真实结果再给提示，成功与失败各一条文案。*/
+        async function copyAnnotationsToClipboard(items, root) {
           const list = Array.isArray(items) ? items : []
-          if (list.length === 0) return
-          copyPlainText(serializeAnnotations(list))
+          if (list.length === 0) return false
+          const copied = await writeClipboardText(serializeAnnotations(list))
+          flashPanelHint(copied ? t('panel.copyDone', { n: list.length }) : t('panel.copyFailed'), root)
+          return copied
         }
 
         /** 追加批注并去重：粘贴导入与「回放」共用同一套内容指纹判重。 */
@@ -730,21 +762,24 @@ const rewindHandled = new Map()
         }
 
         /** 粘贴导入：与回放同义，追加成新批注，已存在的同一条跳过（不覆盖、不重复）。 */
-        function importAnnotations(items) {
+        function importAnnotations(items, root) {
           const list = Array.isArray(items) ? items : []
           if (list.length === 0) return 0
           const added = addUniqueAnnotations(list)
-          if (added > 0) {
-            flashPanelHint(t('panel.pasteDone', { n: added }))
-            scheduleRepaint()
+          if (added === 0) {
+            // 列表解析成功但每一条都已存在：说清没有新内容，不冒充导入成功。
+            flashPanelHint(t('panel.pasteNothing'), root)
+            return 0
           }
+          flashPanelHint(t('panel.pasteDone', { n: added }), root)
+          scheduleRepaint()
           return added
         }
 
-        function pasteAnnotationsFromClipboard() {
+        function pasteAnnotationsFromClipboard(root) {
           const read = safe(() => navigator.clipboard?.readText)
           if (typeof read !== 'function') {
-            flashPanelHint(t('panel.pasteFailed'))
+            flashPanelHint(t('panel.pasteFailed'), root)
             return
           }
           read
@@ -752,12 +787,12 @@ const rewindHandled = new Map()
             .then((text) => {
               const items = parseAnnotations(text)
               if (items === undefined) {
-                flashPanelHint(t('panel.pasteFailed'))
+                flashPanelHint(t('panel.pasteFailed'), root)
                 return
               }
-              importAnnotations(items)
+              importAnnotations(items, root)
             })
-            .catch(() => flashPanelHint(t('panel.pasteFailed')))
+            .catch(() => flashPanelHint(t('panel.pasteFailed'), root))
         }
 
         /** 改写一条既有批注的批注文字与图片；原文与出处不变。*/
@@ -2342,6 +2377,23 @@ const rewindHandled = new Map()
           contextMenu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - height - 8))}px`
         }
 
+        /** textarea + execCommand 兜底；返回浏览器是否接受这次拷贝。*/
+        function copyWithTextarea(text) {
+          return safe(() => {
+            const area = document.createElement('textarea')
+            area.value = text
+            area.style.position = 'fixed'
+            area.style.opacity = '0'
+            document.body.appendChild(area)
+            try {
+              area.select()
+              return document.execCommand('copy') === true
+            } finally {
+              area.remove()
+            }
+          }) === true
+        }
+
         function copyPlainText(text) {
           if (typeof text !== 'string' || text === '') return
           try {
@@ -2352,16 +2404,24 @@ const rewindHandled = new Map()
           } catch {
             /* 剪贴板接口不可用时走下面的兜底*/
           }
-          safe(() => {
-            const area = document.createElement('textarea')
-            area.value = text
-            area.style.position = 'fixed'
-            area.style.opacity = '0'
-            document.body.appendChild(area)
-            area.select()
-            document.execCommand('copy')
-            area.remove()
-          })
+          copyWithTextarea(text)
+        }
+
+        /**
+         * 拷贝批注要等真实结果：异步接口写入成功才算成功，被拒或接口缺失时走同一个 textarea 兜底。
+         * 与 copyPlainText 分开，工具条 / 右键菜单「复制选中文字」原有的行为不受影响。
+         */
+        async function writeClipboardText(text) {
+          if (typeof text !== 'string' || text === '') return false
+          try {
+            if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+              await navigator.clipboard.writeText(text)
+              return true
+            }
+          } catch {
+            /* 剪贴板接口不可用或被拒时走下面的兜底*/
+          }
+          return copyWithTextarea(text)
         }
 
         /** 只在正文里已选中文字时接管右键；其余位置保持系统原样。*/
@@ -3262,7 +3322,11 @@ const rewindHandled = new Map()
         panelEl.addEventListener('drop', (event) => {
           if (event.defaultPrevented) return
           const draggedId = event.dataTransfer.getData('text/plain')
-          if (draggedId !== '') moveAnnotation(draggedId, null)
+          if (draggedId === '') return
+          // 与行内交换共用同一套 FLIP：先记旧位置，重排后再补间到新位置。
+          const before = panelRenderer.snapshotRows(panelEl)
+          moveAnnotation(draggedId, null)
+          panelRenderer.animateRows(panelEl, before)
         })
         /** 面板尺寸变化时（例如手动拖高设置输入框）重新贴底。*/
         let panelRaf = 0
@@ -3328,7 +3392,6 @@ const rewindHandled = new Map()
         /** 面板底部的批注指令设置是否展开。*/
         let instructionSettingsOpen = false
         let fallbackSettingsOpen = false
-        let debugSettingsOpen = false
 
         function button(className, text, onClick) {
           const created = el('button', className, text)
@@ -3645,25 +3708,139 @@ const rewindHandled = new Map()
 
         const SIDE_TAB_ID = '@u2a5f/dsh-selection-annotations'
         const SIDE_TAB_KIND = 'selection-annotations'
+        /** 按钮状态采样间隔：页签增删靠订阅，切换页签/收起侧栏没有公开事件，才退化到定时采样。 */
+        const SIDE_TAB_SYNC_MS = 800
 
-        /** 总览右下角的按钮：在 DSH 右侧边栏开一个批注标签页。 */
-        /** 侧栏里是否已经挂着我们的批注页签（keepMounted 的容器在关闭侧栏时会卸载）。 */
-        function sideAnnotationsTabOpen() {
-          return document.querySelector('[data-sa-ui="side"]') !== null
+        /** 当前会话里的批注页签记录；侧栏服务、会话或页签任一缺失时返回 undefined。 */
+        function findSideAnnotationsTab() {
+          const service = safe(() => ctx.sidebarRight)
+          if (service === undefined || service === null || typeof service.tabsIn !== 'function') return undefined
+          const sessionId = currentSessionId()
+          if (typeof sessionId !== 'string' || sessionId === '') return undefined
+          const tabs = safe(() => service.tabsIn(sessionId))
+          if (!Array.isArray(tabs)) return undefined
+          return tabs.find((tab) => tab !== null && tab !== undefined && tab.kind === SIDE_TAB_KIND)
         }
 
-        /** 总览右下角按钮的语义：没开就开页签，已开就收起右侧栏。 */
-        function toggleSideAnnotationsTab() {
-          if (!sideAnnotationsTabOpen()) {
+        /** 按钮决策要看的三份事实：页签记录、侧栏是否展开、该页签是否当前激活。 */
+        function sideTabState() {
+          const tab = findSideAnnotationsTab()
+          const service = safe(() => ctx.sidebarRight)
+          const usable = tab !== undefined && service !== undefined && service !== null
+          const expanded = usable ? safe(() => service.isExpanded()) === true : false
+          const active = usable
+            ? safe(() => {
+              const current = service.active()
+              return current !== undefined && current !== null && current.id === tab.id
+            }) === true
+            : false
+          return { tab, hasTab: tab !== undefined, expanded, active }
+        }
+
+        /**
+         * 按钮此刻是否显示「关闭」：只有「页签开着、侧栏展开、且这个页签是活动页签」这一种。
+         * 侧栏收成窄条时正文看不见，按钮的动作是展开而不是关闭；用户切到别的页签也回「未打开」，
+         * 再点一下会把批注页签重新聚焦，而不是什么都不发生。
+         */
+        function sideAnnotationsTabOpen() {
+          return sideTabAction(sideTabState()) === 'close'
+        }
+
+        let sideTabSyncTimer = 0
+        /** 侧栏快照的退订函数：页签增删、在屏会话切换时立刻重画按钮。 */
+        let sideTabUnsubscribers = []
+        /** 上一次画到按钮上的开合状态；null 表示还没有画过。 */
+        let sideTabPaintedOpen = null
+
+        /** 把按钮状态对齐到侧栏的真实状态；状态没变就不重画，避免打断面板里的操作。 */
+        function syncSideTabButton() {
+          const open = sideAnnotationsTabOpen()
+          if (open === sideTabPaintedOpen) return
+          sideTabPaintedOpen = open
+          renderPanel()
+          if (panelOpen) positionPanel()
+        }
+
+        /** 订阅侧栏公开的快照；拿不到的入口跳过，后面的采样负责兜底。 */
+        function subscribeSideTabSources() {
+          const service = safe(() => ctx.sidebarRight)
+          if (service === undefined || service === null) return
+          for (const source of [safe(() => service.openTabs), safe(() => service.mounted)]) {
+            if (source === undefined || source === null || typeof source.subscribe !== 'function') continue
+            const unsubscribe = safe(() => source.subscribe(syncSideTabButton))
+            if (typeof unsubscribe === 'function') sideTabUnsubscribers.push(unsubscribe)
+          }
+        }
+
+        function startSideTabSync() {
+          if (sideTabSyncTimer !== 0) return
+          // 事件优先：openTabs 覆盖页签增删（含用户从侧栏关掉页签），mounted 覆盖在屏会话切换。
+          subscribeSideTabSources()
+          // 退化轮询：active() 与 isExpanded() 没有公开的订阅入口，openTabs 也只在增删时发布，
+          // 用户切换页签或把侧栏收成窄条时只能定时采样；面板关闭即 stop，不会常驻。
+          sideTabSyncTimer = window.setInterval(syncSideTabButton, SIDE_TAB_SYNC_MS)
+        }
+
+        function stopSideTabSync() {
+          if (sideTabSyncTimer !== 0) {
+            window.clearInterval(sideTabSyncTimer)
+            sideTabSyncTimer = 0
+          }
+          for (const unsubscribe of sideTabUnsubscribers) safe(() => unsubscribe())
+          sideTabUnsubscribers = []
+        }
+
+        /** 关闭当前会话里的批注页签；服务缺失或页签已不存在时保持原状。 */
+        function closeSideAnnotationsTab() {
+          const service = safe(() => ctx.sidebarRight)
+          const tab = findSideAnnotationsTab()
+          const sessionId = currentSessionId()
+          if (service === undefined || service === null || tab === undefined) {
+            warn('[selection-annotations] 右侧边栏没有可关闭的批注标签页')
+            return
+          }
+          try {
+            if (typeof service.closeIn === 'function' && typeof sessionId === 'string' && sessionId !== '') {
+              service.closeIn(sessionId, tab.id)
+              return
+            }
+            if (typeof service.close === 'function') {
+              service.close(tab.id)
+              return
+            }
+            warn('[selection-annotations] 右侧边栏没有可用的关闭方法')
+          } catch (error) {
+            warn('[selection-annotations] 关闭右侧批注标签页失败：', error)
+          }
+        }
+
+        /** 聚焦已有页签；侧栏收起时先展开再聚焦，避免用户看不见被聚焦的页签。 */
+        function focusSideAnnotationsTab(tab, expand) {
+          const service = safe(() => ctx.sidebarRight)
+          if (service === undefined || service === null || tab === undefined) return
+          try {
+            if (expand === true && typeof service.toggleExpanded === 'function') service.toggleExpanded()
+            if (typeof service.focus === 'function') {
+              service.focus(tab.id)
+              return
+            }
+            // 没有 focus 时退回 openTabIn：已存在的页签会被聚焦并展开，不会重复开。
             openSideAnnotationsTab()
-            return
+          } catch (error) {
+            warn('[selection-annotations] 聚焦右侧批注标签页失败：', error)
           }
-          const layout = safe(() => ctx.layout)
-          if (layout !== undefined && layout !== null && typeof layout.closeRightbar === 'function') {
-            safe(() => layout.closeRightbar())
-            return
-          }
-          warn('[selection-annotations] 右侧边栏没有可用的收起方法')
+        }
+
+        /** 总览右下角按钮：按页签当前状态打开、聚焦、展开或关闭。 */
+        function toggleSideAnnotationsTab() {
+          const state = sideTabState()
+          const action = sideTabAction(state)
+          if (action === 'close') closeSideAnnotationsTab()
+          else if (action === 'focus') focusSideAnnotationsTab(state.tab, false)
+          else if (action === 'reveal') focusSideAnnotationsTab(state.tab, true)
+          else openSideAnnotationsTab()
+          // 动作会同步提交，立刻重画；侧栏异步渲染的结果由订阅和采样补齐。
+          syncSideTabButton()
         }
 
         function openSideAnnotationsTab() {
@@ -3805,9 +3982,9 @@ const rewindHandled = new Map()
           closePanel: () => closePanel(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
-          copyAll: () => copyAnnotationsToClipboard(annotations),
-          pasteAnnotations: () => pasteAnnotationsFromClipboard(),
-          copyItem: (item) => copyAnnotationsToClipboard([item]),
+          copyAll: (root) => copyAnnotationsToClipboard(annotations, root),
+          pasteAnnotations: (root) => pasteAnnotationsFromClipboard(root),
+          copyItem: (item, root) => copyAnnotationsToClipboard([item], root),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
           removeAnnotation: (id) => removeAnnotation(id),
@@ -3817,9 +3994,9 @@ const rewindHandled = new Map()
           instructionSettingsRow: () => instructionSettingsRow(),
           fallbackSettingsRow: () => fallbackSettingsRow(),
           openSideTab: () => toggleSideAnnotationsTab(),
+          isSideTabOpen: () => sideAnnotationsTabOpen(),
           isAdopt: hasAdoptNote,
-          sentStats: () => sentRenderStats,
-          debugSettingsRow: () => debugSettingsRow(),
+          getHintText: (surface) => panelHintTextOf(surface),
         })
         const renderPanel = () => panelRenderer.render(panelEl)
 
@@ -4054,67 +4231,12 @@ const rewindHandled = new Map()
           return section.box
         }
 
-        /** 跳过原因的中文标签：诊断行要能直接读懂，不再只是「跳过 3」。 */
-        const SENT_SKIP_REASON_LABELS = {
-          noSession: '无会话',
-          emptyTable: '台账为空',
-          emptyItems: '条目为空',
-          noTurn: '无轮次',
-          turnNotInDom: '轮次不在 DOM',
-        }
-
-        function sentSkipReasonText(stats) {
-          const reasons = stats?.reasons
-          if (reasons === null || typeof reasons !== 'object') return '无'
-          const parts = []
-          for (const [key, label] of Object.entries(SENT_SKIP_REASON_LABELS)) {
-            const count = Number(reasons[key]) || 0
-            if (count > 0) parts.push(`${label} ${count}`)
-          }
-          return parts.length === 0 ? '无' : parts.join('；')
-        }
-
-        /** 面板里的调试区：与图片设置、批注指令、空提示词共用同一套折叠头与动效。 */
-        function debugSettingsRow() {
-          const stats = sentRenderStats
-          const body = []
-          const rows = stats !== null && typeof stats === 'object'
-            ? [
-                ['会话', stats.sessionId ?? '?'],
-                ['已发送', String(stats.size ?? 0)],
-                ['卡片', String(stats.cards ?? 0)],
-                ['跳过', String(stats.skipped ?? 0)],
-                ['跳过原因', sentSkipReasonText(stats)],
-                ['按轮次落位', String(stats.anchorMiss ?? 0)],
-                ['轮次', stats.turnMin === null || stats.turnMin === undefined ? '无' : `第 ${stats.turnMin}–${stats.turnMax} 轮`],
-                ['错误', String(stats.errors ?? 0)],
-              ]
-            : []
-          for (const [key, value] of rows) {
-            const row = el('div', 'sa-debug-row')
-            row.append(el('span', 'sa-debug-key', key), el('span', 'sa-debug-value', value))
-            body.push(row)
-          }
-          if (body.length === 0) body.push(el('div', 'sa-hint', t('panel.debugEmpty')))
-          const section = settingsSection({
-            open: debugSettingsOpen,
-            label: t('panel.debug'),
-            getStatus: () => {
-              if (stats === null || typeof stats !== 'object') return ''
-              return `已发送 ${stats.size ?? 0} · 卡片 ${stats.cards ?? 0} · 跳过 ${stats.skipped ?? 0}`
-            },
-            body,
-            onOpenChange: (open) => {
-              debugSettingsOpen = open
-            },
-          })
-          return section.box
-        }
-
         /** 面板内容高度变化时重渲染并重新定位；面板在上方时底边因此保持不动。*/
         function refreshPanel() {
           renderPanel()
           if (panelOpen) positionPanel()
+          // 右侧标签页平时靠 800ms 轮询刷新；拖动结束要立即换新，位移动画才作用在新节点上。
+          for (const host of document.querySelectorAll('[data-sa-ui="side"]')) renderSideTabInto(host)
         }
 
         function openPanel(anchor) {
@@ -4127,11 +4249,14 @@ const rewindHandled = new Map()
           }
           panelRoot.style.display = ''
           panelRoot.dataset.open = '0'
+          // 先按真实状态画一次按钮，之后由轮询跟上用户在侧栏里的关页签、切页签。
+          sideTabPaintedOpen = sideAnnotationsTabOpen()
           renderPanel()
           positionPanel()
           // 先强制回流，确保从隐藏态开始过渡。
           void panelRoot.offsetHeight
           panelRoot.dataset.open = '1'
+          startSideTabSync()
           emit()
         }
 
@@ -4139,6 +4264,8 @@ const rewindHandled = new Map()
           if (!panelOpen) return
           panelOpen = false
           panelAnchor = null
+          stopSideTabSync()
+          sideTabPaintedOpen = null
           cancelChipTimers()
           panelOpenedByHover = false
           panelHovered = false
@@ -4286,6 +4413,7 @@ const rewindHandled = new Map()
             watchTimer = null
             if (consumeTimer !== null) window.clearTimeout(consumeTimer)
             consumeTimer = null
+            stopSideTabSync()
             overlay.remove()
             toolbar.remove()
             contextMenu.remove()
@@ -4752,7 +4880,7 @@ const rewindHandled = new Map()
             const shell = inputShell()
             if (shell !== undefined) ensureFallbackPrompt(shell)
           },
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule },
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf },
         }
     },
   }

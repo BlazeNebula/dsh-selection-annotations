@@ -81,6 +81,7 @@ function element(tag, attrs = {}, children = []) {
     addEventListener() {},
     removeEventListener() {},
     focus() {},
+    select() {},
     contains(other) {
       if (other === el) return true
       return flatten(el).includes(other)
@@ -325,6 +326,7 @@ function loadBundle(env) {
     'console',
     'AbortController',
     'NodeFilter',
+    'Element',
     SOURCE,
   )
   factory(
@@ -343,6 +345,8 @@ function loadBundle(env) {
     { log() {}, warn() {}, error() {} },
     AbortController,
     { SHOW_TEXT: 4 },
+    // 测试台的假元素不是这个类的实例：点击来源会被判成浮层（panel）。
+    class {},
   )
   assert.equal(env.loaded.length, 1, 'bundle 必须注册恰好一个模块')
   assert.equal(env.loaded[0].id, '@u2a5f/dsh-selection-annotations', 'bundle id 必须与包名逐字一致')
@@ -1712,6 +1716,61 @@ test('locale：切到英文后按钮与指令一起换，切回中文恢复', ()
   assert.equal(chipLabel(), '批注')
 })
 
+/** 临时换掉全局剪贴板接口；writeText 传 null 表示浏览器根本没有这个接口。*/
+async function withClipboard(writeText, run) {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  Object.defineProperty(globalThis, 'navigator', {
+    value: writeText === null ? {} : { clipboard: { writeText } },
+    configurable: true,
+  })
+  try {
+    return await run()
+  } finally {
+    if (descriptor === undefined) delete globalThis.navigator
+    else Object.defineProperty(globalThis, 'navigator', descriptor)
+  }
+}
+
+test('拷贝反馈：剪贴板写入成功才报「已拷贝」', async () => {
+  const harness = makeHarness()
+  harness.debug.add({ quote: '被引用的原文', note: '这里有歧义', source: { kind: 'message', anchorKey: 'k1' } })
+  const written = []
+  await withClipboard(async (text) => written.push(text), async () => {
+    const copied = await harness.debug._internals.copyAnnotationsToClipboard(harness.debug.list())
+    assert.equal(copied, true, '剪贴板确实写进去才返回成功')
+  })
+  assert.equal(written.length, 1, '只写一次剪贴板')
+  assert.equal(JSON.parse(written[0]).count, 1, '写进去的就是这批批注')
+  assert.equal(harness.debug._internals.panelHintTextOf('panel'), '已拷贝 1 条批注', '写入成功才显示成功提示')
+})
+
+test('拷贝反馈：剪贴板拒绝且兜底失败时报拷贝失败', async () => {
+  const harness = makeHarness()
+  harness.debug.add({ quote: '被引用的原文', note: '这里有歧义', source: { kind: 'message', anchorKey: 'k1' } })
+  const fallback = []
+  harness.env.document.execCommand = (command) => {
+    fallback.push(command)
+    return false
+  }
+  await withClipboard(() => Promise.reject(new Error('NotAllowedError')), async () => {
+    const copied = await harness.debug._internals.copyAnnotationsToClipboard(harness.debug.list())
+    assert.equal(copied, false, '兜底也失败时不能报成功')
+  })
+  assert.deepEqual(fallback, ['copy'], '被拒后要尝试 textarea 兜底')
+  assert.equal(harness.debug._internals.panelHintTextOf('panel'), '拷贝失败：浏览器拒绝了剪贴板写入', '两条路都失败才显示失败提示')
+})
+
+test('拷贝反馈：剪贴板拒绝但兜底成功仍报成功', async () => {
+  const harness = makeHarness()
+  harness.debug.add({ quote: '被引用的原文', note: '这里有歧义', source: { kind: 'message', anchorKey: 'k1' } })
+  harness.env.document.execCommand = () => true
+  await withClipboard(() => Promise.reject(new Error('NotAllowedError')), async () => {
+    const copied = await harness.debug._internals.copyAnnotationsToClipboard(harness.debug.list())
+    assert.equal(copied, true, '兜底返回 true 就算成功')
+  })
+  assert.equal(harness.debug._internals.panelHintTextOf('panel'), '已拷贝 1 条批注')
+})
+
 test('声明 uiConversation：把批注 JSON 隐藏规则注册给用户气泡', () => {
   const harness = makeHarness()
   assert.ok(harness.mod.inject.includes('uiConversation'), '声明 uiConversation 才能拿到 userText 注册表')
@@ -1720,28 +1779,68 @@ test('声明 uiConversation：把批注 JSON 隐藏规则注册给用户气泡',
   assert.equal(typeof harness.userTextRules[0].match, 'function')
 })
 
-test('隐藏规则：只把并入消息末尾的批注 JSON 段显示为空', () => {
+test('隐藏规则：折叠并入消息末尾的批注 JSON 段，普通正文不受影响', () => {
   const harness = makeHarness()
   const rule = harness.userTextRules[0]
   const payload = '{\n  "kind": "dsh-selection-annotations",\n  "version": 1,\n  "count": 1,\n  "annotations": [\n    {\n      "index": 1,\n      "quote": "设计要点",\n      "note": "这里有歧义"\n    }\n  ]\n}'
-  const text = `这段为什么这么写？\n\n${payload}`
+  const body = '这段为什么这么写？'
+  const text = `${body}\n\n${payload}`
 
   const node = rule.match(text, 0, { read: () => true })
   assert.equal(node.id, 'text')
-  assert.equal(node.start, text.indexOf('{'))
+  assert.equal(node.start, body.length, '区间从 JSON 前的空行开始，而不是从 `{` 开始')
   assert.equal(node.end, text.length)
-  assert.equal(node.data.display, '', '只影响显示：渲染为空')
+  assert.equal(node.data.display, '\n【批注 x 1】', '有正文时前置换行，占位独占一行')
   assert.equal(node.data.text, text.slice(node.start, node.end), '候选必须原样保留原文切片')
+  assert.equal(text.slice(0, node.start), body, '正文最后一行不能被吞进隐藏区间')
+
+  // 正文与 JSON 之间没有空白时，区间从 `{` 开始，正文一字不少。
+  const tight = `${body}${payload}`
+  const tightNode = rule.match(tight, 0, { read: () => true })
+  assert.equal(tightNode.start, body.length)
+  assert.equal(tightNode.data.text, payload)
+  assert.equal(tightNode.data.display, '\n【批注 x 1】', '紧贴正文时也把占位放到下一行')
 
   // 普通消息（没有批注块）不产生节点，气泡照常显示。
-  assert.equal(rule.match('这段为什么这么写？', 0, { read: () => true }), undefined)
-  // 只有批注、没有正文时也能从头隐藏。
-  const only = `\n\n${payload}`
-  const onlyNode = rule.match(only, 0, { read: () => true })
-  assert.equal(onlyNode.start, only.indexOf('{'))
-  assert.equal(onlyNode.end, only.length)
+  assert.equal(rule.match(body, 0, { read: () => true }), undefined)
   // 文本里出现同样的标记但无法解析成批注负载时，不隐藏（避免误伤用户自己的正文）。
   assert.equal(rule.match('{ "kind": "dsh-selection-annotations", 坏掉的 JSON', 0, { read: () => true }), undefined)
+})
+
+test('隐藏规则：正文 + 空行 + JSON 与只有 JSON 无正文，都折叠成一行占位', () => {
+  const harness = makeHarness()
+  const rule = harness.userTextRules[0]
+  const payload = '{\n  "kind": "dsh-selection-annotations",\n  "version": 1,\n  "count": 3,\n  "annotations": []\n}'
+  const read = { read: () => true }
+
+  // 正文 + 空行 + JSON：空行一起被折叠，气泡里只剩一行占位文字。
+  const body = '正文最后一行'
+  const withBody = `${body}\n\n${payload}`
+  const a = rule.match(withBody, 0, read)
+  assert.equal(a.start, body.length)
+  assert.equal(a.end, withBody.length)
+  assert.equal(a.data.text, `\n\n${payload}`)
+  assert.equal(a.data.display, '\n【批注 x 3】')
+
+  // 只有 JSON、没有正文：从消息开头折叠，气泡里只有一行占位。
+  const only = `\n\n${payload}`
+  const b = rule.match(only, 0, read)
+  assert.equal(b.start, 0)
+  assert.equal(b.end, only.length)
+  assert.equal(b.data.text, only)
+  assert.equal(b.data.display, '【批注 x 3】', '正文为空时不要前导换行，否则气泡顶部会多一条空行')
+})
+
+test('隐藏规则：条数缺失或非法时占位退回【批注】', () => {
+  const harness = makeHarness()
+  const rule = harness.userTextRules[0]
+  const read = { read: () => true }
+  const make = (countField) => `{\n  "kind": "dsh-selection-annotations",\n  "version": 1${countField},\n  "annotations": []\n}`
+
+  assert.equal(rule.match(`正文\n\n${make(',\n  "count": 12')}`, 0, read).data.display, '\n【批注 x 12】')
+  for (const bad of [',\n  "count": 0', ',\n  "count": -2', ',\n  "count": 1.5', ',\n  "count": "3"', ',\n  "count": null', '']) {
+    assert.equal(rule.match(`正文\n\n${make(bad)}`, 0, read).data.display, '\n【批注】', `count 字段为 ${bad || '缺失'} 时不显示数字`)
+  }
 })
 
 /* ------------------------------------------------------------------ 历史轮次复现 */

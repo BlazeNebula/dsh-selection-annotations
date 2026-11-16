@@ -160,7 +160,7 @@
 .sa-side-quote { font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, #a3a3ab); }
 .sa-side-note { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); white-space: pre-wrap; word-break: break-word; }
 .sa-side-adopt { color: var(--dsw-alias-state-success-primary, #3fb950); }
-.sa-panel-hint { position: relative; min-width: 0; flex: 1 1 auto; max-width: 100%; display: inline-block; overflow: hidden; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
+.sa-panel-hint { position: relative; min-width: 0; flex: 1 1 16em; max-width: 100%; display: inline-block; overflow: hidden; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
   color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-hint-layer { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sa-hint-layer.sa-hint-out { animation: sa-hint-out 160ms ease forwards; }
@@ -364,7 +364,7 @@
 /* Markdown 渲染后不要再保留 pre-wrap：源码里的换行会被当成额外空行。 */
 .sa-a-reason[data-sa-md="1"] { white-space: normal; }
 .sa-a-next-label { flex: none; writing-mode: vertical-rl; text-orientation: upright; margin: 0; padding: 4px 2px; border-radius: 4px;
-  font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: .08em; line-height: 1;
+  font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 400; letter-spacing: .08em; line-height: 1;
   color: var(--sa-tone, var(--dsw-alias-label-secondary, #8b949e));
   background: color-mix(in srgb, var(--sa-tone, var(--dsw-alias-border-l1, #888)) 16%, transparent); }
 .sa-a-next { display: flex; align-items: stretch; gap: 8px; margin-top: 2px; padding: 6px 10px; border-radius: 6px;
@@ -412,10 +412,25 @@
 .sa-reply-partial { color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #d29922) 80%, #000); }
 .sa-reply-rejected { color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #f85149) 80%, #000); }
 .sa-reply-needs_info { color: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 80%, #000); }
-.sa-debug-row { display: flex; gap: 8px; padding: 2px 0; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.sa-debug-key { flex: none; min-width: 52px; color: var(--sa-dim-tertiary); }
-.sa-debug-value { color: var(--sa-dim-secondary); word-break: break-all; user-select: text; }
 `;
+
+  // src/core/side-tab-state.js
+  var SIDE_TAB_ACTION = {
+    /** 页签不存在：打开它。 */
+    open: "open",
+    /** 页签开着、侧栏展开、且处于激活：关闭它。 */
+    close: "close",
+    /** 页签开着、侧栏展开、但用户切到了别的页签：聚焦回它。 */
+    focus: "focus",
+    /** 页签开着但侧栏收成窄条：先展开再聚焦。 */
+    reveal: "reveal"
+  };
+  function sideTabAction({ hasTab, expanded, active } = {}) {
+    if (hasTab !== true) return SIDE_TAB_ACTION.open;
+    if (expanded !== true) return SIDE_TAB_ACTION.reveal;
+    if (active !== true) return SIDE_TAB_ACTION.focus;
+    return SIDE_TAB_ACTION.close;
+  }
 
   // src/core/config.js
   var ANNOTATION_FILE = "批注.json";
@@ -529,8 +544,6 @@
       "pop.editTitle": "修改批注 #{n}",
       "panel.empty": "选中回复、消息或文件预览里的文字，点浮动的「批注反馈」即可。",
       "panel.title": "批注总览",
-      "panel.debug": "调试",
-      "panel.debugEmpty": "尚未渲染",
       "panel.count": "{n} 条",
       "panel.drag": "拖动排序",
       "panel.edit": "编辑",
@@ -543,12 +556,16 @@
       "panel.copy": "拷贝",
       "panel.pasteFailed": "剪贴板里没有可导入的批注数据",
       "panel.pasteDone": "已导入 {n} 条批注",
+      "panel.pasteNothing": "没有新的批注可粘贴",
+      "panel.copyDone": "已拷贝 {n} 条批注",
+      "panel.copyFailed": "拷贝失败：浏览器拒绝了剪贴板写入",
       "panel.webPick": "拾取网页元素",
       "panel.close": "关闭批注总览",
       "panel.collapse": "收起或展开批注总览",
       "webPick.missing": "没有找到内嵌浏览器，请先在侧栏打开网页。",
       "panel.foot": "发送时批注作为独立块随消息提交",
       "panel.sideTab": "在右侧边栏打开批注",
+      "panel.sideTabClose": "关闭右侧批注标签页",
       "sideTab.title": "批注总览",
       "sideTab.empty": "还没有批注",
       "panel.refineFailed": "位置精修未生效：{reason}",
@@ -657,8 +674,6 @@
       "pop.editTitle": "Edit annotation #{n}",
       "panel.empty": "Select text in a reply, message, or file preview, then click the floating “Feedback”.",
       "panel.title": "Annotations",
-      "panel.debug": "Debug",
-      "panel.debugEmpty": "Not rendered yet",
       "panel.count": "{n} items",
       "panel.drag": "Drag to reorder",
       "panel.edit": "Edit",
@@ -671,12 +686,16 @@
       "panel.copy": "Copy",
       "panel.pasteFailed": "No annotation data in the clipboard",
       "panel.pasteDone": "Imported {n} annotations",
+      "panel.pasteNothing": "No new annotations to paste",
+      "panel.copyDone": "Copied {n} annotations",
+      "panel.copyFailed": "Copy failed: the browser refused the clipboard write",
       "panel.webPick": "Pick page element",
       "panel.close": "Close annotations",
       "panel.collapse": "Collapse or expand annotations",
       "webPick.missing": "No embedded browser found. Open a page in the sidebar first.",
       "panel.foot": "Annotations are sent as a separate block with the message",
       "panel.sideTab": "Open annotations in the right sidebar",
+      "panel.sideTabClose": "Close the annotations sidebar tab",
       "sideTab.title": "Annotations",
       "sideTab.empty": "No annotations yet",
       "panel.refineFailed": "Position refinement failed: {reason}",
@@ -1916,18 +1935,54 @@
     },
     openSideTab = () => {
     },
+    isSideTabOpen = () => false,
+    // true 时按钮变成「关闭」，图标与提示同步切换
     isAdopt = () => false,
-    sentStats = () => null,
-    debugSettingsRow = null
+    getHintText = () => ""
   }) {
     function render(panelEl) {
+      const body = panelEl.querySelector(".sa-panel-body");
+      const scrollTop = body === null ? 0 : body.scrollTop;
       paint(panelEl, { surface: "panel" });
+      const nextBody = panelEl.querySelector(".sa-panel-body");
+      if (nextBody !== null) nextBody.scrollTop = scrollTop;
     }
     function renderSide(host) {
-      host.textContent = "";
-      const panel = document.createElement("div");
-      host.appendChild(panel);
+      let panel = host.firstElementChild;
+      if (!(panel instanceof HTMLElement) || !panel.classList.contains("sa-panel")) {
+        host.textContent = "";
+        panel = document.createElement("div");
+        host.appendChild(panel);
+      }
+      const body = panel.querySelector(".sa-panel-body");
+      const scrollTop = body === null ? 0 : body.scrollTop;
       paint(panel, { surface: "side" });
+      const nextBody = panel.querySelector(".sa-panel-body");
+      if (nextBody !== null) nextBody.scrollTop = scrollTop;
+    }
+    function flipRows(panelEl, before) {
+      for (const row of panelEl.querySelectorAll(".sa-item")) {
+        const prev = before.get(row.dataset.id);
+        if (prev === void 0) continue;
+        const next = row.getBoundingClientRect();
+        const dx = prev.left - next.left;
+        const dy = prev.top - next.top;
+        if (dx === 0 && dy === 0) continue;
+        row.style.transition = "none";
+        row.style.transform = `translate(${dx}px, ${dy}px)`;
+        void row.offsetWidth;
+        const token = (row.__saFlipToken || 0) + 1;
+        row.__saFlipToken = token;
+        row.style.transition = "transform 180ms cubic-bezier(.22,.61,.36,1)";
+        row.style.transform = "";
+        const finish = () => {
+          if (row.__saFlipToken !== token) return;
+          row.style.transition = "";
+          row.style.transform = "";
+        };
+        row.addEventListener("transitionend", finish, { once: true });
+        setTimeout(finish, 260);
+      }
     }
     function paint(panelEl, options) {
       const side = options !== void 0 && options.surface === "side";
@@ -1938,14 +1993,16 @@
       const panelHead = el("div", "sa-panel-head");
       panelHead.appendChild(el("span", "sa-panel-title", t("panel.title")));
       const meta = el("div", "sa-panel-meta");
-      const hint = el("span", "sa-panel-hint", t("panel.foot"));
-      hint.title = t("panel.foot");
+      const hintText = getHintText(side ? "side" : "panel") || t("panel.foot");
+      const hint = el("span", "sa-panel-hint");
+      hint.appendChild(el("span", "sa-hint-layer", hintText));
+      hint.title = hintText;
       meta.appendChild(hint);
       meta.appendChild(el("span", "sa-panel-count", t("panel.count", { n: annotations.length })));
       if (annotations.length > 0) {
-        meta.appendChild(button("sa-foot-action", t("panel.copyAll"), () => copyAll()));
+        meta.appendChild(button("sa-foot-action", t("panel.copyAll"), () => copyAll(panelEl)));
       }
-      meta.appendChild(button("sa-foot-action", t("panel.paste"), () => pasteAnnotations()));
+      meta.appendChild(button("sa-foot-action", t("panel.paste"), () => pasteAnnotations(panelEl)));
       if (annotations.length > 0) {
         meta.appendChild(button("sa-foot-action", t("panel.clear"), () => clearAnnotations()));
       }
@@ -1961,33 +2018,47 @@
       if (annotations.length === 0) {
         panelBody.appendChild(el("div", "sa-panel-empty", t("panel.empty")));
       }
+      let draggingId = null;
       for (const item of annotations) {
         const row = el("div", "sa-item");
         row.draggable = true;
         row.dataset.id = item.id;
         row.addEventListener("dragstart", (event) => {
+          draggingId = item.id;
           event.dataTransfer.setData("text/plain", item.id);
           event.dataTransfer.effectAllowed = "move";
-          row.className = "sa-item sa-dragging";
+          row.classList.add("sa-dragging");
         });
         row.addEventListener("dragend", () => {
+          draggingId = null;
           for (const node of panelEl.querySelectorAll(".sa-item")) {
-            node.className = node.className.replace(" sa-drop-before", "").replace(" sa-dragging", "");
+            node.classList.remove("sa-dragging", "sa-drop-before");
           }
         });
         row.addEventListener("dragover", (event) => {
           event.preventDefault();
           event.dataTransfer.dropEffect = "move";
-          row.className = "sa-item sa-drop-before";
+          if (item.id === draggingId) return;
+          for (const node of panelEl.querySelectorAll(".sa-item")) {
+            if (node !== row) node.classList.remove("sa-drop-before");
+          }
+          row.classList.add("sa-drop-before");
         });
-        row.addEventListener("dragleave", () => {
-          row.className = "sa-item";
+        row.addEventListener("dragleave", (event) => {
+          if (event.relatedTarget instanceof Node && row.contains(event.relatedTarget)) return;
+          row.classList.remove("sa-drop-before");
         });
         row.addEventListener("drop", (event) => {
           event.preventDefault();
           event.stopPropagation();
           const draggedId = event.dataTransfer.getData("text/plain");
-          if (draggedId !== "") moveAnnotation(draggedId, item.id);
+          if (draggedId === "" || draggedId === item.id) return;
+          const before = /* @__PURE__ */ new Map();
+          for (const node of panelEl.querySelectorAll(".sa-item")) {
+            before.set(node.dataset.id, node.getBoundingClientRect());
+          }
+          moveAnnotation(draggedId, item.id);
+          flipRows(panelEl, before);
         });
         const head = el("div", "sa-item-head");
         const grip = el("span", "sa-drag-handle", "⠿");
@@ -1999,7 +2070,7 @@
         summary.title = summary.textContent;
         head.appendChild(summary);
         const actions = el("div", "sa-item-actions");
-        actions.appendChild(button("sa-item-action", t("panel.copy"), () => copyItem(item)));
+        actions.appendChild(button("sa-item-action", t("panel.copy"), () => copyItem(item, panelEl)));
         actions.appendChild(button("sa-item-action", t("panel.edit"), () => openEditPopover(item.id, head)));
         actions.appendChild(button("sa-item-action sa-danger", t("panel.delete"), () => removeAnnotation(item.id)));
         head.appendChild(actions);
@@ -2062,16 +2133,18 @@
       panelBody.appendChild(imageSettingsRow());
       panelBody.appendChild(instructionSettingsRow());
       panelBody.appendChild(fallbackSettingsRow());
-      if (typeof debugSettingsRow === "function") panelBody.appendChild(debugSettingsRow());
       panelEl.appendChild(panelBody);
       const panelFoot = el("div", "sa-panel-foot");
       const build = el("span", "sa-build", `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`);
       build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`;
       panelFoot.appendChild(build);
       if (!side) {
+        const sideOpen = isSideTabOpen() === true;
+        const sideAction = t(sideOpen ? "panel.sideTabClose" : "panel.sideTab");
         const sideTab = button("sa-panel-side", "", openSideTab);
-        sideTab.title = t("panel.sideTab");
-        sideTab.setAttribute("aria-label", t("panel.sideTab"));
+        sideTab.title = sideAction;
+        sideTab.setAttribute("aria-label", sideAction);
+        sideTab.setAttribute("aria-pressed", sideOpen ? "true" : "false");
         const sideIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         sideIcon.setAttribute("viewBox", "0 0 16 16");
         sideIcon.setAttribute("width", "14");
@@ -2079,7 +2152,8 @@
         sideIcon.setAttribute("fill", "none");
         sideIcon.setAttribute("stroke", "currentColor");
         sideIcon.setAttribute("stroke-width", "1.2");
-        for (const d of ["M2.2 3.2h11.6v9.6H2.2z", "M10.2 3.2v9.6"]) {
+        const sideIconPaths = sideOpen ? ["M4.4 4.4l7.2 7.2", "M11.6 4.4l-7.2 7.2"] : ["M2.2 3.2h11.6v9.6H2.2z", "M10.2 3.2v9.6"];
+        for (const d of sideIconPaths) {
           const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
           path.setAttribute("d", d);
           sideIcon.appendChild(path);
@@ -2089,7 +2163,12 @@
       }
       panelEl.appendChild(panelFoot);
     }
-    return { render, renderSide };
+    function snapshotRows(panelEl) {
+      const rects = /* @__PURE__ */ new Map();
+      for (const row of panelEl.querySelectorAll(".sa-item")) rects.set(row.dataset.id, row.getBoundingClientRect());
+      return rects;
+    }
+    return { render, renderSide, snapshotRows, animateRows: flipRows };
   }
 
   // src/core/annotation-clipboard.js
@@ -2824,6 +2903,11 @@ ${PICK_SCRIPT}<\/script>`;
 
   // src/core/hidden-payload.js
   var KIND_LINE = '"kind": "dsh-selection-annotations"';
+  var BLANK = /\s/;
+  function displayOf(payload) {
+    const count = payload.count;
+    return Number.isInteger(count) && count > 0 ? `【批注 x ${count}】` : "【批注】";
+  }
   function createPayloadHidingRule() {
     return {
       id: "selection-annotations:payload",
@@ -2832,9 +2916,9 @@ ${PICK_SCRIPT}<\/script>`;
         if (typeof text !== "string" || text === "") return void 0;
         const kindAt = text.indexOf(KIND_LINE, from);
         if (kindAt === -1) return void 0;
-        const start = text.lastIndexOf("{", kindAt);
-        if (start === -1 || start < from) return void 0;
-        const candidate = text.slice(start);
+        const jsonStart = text.lastIndexOf("{", kindAt);
+        if (jsonStart === -1 || jsonStart < from) return void 0;
+        const candidate = text.slice(jsonStart);
         let payload;
         try {
           payload = JSON.parse(candidate);
@@ -2844,7 +2928,15 @@ ${PICK_SCRIPT}<\/script>`;
         if (payload === null || typeof payload !== "object" || payload.kind !== "dsh-selection-annotations") {
           return void 0;
         }
-        return { id: "text", start, end: text.length, data: { text: candidate, display: "" } };
+        let start = jsonStart;
+        while (start > from && BLANK.test(text[start - 1])) start -= 1;
+        const ownLine = start > 0 && text[start - 1] !== "\n";
+        return {
+          id: "text",
+          start,
+          end: text.length,
+          data: { text: text.slice(start), display: `${ownLine ? "\n" : ""}${displayOf(payload)}` }
+        };
       }
     };
   }
@@ -3642,27 +3734,47 @@ ${PICK_SCRIPT}<\/script>`;
             hint.appendChild(next);
           }, 320);
         }
-        function flashPanelHint(message) {
-          const hint = document.querySelector(".sa-panel-hint");
-          if (hint === null) return;
-          if (hint.querySelector(".sa-hint-layer") === null) {
-            hint.textContent = "";
-            const layer = document.createElement("span");
-            layer.className = "sa-hint-layer";
-            layer.textContent = t("panel.foot");
-            hint.appendChild(layer);
+        const panelHintMessages = { panel: "", side: "" };
+        const panelHintTimers = { panel: 0, side: 0 };
+        function hintSurfaceOf(root) {
+          return root instanceof Element && root.closest('[data-sa-ui="side"]') !== null ? "side" : "panel";
+        }
+        function livePanelHint(surface) {
+          const selector = surface === "side" ? '[data-sa-ui="side"] .sa-panel-hint' : '[data-sa-ui="panel"] .sa-panel-hint';
+          const hints = Array.from(document.querySelectorAll(selector));
+          return hints.find((hint) => hint.getClientRects().length > 0) || hints[0] || null;
+        }
+        function panelHintTextOf(surface) {
+          return panelHintMessages[surface] || "";
+        }
+        function flashPanelHint(message, root) {
+          const surface = hintSurfaceOf(root);
+          panelHintMessages[surface] = message;
+          const hint = livePanelHint(surface);
+          if (hint !== null) {
+            if (hint.querySelector(".sa-hint-layer") === null) {
+              hint.textContent = "";
+              const layer = document.createElement("span");
+              layer.className = "sa-hint-layer";
+              layer.textContent = t("panel.foot");
+              hint.appendChild(layer);
+            }
+            swapHintText(hint, message, true);
           }
-          swapHintText(hint, message, true);
-          if (hint.__saHintTimer !== void 0) window.clearTimeout(hint.__saHintTimer);
-          hint.__saHintTimer = window.setTimeout(() => {
-            hint.__saHintTimer = void 0;
-            swapHintText(hint, t("panel.foot"), true);
+          if (panelHintTimers[surface] !== 0) window.clearTimeout(panelHintTimers[surface]);
+          panelHintTimers[surface] = window.setTimeout(() => {
+            panelHintTimers[surface] = 0;
+            panelHintMessages[surface] = "";
+            const live = livePanelHint(surface);
+            if (live !== null) swapHintText(live, t("panel.foot"), true);
           }, 1600);
         }
-        function copyAnnotationsToClipboard(items) {
+        async function copyAnnotationsToClipboard(items, root) {
           const list = Array.isArray(items) ? items : [];
-          if (list.length === 0) return;
-          copyPlainText(serializeAnnotations(list));
+          if (list.length === 0) return false;
+          const copied = await writeClipboardText(serializeAnnotations(list));
+          flashPanelHint(copied ? t("panel.copyDone", { n: list.length }) : t("panel.copyFailed"), root);
+          return copied;
         }
         function addUniqueAnnotations(list) {
           let added = 0;
@@ -3681,30 +3793,32 @@ ${PICK_SCRIPT}<\/script>`;
           }
           return added;
         }
-        function importAnnotations(items) {
+        function importAnnotations(items, root) {
           const list = Array.isArray(items) ? items : [];
           if (list.length === 0) return 0;
           const added = addUniqueAnnotations(list);
-          if (added > 0) {
-            flashPanelHint(t("panel.pasteDone", { n: added }));
-            scheduleRepaint();
+          if (added === 0) {
+            flashPanelHint(t("panel.pasteNothing"), root);
+            return 0;
           }
+          flashPanelHint(t("panel.pasteDone", { n: added }), root);
+          scheduleRepaint();
           return added;
         }
-        function pasteAnnotationsFromClipboard() {
+        function pasteAnnotationsFromClipboard(root) {
           const read = safe(() => navigator.clipboard?.readText);
           if (typeof read !== "function") {
-            flashPanelHint(t("panel.pasteFailed"));
+            flashPanelHint(t("panel.pasteFailed"), root);
             return;
           }
           read.call(navigator.clipboard).then((text) => {
             const items = parseAnnotations(text);
             if (items === void 0) {
-              flashPanelHint(t("panel.pasteFailed"));
+              flashPanelHint(t("panel.pasteFailed"), root);
               return;
             }
-            importAnnotations(items);
-          }).catch(() => flashPanelHint(t("panel.pasteFailed")));
+            importAnnotations(items, root);
+          }).catch(() => flashPanelHint(t("panel.pasteFailed"), root));
         }
         function updateAnnotation(id, note, images) {
           const next = typeof note === "string" ? note.trim().slice(0, MAX_NOTE) : "";
@@ -5015,6 +5129,21 @@ ${PICK_SCRIPT}<\/script>`;
           contextMenu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - width - 8))}px`;
           contextMenu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - height - 8))}px`;
         }
+        function copyWithTextarea(text) {
+          return safe(() => {
+            const area = document.createElement("textarea");
+            area.value = text;
+            area.style.position = "fixed";
+            area.style.opacity = "0";
+            document.body.appendChild(area);
+            try {
+              area.select();
+              return document.execCommand("copy") === true;
+            } finally {
+              area.remove();
+            }
+          }) === true;
+        }
         function copyPlainText(text) {
           if (typeof text !== "string" || text === "") return;
           try {
@@ -5025,16 +5154,18 @@ ${PICK_SCRIPT}<\/script>`;
             }
           } catch {
           }
-          safe(() => {
-            const area = document.createElement("textarea");
-            area.value = text;
-            area.style.position = "fixed";
-            area.style.opacity = "0";
-            document.body.appendChild(area);
-            area.select();
-            document.execCommand("copy");
-            area.remove();
-          });
+          copyWithTextarea(text);
+        }
+        async function writeClipboardText(text) {
+          if (typeof text !== "string" || text === "") return false;
+          try {
+            if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+              await navigator.clipboard.writeText(text);
+              return true;
+            }
+          } catch {
+          }
+          return copyWithTextarea(text);
         }
         function onContextMenu(event) {
           const target = elementOf2(event.target);
@@ -5769,7 +5900,10 @@ ${PICK_SCRIPT}<\/script>`;
         panelEl.addEventListener("drop", (event) => {
           if (event.defaultPrevented) return;
           const draggedId = event.dataTransfer.getData("text/plain");
-          if (draggedId !== "") moveAnnotation(draggedId, null);
+          if (draggedId === "") return;
+          const before = panelRenderer.snapshotRows(panelEl);
+          moveAnnotation(draggedId, null);
+          panelRenderer.animateRows(panelEl, before);
         });
         let panelRaf = 0;
         let panelObserver = null;
@@ -5824,7 +5958,6 @@ ${PICK_SCRIPT}<\/script>`;
         let imageSettingsOpen = false;
         let instructionSettingsOpen = false;
         let fallbackSettingsOpen = false;
-        let debugSettingsOpen = false;
         function button2(className, text, onClick) {
           const created = el("button", className, text);
           created.type = "button";
@@ -6102,20 +6235,106 @@ ${PICK_SCRIPT}`;
         }, "selection-annotations: html preview body");
         const SIDE_TAB_ID = "@u2a5f/dsh-selection-annotations";
         const SIDE_TAB_KIND = "selection-annotations";
+        const SIDE_TAB_SYNC_MS = 800;
+        function findSideAnnotationsTab() {
+          const service = safe(() => ctx.sidebarRight);
+          if (service === void 0 || service === null || typeof service.tabsIn !== "function") return void 0;
+          const sessionId = currentSessionId();
+          if (typeof sessionId !== "string" || sessionId === "") return void 0;
+          const tabs = safe(() => service.tabsIn(sessionId));
+          if (!Array.isArray(tabs)) return void 0;
+          return tabs.find((tab) => tab !== null && tab !== void 0 && tab.kind === SIDE_TAB_KIND);
+        }
+        function sideTabState() {
+          const tab = findSideAnnotationsTab();
+          const service = safe(() => ctx.sidebarRight);
+          const usable = tab !== void 0 && service !== void 0 && service !== null;
+          const expanded = usable ? safe(() => service.isExpanded()) === true : false;
+          const active = usable ? safe(() => {
+            const current = service.active();
+            return current !== void 0 && current !== null && current.id === tab.id;
+          }) === true : false;
+          return { tab, hasTab: tab !== void 0, expanded, active };
+        }
         function sideAnnotationsTabOpen() {
-          return document.querySelector('[data-sa-ui="side"]') !== null;
+          return sideTabAction(sideTabState()) === "close";
+        }
+        let sideTabSyncTimer = 0;
+        let sideTabUnsubscribers = [];
+        let sideTabPaintedOpen = null;
+        function syncSideTabButton() {
+          const open = sideAnnotationsTabOpen();
+          if (open === sideTabPaintedOpen) return;
+          sideTabPaintedOpen = open;
+          renderPanel();
+          if (panelOpen) positionPanel();
+        }
+        function subscribeSideTabSources() {
+          const service = safe(() => ctx.sidebarRight);
+          if (service === void 0 || service === null) return;
+          for (const source of [safe(() => service.openTabs), safe(() => service.mounted)]) {
+            if (source === void 0 || source === null || typeof source.subscribe !== "function") continue;
+            const unsubscribe = safe(() => source.subscribe(syncSideTabButton));
+            if (typeof unsubscribe === "function") sideTabUnsubscribers.push(unsubscribe);
+          }
+        }
+        function startSideTabSync() {
+          if (sideTabSyncTimer !== 0) return;
+          subscribeSideTabSources();
+          sideTabSyncTimer = window.setInterval(syncSideTabButton, SIDE_TAB_SYNC_MS);
+        }
+        function stopSideTabSync() {
+          if (sideTabSyncTimer !== 0) {
+            window.clearInterval(sideTabSyncTimer);
+            sideTabSyncTimer = 0;
+          }
+          for (const unsubscribe of sideTabUnsubscribers) safe(() => unsubscribe());
+          sideTabUnsubscribers = [];
+        }
+        function closeSideAnnotationsTab() {
+          const service = safe(() => ctx.sidebarRight);
+          const tab = findSideAnnotationsTab();
+          const sessionId = currentSessionId();
+          if (service === void 0 || service === null || tab === void 0) {
+            warn("[selection-annotations] 右侧边栏没有可关闭的批注标签页");
+            return;
+          }
+          try {
+            if (typeof service.closeIn === "function" && typeof sessionId === "string" && sessionId !== "") {
+              service.closeIn(sessionId, tab.id);
+              return;
+            }
+            if (typeof service.close === "function") {
+              service.close(tab.id);
+              return;
+            }
+            warn("[selection-annotations] 右侧边栏没有可用的关闭方法");
+          } catch (error) {
+            warn("[selection-annotations] 关闭右侧批注标签页失败：", error);
+          }
+        }
+        function focusSideAnnotationsTab(tab, expand) {
+          const service = safe(() => ctx.sidebarRight);
+          if (service === void 0 || service === null || tab === void 0) return;
+          try {
+            if (expand === true && typeof service.toggleExpanded === "function") service.toggleExpanded();
+            if (typeof service.focus === "function") {
+              service.focus(tab.id);
+              return;
+            }
+            openSideAnnotationsTab();
+          } catch (error) {
+            warn("[selection-annotations] 聚焦右侧批注标签页失败：", error);
+          }
         }
         function toggleSideAnnotationsTab() {
-          if (!sideAnnotationsTabOpen()) {
-            openSideAnnotationsTab();
-            return;
-          }
-          const layout = safe(() => ctx.layout);
-          if (layout !== void 0 && layout !== null && typeof layout.closeRightbar === "function") {
-            safe(() => layout.closeRightbar());
-            return;
-          }
-          warn("[selection-annotations] 右侧边栏没有可用的收起方法");
+          const state = sideTabState();
+          const action = sideTabAction(state);
+          if (action === "close") closeSideAnnotationsTab();
+          else if (action === "focus") focusSideAnnotationsTab(state.tab, false);
+          else if (action === "reveal") focusSideAnnotationsTab(state.tab, true);
+          else openSideAnnotationsTab();
+          syncSideTabButton();
         }
         function openSideAnnotationsTab() {
           const service = safe(() => ctx.sidebarRight);
@@ -6238,9 +6457,9 @@ ${PICK_SCRIPT}`;
           closePanel: () => closePanel(),
           getAnnotations: () => annotations,
           clearAnnotations: () => clearAnnotations(),
-          copyAll: () => copyAnnotationsToClipboard(annotations),
-          pasteAnnotations: () => pasteAnnotationsFromClipboard(),
-          copyItem: (item) => copyAnnotationsToClipboard([item]),
+          copyAll: (root) => copyAnnotationsToClipboard(annotations, root),
+          pasteAnnotations: (root) => pasteAnnotationsFromClipboard(root),
+          copyItem: (item, root) => copyAnnotationsToClipboard([item], root),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
           removeAnnotation: (id) => removeAnnotation(id),
@@ -6250,9 +6469,9 @@ ${PICK_SCRIPT}`;
           instructionSettingsRow: () => instructionSettingsRow(),
           fallbackSettingsRow: () => fallbackSettingsRow(),
           openSideTab: () => toggleSideAnnotationsTab(),
+          isSideTabOpen: () => sideAnnotationsTabOpen(),
           isAdopt: hasAdoptNote,
-          sentStats: () => sentRenderStats,
-          debugSettingsRow: () => debugSettingsRow()
+          getHintText: (surface) => panelHintTextOf(surface)
         });
         const renderPanel = () => panelRenderer.render(panelEl);
         function settingsChevron() {
@@ -6463,59 +6682,10 @@ ${PICK_SCRIPT}`;
           });
           return section.box;
         }
-        const SENT_SKIP_REASON_LABELS = {
-          noSession: "无会话",
-          emptyTable: "台账为空",
-          emptyItems: "条目为空",
-          noTurn: "无轮次",
-          turnNotInDom: "轮次不在 DOM"
-        };
-        function sentSkipReasonText(stats) {
-          const reasons = stats?.reasons;
-          if (reasons === null || typeof reasons !== "object") return "无";
-          const parts = [];
-          for (const [key, label] of Object.entries(SENT_SKIP_REASON_LABELS)) {
-            const count = Number(reasons[key]) || 0;
-            if (count > 0) parts.push(`${label} ${count}`);
-          }
-          return parts.length === 0 ? "无" : parts.join("；");
-        }
-        function debugSettingsRow() {
-          const stats = sentRenderStats;
-          const body = [];
-          const rows = stats !== null && typeof stats === "object" ? [
-            ["会话", stats.sessionId ?? "?"],
-            ["已发送", String(stats.size ?? 0)],
-            ["卡片", String(stats.cards ?? 0)],
-            ["跳过", String(stats.skipped ?? 0)],
-            ["跳过原因", sentSkipReasonText(stats)],
-            ["按轮次落位", String(stats.anchorMiss ?? 0)],
-            ["轮次", stats.turnMin === null || stats.turnMin === void 0 ? "无" : `第 ${stats.turnMin}–${stats.turnMax} 轮`],
-            ["错误", String(stats.errors ?? 0)]
-          ] : [];
-          for (const [key, value] of rows) {
-            const row = el("div", "sa-debug-row");
-            row.append(el("span", "sa-debug-key", key), el("span", "sa-debug-value", value));
-            body.push(row);
-          }
-          if (body.length === 0) body.push(el("div", "sa-hint", t("panel.debugEmpty")));
-          const section = settingsSection({
-            open: debugSettingsOpen,
-            label: t("panel.debug"),
-            getStatus: () => {
-              if (stats === null || typeof stats !== "object") return "";
-              return `已发送 ${stats.size ?? 0} · 卡片 ${stats.cards ?? 0} · 跳过 ${stats.skipped ?? 0}`;
-            },
-            body,
-            onOpenChange: (open) => {
-              debugSettingsOpen = open;
-            }
-          });
-          return section.box;
-        }
         function refreshPanel() {
           renderPanel();
           if (panelOpen) positionPanel();
+          for (const host of document.querySelectorAll('[data-sa-ui="side"]')) renderSideTabInto(host);
         }
         function openPanel(anchor) {
           panelOpen = true;
@@ -6527,16 +6697,20 @@ ${PICK_SCRIPT}`;
           }
           panelRoot.style.display = "";
           panelRoot.dataset.open = "0";
+          sideTabPaintedOpen = sideAnnotationsTabOpen();
           renderPanel();
           positionPanel();
           void panelRoot.offsetHeight;
           panelRoot.dataset.open = "1";
+          startSideTabSync();
           emit();
         }
         function closePanel() {
           if (!panelOpen) return;
           panelOpen = false;
           panelAnchor = null;
+          stopSideTabSync();
+          sideTabPaintedOpen = null;
           cancelChipTimers();
           panelOpenedByHover = false;
           panelHovered = false;
@@ -6670,6 +6844,7 @@ ${PICK_SCRIPT}`;
             watchTimer = null;
             if (consumeTimer !== null) window.clearTimeout(consumeTimer);
             consumeTimer = null;
+            stopSideTabSync();
             overlay.remove();
             toolbar.remove();
             contextMenu.remove();
@@ -7097,7 +7272,7 @@ ${PICK_SCRIPT}`;
             const shell = inputShell();
             if (shell !== void 0) ensureFallbackPrompt(shell);
           },
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule }
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf }
         };
       }
     };

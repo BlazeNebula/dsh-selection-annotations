@@ -22,12 +22,17 @@ export function createPanelRenderer({
   fallbackSettingsRow,
   closePanel = () => {},
   openSideTab = () => {},
+  isSideTabOpen = () => false, // true 时按钮变成「关闭」，图标与提示同步切换
   isAdopt = () => false,
-  sentStats = () => null,
-  debugSettingsRow = null,
+  getHintText = () => '',
 }) {
   function render(panelEl) {
+    // 重绘会重建列表；保留滚动位置，拖拽补间时才不会因为整列表回顶而错位。
+    const body = panelEl.querySelector('.sa-panel-body')
+    const scrollTop = body === null ? 0 : body.scrollTop
     paint(panelEl, { surface: 'panel' })
+    const nextBody = panelEl.querySelector('.sa-panel-body')
+    if (nextBody !== null) nextBody.scrollTop = scrollTop
   }
 
   /**
@@ -36,10 +41,50 @@ export function createPanelRenderer({
    * host 是 React 渲染的容器，不能再被 paint 覆盖 className，所以面板另建一层。
    */
   function renderSide(host) {
-    host.textContent = ''
-    const panel = document.createElement('div')
-    host.appendChild(panel)
+    // 侧栏靠定时轮询重绘，复用同一块面板节点：拖动结束后的重绘不会换掉闭包里的 panelEl。
+    let panel = host.firstElementChild
+    if (!(panel instanceof HTMLElement) || !panel.classList.contains('sa-panel')) {
+      host.textContent = ''
+      panel = document.createElement('div')
+      host.appendChild(panel)
+    }
+    const body = panel.querySelector('.sa-panel-body')
+    const scrollTop = body === null ? 0 : body.scrollTop
     paint(panel, { surface: 'side' })
+    const nextBody = panel.querySelector('.sa-panel-body')
+    if (nextBody !== null) nextBody.scrollTop = scrollTop
+  }
+
+  /**
+   * 拖拽重排后的位移动画（FLIP）：先按旧的屏幕位置把条目反向平移，再放开过渡让它回到新位置，
+   * 其余条目因此是滑过去而不是瞬间跳过去。动画结束后清掉内联样式，不留下过渡态。
+   */
+  function flipRows(panelEl, before) {
+    for (const row of panelEl.querySelectorAll('.sa-item')) {
+      const prev = before.get(row.dataset.id)
+      if (prev === undefined) continue
+      const next = row.getBoundingClientRect()
+      const dx = prev.left - next.left
+      const dy = prev.top - next.top
+      if (dx === 0 && dy === 0) continue
+      row.style.transition = 'none'
+      row.style.transform = `translate(${dx}px, ${dy}px)`
+      // 读一次布局，让反向平移先落地，再开始过渡。
+      void row.offsetWidth
+      const token = (row.__saFlipToken || 0) + 1
+      row.__saFlipToken = token
+      row.style.transition = 'transform 180ms cubic-bezier(.22,.61,.36,1)'
+      row.style.transform = ''
+      const finish = () => {
+        // 同一行再次参与拖动时 token 会变，旧动画的收尾不能清掉新动画。
+        if (row.__saFlipToken !== token) return
+        row.style.transition = ''
+        row.style.transform = ''
+      }
+      row.addEventListener('transitionend', finish, { once: true })
+      // 行被隐藏等情况下 transitionend 不触发，兜底清一次。
+      setTimeout(finish, 260)
+    }
   }
 
   function paint(panelEl, options) {
@@ -52,14 +97,17 @@ export function createPanelRenderer({
     const panelHead = el('div', 'sa-panel-head')
     panelHead.appendChild(el('span', 'sa-panel-title', t('panel.title')))
     const meta = el('div', 'sa-panel-meta')
-    const hint = el('span', 'sa-panel-hint', t('panel.foot'))
-    hint.title = t('panel.foot')
+    // 提示位始终带一个文本层：首次反馈也能播放淡入动画，重绘后当前反馈由状态回填。
+    const hintText = getHintText(side ? 'side' : 'panel') || t('panel.foot')
+    const hint = el('span', 'sa-panel-hint')
+    hint.appendChild(el('span', 'sa-hint-layer', hintText))
+    hint.title = hintText
     meta.appendChild(hint)
     meta.appendChild(el('span', 'sa-panel-count', t('panel.count', { n: annotations.length })))
     if (annotations.length > 0) {
-      meta.appendChild(button('sa-foot-action', t('panel.copyAll'), () => copyAll()))
+      meta.appendChild(button('sa-foot-action', t('panel.copyAll'), () => copyAll(panelEl)))
     }
-    meta.appendChild(button('sa-foot-action', t('panel.paste'), () => pasteAnnotations()))
+    meta.appendChild(button('sa-foot-action', t('panel.paste'), () => pasteAnnotations(panelEl)))
     if (annotations.length > 0) {
       meta.appendChild(button('sa-foot-action', t('panel.clear'), () => clearAnnotations()))
     }
@@ -77,33 +125,52 @@ export function createPanelRenderer({
       panelBody.appendChild(el('div', 'sa-panel-empty', t('panel.empty')))
     }
 
+    let draggingId = null
     for (const item of annotations) {
       const row = el('div', 'sa-item')
       row.draggable = true
       row.dataset.id = item.id
       row.addEventListener('dragstart', (event) => {
+        draggingId = item.id
         event.dataTransfer.setData('text/plain', item.id)
         event.dataTransfer.effectAllowed = 'move'
-        row.className = 'sa-item sa-dragging'
+        row.classList.add('sa-dragging')
       })
       row.addEventListener('dragend', () => {
+        draggingId = null
+        // 只摘掉拖拽态，别的 class 一律保留，避免重绘或动画期间把行样式整个覆盖掉。
         for (const node of panelEl.querySelectorAll('.sa-item')) {
-          node.className = node.className.replace(' sa-drop-before', '').replace(' sa-dragging', '')
+          node.classList.remove('sa-dragging', 'sa-drop-before')
         }
       })
       row.addEventListener('dragover', (event) => {
         event.preventDefault()
         event.dataTransfer.dropEffect = 'move'
-        row.className = 'sa-item sa-drop-before'
+        // 拖动源自己身上不画插入线。
+        if (item.id === draggingId) return
+        // 快速划过时上一行可能来不及收到 dragleave，这里统一只保留当前插入线。
+        for (const node of panelEl.querySelectorAll('.sa-item')) {
+          if (node !== row) node.classList.remove('sa-drop-before')
+        }
+        row.classList.add('sa-drop-before')
       })
-      row.addEventListener('dragleave', () => {
-        row.className = 'sa-item'
+      row.addEventListener('dragleave', (event) => {
+        // 指针在行内子元素之间移动也会触发 dragleave，此时插入线应当保留。
+        if (event.relatedTarget instanceof Node && row.contains(event.relatedTarget)) return
+        row.classList.remove('sa-drop-before')
       })
       row.addEventListener('drop', (event) => {
         event.preventDefault()
         event.stopPropagation()
         const draggedId = event.dataTransfer.getData('text/plain')
-        if (draggedId !== '') moveAnnotation(draggedId, item.id)
+        if (draggedId === '' || draggedId === item.id) return
+        // 先记下每行此刻的屏幕位置，重排后再按新位置做 FLIP 补间。
+        const before = new Map()
+        for (const node of panelEl.querySelectorAll('.sa-item')) {
+          before.set(node.dataset.id, node.getBoundingClientRect())
+        }
+        moveAnnotation(draggedId, item.id)
+        flipRows(panelEl, before)
       })
       const head = el('div', 'sa-item-head')
       const grip = el('span', 'sa-drag-handle', '⠿')
@@ -115,7 +182,7 @@ export function createPanelRenderer({
       summary.title = summary.textContent
       head.appendChild(summary)
       const actions = el('div', 'sa-item-actions')
-      actions.appendChild(button('sa-item-action', t('panel.copy'), () => copyItem(item)))
+      actions.appendChild(button('sa-item-action', t('panel.copy'), () => copyItem(item, panelEl)))
       actions.appendChild(button('sa-item-action', t('panel.edit'), () => openEditPopover(item.id, head)))
       actions.appendChild(button('sa-item-action sa-danger', t('panel.delete'), () => removeAnnotation(item.id)))
       head.appendChild(actions)
@@ -189,7 +256,6 @@ export function createPanelRenderer({
     panelBody.appendChild(imageSettingsRow())
     panelBody.appendChild(instructionSettingsRow())
     panelBody.appendChild(fallbackSettingsRow())
-    if (typeof debugSettingsRow === 'function') panelBody.appendChild(debugSettingsRow())
     panelEl.appendChild(panelBody)
 
     const panelFoot = el('div', 'sa-panel-foot')
@@ -197,9 +263,13 @@ export function createPanelRenderer({
     build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`
     panelFoot.appendChild(build)
     if (!side) {
+      // 同一个按钮两种动作：侧栏里已经有批注页签时是「关闭」，否则是「打开」。
+      const sideOpen = isSideTabOpen() === true
+      const sideAction = t(sideOpen ? 'panel.sideTabClose' : 'panel.sideTab')
       const sideTab = button('sa-panel-side', '', openSideTab)
-      sideTab.title = t('panel.sideTab')
-      sideTab.setAttribute('aria-label', t('panel.sideTab'))
+      sideTab.title = sideAction
+      sideTab.setAttribute('aria-label', sideAction)
+      sideTab.setAttribute('aria-pressed', sideOpen ? 'true' : 'false')
       const sideIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
       sideIcon.setAttribute('viewBox', '0 0 16 16')
       sideIcon.setAttribute('width', '14')
@@ -207,7 +277,11 @@ export function createPanelRenderer({
       sideIcon.setAttribute('fill', 'none')
       sideIcon.setAttribute('stroke', 'currentColor')
       sideIcon.setAttribute('stroke-width', '1.2')
-      for (const d of ['M2.2 3.2h11.6v9.6H2.2z', 'M10.2 3.2v9.6']) {
+      // 打开态画出叉号，明确再点一下是关闭；未打开态保留侧栏图标。
+      const sideIconPaths = sideOpen
+        ? ['M4.4 4.4l7.2 7.2', 'M11.6 4.4l-7.2 7.2']
+        : ['M2.2 3.2h11.6v9.6H2.2z', 'M10.2 3.2v9.6']
+      for (const d of sideIconPaths) {
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
         path.setAttribute('d', d)
         sideIcon.appendChild(path)
@@ -218,5 +292,12 @@ export function createPanelRenderer({
     panelEl.appendChild(panelFoot)
   }
 
-  return { render, renderSide }
+  /** 拖到列表空白处（移到末尾）也走同一套位移动画：重排前先记下每一行的屏幕位置。 */
+  function snapshotRows(panelEl) {
+    const rects = new Map()
+    for (const row of panelEl.querySelectorAll('.sa-item')) rects.set(row.dataset.id, row.getBoundingClientRect())
+    return rects
+  }
+
+  return { render, renderSide, snapshotRows, animateRows: flipRows }
 }

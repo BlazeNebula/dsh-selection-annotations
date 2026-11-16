@@ -158,7 +158,7 @@ export const CSS = `
 .sa-side-quote { font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, #a3a3ab); }
 .sa-side-note { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); white-space: pre-wrap; word-break: break-word; }
 .sa-side-adopt { color: var(--dsw-alias-state-success-primary, #3fb950); }
-.sa-panel-hint { position: relative; min-width: 0; flex: 1 1 auto; max-width: 100%; display: inline-block; overflow: hidden; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
+.sa-panel-hint { position: relative; min-width: 0; flex: 1 1 16em; max-width: 100%; display: inline-block; overflow: hidden; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
   color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-hint-layer { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sa-hint-layer.sa-hint-out { animation: sa-hint-out 160ms ease forwards; }
@@ -362,7 +362,7 @@ export const CSS = `
 /* Markdown 渲染后不要再保留 pre-wrap：源码里的换行会被当成额外空行。 */
 .sa-a-reason[data-sa-md="1"] { white-space: normal; }
 .sa-a-next-label { flex: none; writing-mode: vertical-rl; text-orientation: upright; margin: 0; padding: 4px 2px; border-radius: 4px;
-  font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: .08em; line-height: 1;
+  font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 400; letter-spacing: .08em; line-height: 1;
   color: var(--sa-tone, var(--dsw-alias-label-secondary, #8b949e));
   background: color-mix(in srgb, var(--sa-tone, var(--dsw-alias-border-l1, #888)) 16%, transparent); }
 .sa-a-next { display: flex; align-items: stretch; gap: 8px; margin-top: 2px; padding: 6px 10px; border-radius: 6px;
@@ -410,7 +410,4 @@ export const CSS = `
 .sa-reply-partial { color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #d29922) 80%, #000); }
 .sa-reply-rejected { color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #f85149) 80%, #000); }
 .sa-reply-needs_info { color: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 80%, #000); }
-.sa-debug-row { display: flex; gap: 8px; padding: 2px 0; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.sa-debug-key { flex: none; min-width: 52px; color: var(--sa-dim-tertiary); }
-.sa-debug-value { color: var(--sa-dim-secondary); word-break: break-all; user-select: text; }
 `
