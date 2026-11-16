@@ -412,6 +412,9 @@
 .sa-reply-partial { color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #d29922) 80%, #000); }
 .sa-reply-rejected { color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #f85149) 80%, #000); }
 .sa-reply-needs_info { color: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 80%, #000); }
+.sa-debug-row { display: flex; gap: 8px; padding: 2px 0; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sa-debug-key { flex: none; min-width: 52px; color: var(--sa-dim-tertiary); }
+.sa-debug-value { color: var(--sa-dim-secondary); word-break: break-all; user-select: text; }
 `;
 
   // src/core/config.js
@@ -1908,6 +1911,37 @@
     isAdopt = () => false,
     sentStats = () => null
   }) {
+    function debugSection() {
+      const wrap = el("div", "sa-settings");
+      const head = button("sa-settings-head", "调试");
+      head.setAttribute("aria-expanded", "false");
+      const body = el("div", "sa-settings-body");
+      const inner = el("div", "sa-settings-inner");
+      const stats = sentStats();
+      const rows = stats !== null && typeof stats === "object" ? [
+        ["会话", stats.sessionId ?? "?"],
+        ["已发送", String(stats.size ?? 0)],
+        ["卡片", String(stats.cards ?? 0)],
+        ["跳过", String(stats.skipped ?? 0)],
+        ["轮次", stats.turnMin === null || stats.turnMin === void 0 ? "无" : `第 ${stats.turnMin}–${stats.turnMax} 轮`],
+        ["错误", String(stats.errors ?? 0)]
+      ] : [["状态", "尚未渲染"]];
+      for (const [key, value] of rows) {
+        const row = el("div", "sa-debug-row");
+        row.append(el("span", "sa-debug-key", key), el("span", "sa-debug-value", value));
+        inner.appendChild(row);
+      }
+      body.appendChild(inner);
+      body.style.display = "none";
+      head.addEventListener("click", (event) => {
+        event.preventDefault();
+        const open = body.style.display === "none";
+        body.style.display = open ? "" : "none";
+        head.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+      wrap.append(head, body);
+      return wrap;
+    }
     function render(panelEl) {
       paint(panelEl, { surface: "panel" });
     }
@@ -2050,19 +2084,12 @@
       panelBody.appendChild(imageSettingsRow());
       panelBody.appendChild(instructionSettingsRow());
       panelBody.appendChild(fallbackSettingsRow());
+      panelBody.appendChild(debugSection());
       panelEl.appendChild(panelBody);
       const panelFoot = el("div", "sa-panel-foot");
       const build = el("span", "sa-build", `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`);
       build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`;
       panelFoot.appendChild(build);
-      const stats = sentStats();
-      if (stats !== null && typeof stats === "object") {
-        const range = stats.turnMin === null || stats.turnMin === void 0 ? "无轮次" : `第 ${stats.turnMin}–${stats.turnMax} 轮`;
-        const shortSession = typeof stats.sessionId === "string" ? stats.sessionId.slice(0, 8) : "?";
-        const diag = el("span", "sa-build", `已发送 ${stats.size} · 卡片 ${stats.cards} · 跳过 ${stats.skipped} · ${shortSession} · ${range}`);
-        diag.title = `session ${stats.sessionId ?? "?"} · 错误 ${stats.errors ?? 0} ${stats.lastError ?? ""}`;
-        panelFoot.appendChild(diag);
-      }
       if (!side) {
         const sideTab = button("sa-panel-side", "", openSideTab);
         sideTab.title = t("panel.sideTab");

@@ -410,4 +410,7 @@ export const CSS = `
 .sa-reply-partial { color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #d29922) 80%, #000); }
 .sa-reply-rejected { color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #f85149) 80%, #000); }
 .sa-reply-needs_info { color: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 80%, #000); }
+.sa-debug-row { display: flex; gap: 8px; padding: 2px 0; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sa-debug-key { flex: none; min-width: 52px; color: var(--sa-dim-tertiary); }
+.sa-debug-value { color: var(--sa-dim-secondary); word-break: break-all; user-select: text; }
 `
