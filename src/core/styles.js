@@ -131,7 +131,7 @@ export const CSS = `
 .sa-build { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-style: italic;
   font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: var(--dsw-alias-label-tertiary, GrayText);
   user-select: text; white-space: nowrap; }
-.sa-panel-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; max-width: 66%; margin-left: auto; }
+.sa-panel-meta { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; margin-left: auto; }
 .sa-panel-collapse { flex: none; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 5px; background: transparent;
   color: var(--sa-dim-secondary, var(--dsw-alias-label-secondary, #a3a3ab)); cursor: pointer; }
 .sa-panel-collapse svg { transition: transform 160ms ease; }
@@ -158,12 +158,14 @@ export const CSS = `
 .sa-side-quote { font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, #a3a3ab); }
 .sa-side-note { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); white-space: pre-wrap; word-break: break-word; }
 .sa-side-adopt { color: var(--dsw-alias-state-success-primary, #3fb950); }
-.sa-panel-hint { min-width: 0; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
+.sa-panel-hint { position: relative; min-width: 0; flex: 1 1 auto; max-width: 100%; display: inline-block; overflow: hidden; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
   color: var(--dsw-alias-label-tertiary, GrayText); }
-@keyframes sa-hint-roll { 0% { transform: translateX(0); opacity: 1; } 42% { transform: translateX(-120%); opacity: 0; }
-  58% { transform: translateX(120%); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
-.sa-panel-hint.sa-hint-roll { animation: sa-hint-roll 560ms cubic-bezier(.22, .61, .36, 1); }
-.sa-panel-count { padding: 2px 7px; border-radius: 999px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-variant-numeric: tabular-nums;
+.sa-hint-layer { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-hint-layer.sa-hint-out { animation: sa-hint-out 160ms ease forwards; }
+.sa-hint-layer.sa-hint-in { position: absolute; inset: 0; animation: sa-hint-in 300ms cubic-bezier(.22, .61, .36, 1) both; }
+@keyframes sa-hint-out { to { opacity: 0; } }
+@keyframes sa-hint-in { from { transform: translateX(100%); opacity: 0; } to { transform: none; opacity: 1; } }
+.sa-panel-count { padding: 2px 7px; border-radius: 999px; flex: none; white-space: nowrap; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-secondary, GrayText); background: var(--dsw-alias-bg-layer-2, ButtonFace); }
 .sa-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 8px 10px; }
 .sa-panel-empty { padding: 30px 18px; text-align: center; font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.7;
@@ -204,7 +206,7 @@ export const CSS = `
   color: var(--dsw-alias-label-secondary, GrayText); text-decoration: underline; }
 .sa-link:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-foot { display: flex; align-items: center; gap: 8px; }
-.sa-foot-action { font: inherit; font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); padding: 3px 8px; border-radius: 6px; cursor: pointer;
+.sa-foot-action { font: inherit; font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); padding: 3px 8px; border-radius: 6px; flex: none; white-space: nowrap; cursor: pointer;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: none;
   color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-foot-action:hover { color: var(--dsw-alias-state-error-primary, #e5484d);

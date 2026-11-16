@@ -617,24 +617,50 @@ const rewindHandled = new Map()
           return item
         }
 
-        /** 总览右上角的提示位：横向滚出、换文案、再滚入；1.6 秒后滚回默认说明。 */
+        /**
+         * 提示位换文案：旧文案原地淡出，新文案同时从右侧滑入（两段动画并行，不串行等待）；
+         * 文本层被提示位容器裁切，不会盖到右侧按钮上。
+         */
+        function swapHintText(hint, text, animate) {
+          hint.title = text
+          const current = hint.querySelector('.sa-hint-layer')
+          const next = document.createElement('span')
+          next.className = 'sa-hint-layer'
+          next.textContent = text
+          if (!animate || current === null) {
+            hint.textContent = ''
+            hint.appendChild(next)
+            return
+          }
+          next.classList.add('sa-hint-in')
+          current.classList.add('sa-hint-out')
+          hint.appendChild(next)
+          window.setTimeout(() => {
+            if (!hint.isConnected) return
+            current.remove()
+            next.classList.remove('sa-hint-in')
+            hint.textContent = ''
+            hint.appendChild(next)
+          }, 320)
+        }
+
+        /** 总览右上角的提示位：换一条反馈，1.6 秒后换回默认说明。 */
         function flashPanelHint(message) {
           const hint = document.querySelector('.sa-panel-hint')
           if (hint === null) return
-          const roll = (next) => {
-            if (!hint.isConnected) return
-            hint.classList.remove('sa-hint-roll')
-            // 强制回流，让同一段动画可以连续播放。
-            void hint.offsetWidth
-            hint.classList.add('sa-hint-roll')
-            window.setTimeout(() => {
-              if (!hint.isConnected) return
-              hint.textContent = next
-              hint.title = next
-            }, 236)
+          if (hint.querySelector('.sa-hint-layer') === null) {
+            hint.textContent = ''
+            const layer = document.createElement('span')
+            layer.className = 'sa-hint-layer'
+            layer.textContent = t('panel.foot')
+            hint.appendChild(layer)
           }
-          roll(message)
-          window.setTimeout(() => roll(t('panel.foot')), 1600)
+          swapHintText(hint, message, true)
+          if (hint.__saHintTimer !== undefined) window.clearTimeout(hint.__saHintTimer)
+          hint.__saHintTimer = window.setTimeout(() => {
+            hint.__saHintTimer = undefined
+            swapHintText(hint, t('panel.foot'), true)
+          }, 1600)
         }
 
         function copyAnnotationsToClipboard(items) {
