@@ -2829,7 +2829,8 @@
         "remote.workspaceFiles",
         "locale",
         "sidebarRight",
-        "sidebarRightTabs"
+        "sidebarRightTabs",
+        "documentPreviews"
       ],
       apply(ctx) {
         try {
@@ -5249,54 +5250,247 @@
           panelRoot.style.left = `${left}px`;
           panelRoot.style.top = `${Math.max(8, top)}px`;
         }
-        const webPicker = createWebPicker({
-          onPick: async (picked) => {
-            const existing = annotations.find(
-              (candidate) => candidate.source !== null && candidate.source !== void 0 && candidate.source.kind === "web" && candidate.source.anchorKey === picked.selector
-            );
-            if (picked.action === "delete") {
-              const target = annotations.find((candidate) => candidate.id === picked.id);
-              if (target !== void 0) removeAnnotation(target.id);
-              return;
-            }
-            if (picked.action === "modify" || picked.action === "open") {
-              const target = annotations.find((candidate) => candidate.id === picked.id);
-              if (target !== void 0) openEditPopover(target.id, webAnchor(picked.rect), "manual");
-              return;
-            }
-            if (existing !== void 0) {
-              openEditPopover(existing.id, webAnchor(picked.rect), "manual");
-              return;
-            }
-            const adopt = picked.action === "adopt";
-            const shot = await webPicker.capture(imageSettingsOf().webShot ?? "element", picked.rect);
-            const images = shot === void 0 ? [] : [
-              {
-                id: `img-web-${Date.now().toString(36)}`,
-                name: `网页截图-${(/* @__PURE__ */ new Date()).toISOString().slice(11, 19).replace(/:/g, "")}.png`,
-                dataUrl: shot,
-                thumb: shot,
-                preview: shot,
-                bytes: Math.round(shot.length * 3 / 4)
-              }
-            ];
-            const item = addAnnotation({
-              quote: picked.quote !== "" ? picked.quote : picked.selector,
-              note: adopt ? adoptTextOf() : "",
-              images,
-              source: {
-                kind: "web",
-                anchorKey: picked.selector,
-                path: picked.url,
-                textOrigin: "rendered"
-              }
-            });
-            if (item === void 0) return;
-            if (!adopt) openEditPopover(item.id, webAnchor(picked.rect), "manual");
+        async function acceptWebPick(picked) {
+          const anchor = picked.anchor !== void 0 && picked.anchor !== null ? picked.anchor : webAnchor(picked.rect);
+          const existing = annotations.find(
+            (candidate) => candidate.source !== null && candidate.source !== void 0 && candidate.source.kind === "web" && candidate.source.anchorKey === picked.selector
+          );
+          if (picked.action === "delete") {
+            const target = annotations.find((candidate) => candidate.id === picked.id);
+            if (target !== void 0) removeAnnotation(target.id);
+            return;
           }
+          if (picked.action === "modify" || picked.action === "open") {
+            const target = annotations.find((candidate) => candidate.id === picked.id);
+            if (target !== void 0) openEditPopover(target.id, anchor, "manual");
+            return;
+          }
+          if (existing !== void 0) {
+            openEditPopover(existing.id, anchor, "manual");
+            return;
+          }
+          const adopt = picked.action === "adopt";
+          const shot = picked.fromPreview === true ? void 0 : await webPicker.capture(imageSettingsOf().webShot ?? "element", picked.rect);
+          const images = shot === void 0 ? [] : [
+            {
+              id: `img-web-${Date.now().toString(36)}`,
+              name: `网页截图-${(/* @__PURE__ */ new Date()).toISOString().slice(11, 19).replace(/:/g, "")}.png`,
+              dataUrl: shot,
+              thumb: shot,
+              preview: shot,
+              bytes: Math.round(shot.length * 3 / 4)
+            }
+          ];
+          const item = addAnnotation({
+            quote: picked.quote !== "" ? picked.quote : picked.selector,
+            note: adopt ? adoptTextOf() : "",
+            images,
+            source: {
+              kind: "web",
+              anchorKey: picked.selector,
+              path: picked.url,
+              textOrigin: "rendered"
+            }
+          });
+          if (item === void 0) return;
+          if (!adopt) openEditPopover(item.id, anchor, "manual");
+        }
+        const webPicker = createWebPicker({
+          onPick: acceptWebPick
         });
         webPickerHandle = webPicker;
         webPicker.start();
+        const HTML_PREVIEW_ID = "@u2a5f/dsh-selection-annotations/html-preview";
+        const HTML_PREVIEW_BRIDGE = String.raw`(function () {
+  try {
+    Object.defineProperty(window, '__saPicked', {
+      configurable: true,
+      get: function () { return null },
+      set: function (value) {
+        if (value && window.parent !== window) window.parent.postMessage({ __saPreviewPick: value }, '*')
+      },
+    })
+  } catch (error) {}
+  window.addEventListener('message', function (event) {
+    var data = event.data
+    if (!data || !Array.isArray(data.__saPreviewNotes)) return
+    window.__saWebNotes = data.__saPreviewNotes
+    try { window.__saWebRender && window.__saWebRender() } catch (error) {}
+  })
+})();`;
+        function decodePreviewText(data) {
+          if (typeof data === "string") return data;
+          try {
+            return new TextDecoder("utf-8").decode(data);
+          } catch {
+            return "";
+          }
+        }
+        function buildHtmlPreviewDocument(data) {
+          let text = decodePreviewText(data);
+          try {
+            const bundle = JSON.parse(text);
+            if (bundle !== null && typeof bundle === "object" && typeof bundle.html === "string") text = bundle.html;
+          } catch {
+          }
+          let doc;
+          try {
+            doc = new DOMParser().parseFromString(text, "text/html");
+          } catch {
+            return "";
+          }
+          if (doc === null || doc.documentElement === null) return "";
+          for (const node of Array.from(doc.querySelectorAll("script,iframe,object,embed,base,frame"))) node.remove();
+          for (const node of Array.from(doc.querySelectorAll("*"))) {
+            for (const attr of Array.from(node.attributes ?? [])) {
+              if (/^on/iu.test(attr.name) || attr.name === "srcdoc") node.removeAttribute(attr.name);
+            }
+          }
+          const head = doc.head ?? doc.documentElement;
+          const csp = doc.createElement("meta");
+          csp.setAttribute("http-equiv", "Content-Security-Policy");
+          csp.setAttribute(
+            "content",
+            "default-src 'none'; script-src 'nonce-sa-preview'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
+          );
+          head.prepend(csp);
+          const script = doc.createElement("script");
+          script.setAttribute("nonce", "sa-preview");
+          script.textContent = `${HTML_PREVIEW_BRIDGE}
+${PICK_SCRIPT}`;
+          (doc.body ?? doc.documentElement).appendChild(script);
+          return `<!doctype html>${doc.documentElement.outerHTML}`;
+        }
+        function HtmlPreviewBody(props) {
+          const frameRef = React.useRef(null);
+          const content = props !== null && props !== void 0 ? props.content : void 0;
+          const data = content !== null && content !== void 0 ? content.data : void 0;
+          const tabInfo = safe(() => typeof props.useTabInfo === "function" ? props.useTabInfo() : void 0);
+          const tab = tabInfo !== null && tabInfo !== void 0 && tabInfo.tab !== void 0 ? tabInfo.tab : tabInfo;
+          const filePath = String(
+            (props !== null && props !== void 0 && props.resourceAddress) ?? (tab !== void 0 ? tab.title : "") ?? "HTML"
+          );
+          const source = React.useMemo(() => buildHtmlPreviewDocument(data), [data]);
+          const frameUrl = React.useMemo(() => {
+            if (source === "") return "";
+            try {
+              return URL.createObjectURL(new Blob([source], { type: "text/html" }));
+            } catch {
+              return "";
+            }
+          }, [source]);
+          React.useEffect(
+            () => () => {
+              if (frameUrl !== "") URL.revokeObjectURL(frameUrl);
+            },
+            [frameUrl]
+          );
+          React.useEffect(() => {
+            const frame = frameRef.current;
+            if (frame === null || frame === void 0) return void 0;
+            const onMessage = (event) => {
+              if (event.source !== frame.contentWindow) return;
+              const picked = event.data !== null && typeof event.data === "object" ? event.data.__saPreviewPick : void 0;
+              if (picked === null || picked === void 0) return;
+              const base = frame.getBoundingClientRect();
+              const inner = picked.rect ?? {};
+              const rect = {
+                left: Number(inner.left ?? 0),
+                top: Number(inner.top ?? 0),
+                width: Number(inner.width ?? 0),
+                height: Number(inner.height ?? 0)
+              };
+              const anchor = {
+                getBoundingClientRect: () => ({
+                  left: base.left + rect.left,
+                  top: base.top + rect.top,
+                  width: rect.width,
+                  height: rect.height,
+                  right: base.left + rect.left + rect.width,
+                  bottom: base.top + rect.top + rect.height
+                })
+              };
+              try {
+                acceptWebPick({
+                  action: picked.action,
+                  id: picked.id,
+                  quote: typeof picked.label === "string" ? picked.label : "",
+                  selector: typeof picked.selector === "string" ? picked.selector : "",
+                  text: typeof picked.text === "string" ? picked.text : "",
+                  url: filePath,
+                  rect,
+                  anchor,
+                  fromPreview: true
+                });
+              } catch (error) {
+                warn("[selection-annotations] 处理 HTML 预览批注失败：", error);
+              }
+            };
+            const sync = () => {
+              const notes = annotations.filter((item) => item.source !== null && item.source !== void 0 && item.source.kind === "web" && item.source.path === filePath).map((item) => ({ id: item.id, selector: item.source.anchorKey, adopt: hasAdoptNote(item.note) }));
+              try {
+                if (frame.contentWindow !== null) frame.contentWindow.postMessage({ __saPreviewNotes: notes }, "*");
+              } catch {
+              }
+            };
+            window.addEventListener("message", onMessage);
+            frame.addEventListener("load", sync);
+            const timer = window.setInterval(sync, 800);
+            sync();
+            return () => {
+              window.removeEventListener("message", onMessage);
+              frame.removeEventListener("load", sync);
+              window.clearInterval(timer);
+            };
+          }, [filePath, source]);
+          return h("iframe", {
+            ref: frameRef,
+            src: frameUrl,
+            sandbox: "allow-scripts",
+            title: "HTML 批注预览",
+            "data-sa-html-preview": "1",
+            style: {
+              width: "100%",
+              height: "100%",
+              minHeight: "240px",
+              border: "0",
+              display: "block",
+              background: "var(--dsw-alias-bg-base, Canvas)"
+            }
+          });
+        }
+        ctx.effect(() => {
+          const previews = safe(() => ctx.documentPreviews);
+          if (previews === void 0 || previews === null || typeof previews.register !== "function") return void 0;
+          try {
+            return previews.register({
+              id: HTML_PREVIEW_ID,
+              extensions: ["html", "htm"],
+              priority: "extension",
+              title: () => "HTML",
+              loading: "bytes-complete",
+              wrap: false
+            });
+          } catch (error) {
+            warn("[selection-annotations] HTML 预览注册失败：", error);
+            return void 0;
+          }
+        }, "selection-annotations: html preview definition");
+        ctx.effect(() => {
+          if (ctx.slots === void 0) return void 0;
+          try {
+            return ctx.slots.inject(
+              "sidebar.right.tab.document",
+              () => ctx.slots.register(
+                { name: "sidebar.right.tab.document", key: HTML_PREVIEW_ID, locale: LOCALE_NS, inject: () => ({}) },
+                HtmlPreviewBody
+              )
+            );
+          } catch (error) {
+            warn("[selection-annotations] HTML 预览槽位注册失败：", error);
+            return void 0;
+          }
+        }, "selection-annotations: html preview body");
         const SIDE_TAB_ID = "@u2a5f/dsh-selection-annotations";
         const SIDE_TAB_KIND = "selection-annotations";
         function openSideAnnotationsTab() {

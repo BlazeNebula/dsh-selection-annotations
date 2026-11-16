@@ -10,7 +10,7 @@
  * 按钮组默认放在框外，按鼠标靠近的一侧放上方或下方；框外确实没空间才放进框内。
  */
 
-const PICK_SCRIPT = String.raw`(function () {
+export const PICK_SCRIPT = String.raw`(function () {
   if (window.__saPicker) { try { window.__saWebRender && window.__saWebRender() } catch (e) {} return 'already' }
   var state = { el: null, note: null }
   var host = document.createElement('div')

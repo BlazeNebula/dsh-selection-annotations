@@ -626,8 +626,9 @@ const payloadOf = async (upload) => JSON.parse(await payloadTextOf(upload))
 
 test('apply 之后：悬挂 UI 建成、批注按钮注册进发送按钮旁的槽位', () => {
   const harness = makeHarness()
-  assert.equal(harness.registrations.length, 6)
+  assert.equal(harness.registrations.length, 7)
   const byName = Object.fromEntries(harness.registrations.map((registration) => [registration.opts.name, registration]))
+  assert.equal(byName['sidebar.right.tab.document'].opts.key, '@u2a5f/dsh-selection-annotations/html-preview', 'HTML 文件预览要接管成可批注的预览')
   assert.equal(byName['sidebar.right.pane.tab'].opts.key, '@u2a5f/dsh-selection-annotations', '右侧边栏的批注标签页要有正文组件')
   assert.equal(byName['sidebar.right.pane.tab.title'].opts.key, '@u2a5f/dsh-selection-annotations')
   assert.equal(byName['conversation.chat.turnTail'].opts.id, 'selection-annotations-turn-anchor', '每轮尾部要有锚点，卡片才能按轮次精确落位')

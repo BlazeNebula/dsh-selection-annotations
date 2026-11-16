@@ -46,7 +46,7 @@ import { createSourceResolver } from './core/source-resolve.js'
 import { createCards, VERDICT_LABELS } from './core/cards.js'
 import { createMarkdown } from './core/markdown.js'
 import { createPanelRenderer } from './core/panel-render.js'
-import { createWebPicker } from './core/web-picker.js'
+import { createWebPicker, PICK_SCRIPT } from './core/web-picker.js'
 import { createSentStore } from './core/sent-store.js'
 import { createRemoteSync } from './core/remote-sync.js'
 import { createDraftCodec } from './core/draft-codec.js'
@@ -97,6 +97,7 @@ export function createPlugin(React, extras = {}) {
       'locale',
       'sidebarRight',
       'sidebarRightTabs',
+      'documentPreviews',
     ],
     apply(ctx) {
       try {
@@ -3076,62 +3077,274 @@ export function createPlugin(React, extras = {}) {
           panelRoot.style.top = `${Math.max(8, top)}px`
         }
 
+        /**
+         * 统一的网页元素处理：浏览器标签页的拾取与 HTML 文件预览的拾取都走这里。
+         * picked.anchor 是已换算好的窗口坐标；picked.fromPreview 表示来自文件预览，
+         * 此时无法用 webview 截图，跳过截图即可。
+         */
+        async function acceptWebPick(picked) {
+          const anchor = picked.anchor !== undefined && picked.anchor !== null ? picked.anchor : webAnchor(picked.rect)
+          const existing = annotations.find(
+            (candidate) =>
+              candidate.source !== null &&
+              candidate.source !== undefined &&
+              candidate.source.kind === 'web' &&
+              candidate.source.anchorKey === picked.selector,
+          )
+          if (picked.action === 'delete') {
+            const target = annotations.find((candidate) => candidate.id === picked.id)
+            if (target !== undefined) removeAnnotation(target.id)
+            return
+          }
+          if (picked.action === 'modify' || picked.action === 'open') {
+            const target = annotations.find((candidate) => candidate.id === picked.id)
+            if (target !== undefined) openEditPopover(target.id, anchor, 'manual')
+            return
+          }
+          // 同一元素只保留一条网页批注：已有就直接打开那一条，不再新建。
+          if (existing !== undefined) {
+            openEditPopover(existing.id, anchor, 'manual')
+            return
+          }
+          const adopt = picked.action === 'adopt'
+          const shot =
+            picked.fromPreview === true ? undefined : await webPicker.capture(imageSettingsOf().webShot ?? 'element', picked.rect)
+          const images =
+            shot === undefined
+              ? []
+              : [
+                  {
+                    id: `img-web-${Date.now().toString(36)}`,
+                    name: `网页截图-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.png`,
+                    dataUrl: shot,
+                    thumb: shot,
+                    preview: shot,
+                    bytes: Math.round((shot.length * 3) / 4),
+                  },
+                ]
+          const item = addAnnotation({
+            quote: picked.quote !== '' ? picked.quote : picked.selector,
+            note: adopt ? adoptTextOf() : '',
+            images,
+            source: {
+              kind: 'web',
+              anchorKey: picked.selector,
+              path: picked.url,
+              textOrigin: 'rendered',
+            },
+          })
+          if (item === undefined) return
+          if (!adopt) openEditPopover(item.id, anchor, 'manual')
+        }
+
         const webPicker = createWebPicker({
-          onPick: async (picked) => {
-            const existing = annotations.find(
-              (candidate) =>
-                candidate.source !== null &&
-                candidate.source !== undefined &&
-                candidate.source.kind === 'web' &&
-                candidate.source.anchorKey === picked.selector,
-            )
-            if (picked.action === 'delete') {
-              const target = annotations.find((candidate) => candidate.id === picked.id)
-              if (target !== undefined) removeAnnotation(target.id)
-              return
-            }
-            if (picked.action === 'modify' || picked.action === 'open') {
-              const target = annotations.find((candidate) => candidate.id === picked.id)
-              if (target !== undefined) openEditPopover(target.id, webAnchor(picked.rect), 'manual')
-              return
-            }
-            // 同一元素只保留一条网页批注：已有就直接打开那一条，不再新建。
-            if (existing !== undefined) {
-              openEditPopover(existing.id, webAnchor(picked.rect), 'manual')
-              return
-            }
-            const adopt = picked.action === 'adopt'
-            const shot = await webPicker.capture(imageSettingsOf().webShot ?? 'element', picked.rect)
-            const images =
-              shot === undefined
-                ? []
-                : [
-                    {
-                      id: `img-web-${Date.now().toString(36)}`,
-                      name: `网页截图-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.png`,
-                      dataUrl: shot,
-                      thumb: shot,
-                      preview: shot,
-                      bytes: Math.round((shot.length * 3) / 4),
-                    },
-                  ]
-            const item = addAnnotation({
-              quote: picked.quote !== '' ? picked.quote : picked.selector,
-              note: adopt ? adoptTextOf() : '',
-              images,
-              source: {
-                kind: 'web',
-                anchorKey: picked.selector,
-                path: picked.url,
-                textOrigin: 'rendered',
-              },
-            })
-            if (item === undefined) return
-            if (!adopt) openEditPopover(item.id, webAnchor(picked.rect), 'manual')
-          },
+          onPick: acceptWebPick,
         })
         webPickerHandle = webPicker
         webPicker.start()
+
+        /**
+         * HTML 文件预览：DSH 内置预览用 sandbox iframe，父页面读不到里面的 DOM。
+         * 我们注册一个更高优先级的 HTML 预览实现，自己生成同源受限的 iframe，
+         * 在文档里注入同一套拾取脚本，拾取结果经 postMessage 回传。
+         */
+        const HTML_PREVIEW_ID = '@u2a5f/dsh-selection-annotations/html-preview'
+        const HTML_PREVIEW_BRIDGE = String.raw`(function () {
+  try {
+    Object.defineProperty(window, '__saPicked', {
+      configurable: true,
+      get: function () { return null },
+      set: function (value) {
+        if (value && window.parent !== window) window.parent.postMessage({ __saPreviewPick: value }, '*')
+      },
+    })
+  } catch (error) {}
+  window.addEventListener('message', function (event) {
+    var data = event.data
+    if (!data || !Array.isArray(data.__saPreviewNotes)) return
+    window.__saWebNotes = data.__saPreviewNotes
+    try { window.__saWebRender && window.__saWebRender() } catch (error) {}
+  })
+})();`
+
+        function decodePreviewText(data) {
+          if (typeof data === 'string') return data
+          try {
+            return new TextDecoder('utf-8').decode(data)
+          } catch {
+            return ''
+          }
+        }
+
+        function buildHtmlPreviewDocument(data) {
+          let text = decodePreviewText(data)
+          // 开发者模式打开时 DSH 传的是打包后的 HTML，数据是 { html, assets }。
+          try {
+            const bundle = JSON.parse(text)
+            if (bundle !== null && typeof bundle === 'object' && typeof bundle.html === 'string') text = bundle.html
+          } catch {}
+          let doc
+          try {
+            doc = new DOMParser().parseFromString(text, 'text/html')
+          } catch {
+            return ''
+          }
+          if (doc === null || doc.documentElement === null) return ''
+          for (const node of Array.from(doc.querySelectorAll('script,iframe,object,embed,base,frame'))) node.remove()
+          for (const node of Array.from(doc.querySelectorAll('*'))) {
+            for (const attr of Array.from(node.attributes ?? [])) {
+              if (/^on/iu.test(attr.name) || attr.name === 'srcdoc') node.removeAttribute(attr.name)
+            }
+          }
+          const head = doc.head ?? doc.documentElement
+          const csp = doc.createElement('meta')
+          csp.setAttribute('http-equiv', 'Content-Security-Policy')
+          csp.setAttribute(
+            'content',
+            "default-src 'none'; script-src 'nonce-sa-preview'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'",
+          )
+          head.prepend(csp)
+          const script = doc.createElement('script')
+          script.setAttribute('nonce', 'sa-preview')
+          script.textContent = `${HTML_PREVIEW_BRIDGE}\n${PICK_SCRIPT}`
+          ;(doc.body ?? doc.documentElement).appendChild(script)
+          return `<!doctype html>${doc.documentElement.outerHTML}`
+        }
+
+        function HtmlPreviewBody(props) {
+          const frameRef = React.useRef(null)
+          const content = props !== null && props !== undefined ? props.content : undefined
+          const data = content !== null && content !== undefined ? content.data : undefined
+          const tabInfo = safe(() => (typeof props.useTabInfo === 'function' ? props.useTabInfo() : undefined))
+          const tab = tabInfo !== null && tabInfo !== undefined && tabInfo.tab !== undefined ? tabInfo.tab : tabInfo
+          const filePath = String(
+            (props !== null && props !== undefined && props.resourceAddress) ?? (tab !== undefined ? tab.title : '') ?? 'HTML',
+          )
+          const source = React.useMemo(() => buildHtmlPreviewDocument(data), [data])
+          const frameUrl = React.useMemo(() => {
+            if (source === '') return ''
+            try {
+              return URL.createObjectURL(new Blob([source], { type: 'text/html' }))
+            } catch {
+              return ''
+            }
+          }, [source])
+          React.useEffect(
+            () => () => {
+              if (frameUrl !== '') URL.revokeObjectURL(frameUrl)
+            },
+            [frameUrl],
+          )
+
+          React.useEffect(() => {
+            const frame = frameRef.current
+            if (frame === null || frame === undefined) return undefined
+            const onMessage = (event) => {
+              if (event.source !== frame.contentWindow) return
+              const picked = event.data !== null && typeof event.data === 'object' ? event.data.__saPreviewPick : undefined
+              if (picked === null || picked === undefined) return
+              const base = frame.getBoundingClientRect()
+              const inner = picked.rect ?? {}
+              const rect = {
+                left: Number(inner.left ?? 0),
+                top: Number(inner.top ?? 0),
+                width: Number(inner.width ?? 0),
+                height: Number(inner.height ?? 0),
+              }
+              const anchor = {
+                getBoundingClientRect: () => ({
+                  left: base.left + rect.left,
+                  top: base.top + rect.top,
+                  width: rect.width,
+                  height: rect.height,
+                  right: base.left + rect.left + rect.width,
+                  bottom: base.top + rect.top + rect.height,
+                }),
+              }
+              try {
+                acceptWebPick({
+                  action: picked.action,
+                  id: picked.id,
+                  quote: typeof picked.label === 'string' ? picked.label : '',
+                  selector: typeof picked.selector === 'string' ? picked.selector : '',
+                  text: typeof picked.text === 'string' ? picked.text : '',
+                  url: filePath,
+                  rect,
+                  anchor,
+                  fromPreview: true,
+                })
+              } catch (error) {
+                warn('[selection-annotations] 处理 HTML 预览批注失败：', error)
+              }
+            }
+            const sync = () => {
+              const notes = annotations
+                .filter((item) => item.source !== null && item.source !== undefined && item.source.kind === 'web' && item.source.path === filePath)
+                .map((item) => ({ id: item.id, selector: item.source.anchorKey, adopt: hasAdoptNote(item.note) }))
+              try {
+                if (frame.contentWindow !== null) frame.contentWindow.postMessage({ __saPreviewNotes: notes }, '*')
+              } catch {}
+            }
+            window.addEventListener('message', onMessage)
+            frame.addEventListener('load', sync)
+            const timer = window.setInterval(sync, 800)
+            sync()
+            return () => {
+              window.removeEventListener('message', onMessage)
+              frame.removeEventListener('load', sync)
+              window.clearInterval(timer)
+            }
+          }, [filePath, source])
+
+          return h('iframe', {
+            ref: frameRef,
+            src: frameUrl,
+            sandbox: 'allow-scripts',
+            title: 'HTML 批注预览',
+            'data-sa-html-preview': '1',
+            style: {
+              width: '100%',
+              height: '100%',
+              minHeight: '240px',
+              border: '0',
+              display: 'block',
+              background: 'var(--dsw-alias-bg-base, Canvas)',
+            },
+          })
+        }
+
+        ctx.effect(() => {
+          const previews = safe(() => ctx.documentPreviews)
+          if (previews === undefined || previews === null || typeof previews.register !== 'function') return undefined
+          try {
+            return previews.register({
+              id: HTML_PREVIEW_ID,
+              extensions: ['html', 'htm'],
+              priority: 'extension',
+              title: () => 'HTML',
+              loading: 'bytes-complete',
+              wrap: false,
+            })
+          } catch (error) {
+            // 热加载时旧实例可能还没释放，重复注册同一 id 会抛错。
+            warn('[selection-annotations] HTML 预览注册失败：', error)
+            return undefined
+          }
+        }, 'selection-annotations: html preview definition')
+        ctx.effect(() => {
+          if (ctx.slots === undefined) return undefined
+          try {
+            return ctx.slots.inject('sidebar.right.tab.document', () =>
+              ctx.slots.register(
+                { name: 'sidebar.right.tab.document', key: HTML_PREVIEW_ID, locale: LOCALE_NS, inject: () => ({}) },
+                HtmlPreviewBody,
+              ),
+            )
+          } catch (error) {
+            warn('[selection-annotations] HTML 预览槽位注册失败：', error)
+            return undefined
+          }
+        }, 'selection-annotations: html preview body')
 
         const SIDE_TAB_ID = '@u2a5f/dsh-selection-annotations'
         const SIDE_TAB_KIND = 'selection-annotations'
