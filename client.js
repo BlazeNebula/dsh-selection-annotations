@@ -4064,6 +4064,27 @@ ${PICK_SCRIPT}<\/script>`;
                 moveSection(section, flow, ref);
                 return;
               }
+              if (ref === null) {
+                const nested = [...document.querySelectorAll(`[data-chat-turn="${key}"][data-chat-flow-kind]`)].filter((el2) => {
+                  const kind = el2.getAttribute("data-chat-flow-kind") ?? "";
+                  if (kind !== "assistant" && kind !== "assistant-step") return false;
+                  const part = el2.getAttribute("data-chat-group-part");
+                  if (part !== null && part !== "response") return false;
+                  return el2.closest("[data-step-process-body],[data-turn-process-inline],[data-turn-process-member]") === null;
+                });
+                const pick = nested[nested.length - 1] ?? null;
+                if (pick !== null) {
+                  let top = pick;
+                  while (top.parentElement !== null && top.parentElement.getAttribute?.("data-chat-turn") === key) {
+                    top = top.parentElement;
+                  }
+                  const container2 = top.parentElement;
+                  if (container2 !== null && container2 !== section) {
+                    moveSection(section, container2, top);
+                    return;
+                  }
+                }
+              }
             }
             let lastMember = null;
             let bodyItem = null;

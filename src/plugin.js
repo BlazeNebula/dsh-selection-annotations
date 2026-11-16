@@ -1297,6 +1297,31 @@ const rewindHandled = new Map()
                 moveSection(section, flow, ref)
                 return
               }
+              // 最终正文有时不直接挂在 flow 下，而是被组行（带 data-chat-turn 的外壳）包住；
+              // 这时上面的直接子行匹配会落空。退一步在整轮里找最后一个助手内容行，再上溯到组行，
+              // 把卡片插在组行之前 —— 与过程链、正文同级，且不会被折叠带走。
+              if (ref === null) {
+                const nested = [...document.querySelectorAll(`[data-chat-turn="${key}"][data-chat-flow-kind]`)]
+                  .filter((el) => {
+                    const kind = el.getAttribute('data-chat-flow-kind') ?? ''
+                    if (kind !== 'assistant' && kind !== 'assistant-step') return false
+                    const part = el.getAttribute('data-chat-group-part')
+                    if (part !== null && part !== 'response') return false
+                    return el.closest('[data-step-process-body],[data-turn-process-inline],[data-turn-process-member]') === null
+                  })
+                const pick = nested[nested.length - 1] ?? null
+                if (pick !== null) {
+                  let top = pick
+                  while (top.parentElement !== null && top.parentElement.getAttribute?.('data-chat-turn') === key) {
+                    top = top.parentElement
+                  }
+                  const container = top.parentElement
+                  if (container !== null && container !== section) {
+                    moveSection(section, container, top)
+                    return
+                  }
+                }
+              }
             }
             // 旧结构：过程成员嵌在过程容器里，先上溯到对话列的直接子节点再插。
             let lastMember = null
