@@ -529,6 +529,8 @@
       "pop.editTitle": "修改批注 #{n}",
       "panel.empty": "选中回复、消息或文件预览里的文字，点浮动的「批注反馈」即可。",
       "panel.title": "批注总览",
+      "panel.debug": "调试",
+      "panel.debugEmpty": "尚未渲染",
       "panel.count": "{n} 条",
       "panel.drag": "拖动排序",
       "panel.edit": "编辑",
@@ -655,6 +657,8 @@
       "pop.editTitle": "Edit annotation #{n}",
       "panel.empty": "Select text in a reply, message, or file preview, then click the floating “Feedback”.",
       "panel.title": "Annotations",
+      "panel.debug": "Debug",
+      "panel.debugEmpty": "Not rendered yet",
       "panel.count": "{n} items",
       "panel.drag": "Drag to reorder",
       "panel.edit": "Edit",
@@ -1909,39 +1913,9 @@
     openSideTab = () => {
     },
     isAdopt = () => false,
-    sentStats = () => null
+    sentStats = () => null,
+    debugSettingsRow = null
   }) {
-    function debugSection() {
-      const wrap = el("div", "sa-settings");
-      const head = button("sa-settings-head", "调试");
-      head.setAttribute("aria-expanded", "false");
-      const body = el("div", "sa-settings-body");
-      const inner = el("div", "sa-settings-inner");
-      const stats = sentStats();
-      const rows = stats !== null && typeof stats === "object" ? [
-        ["会话", stats.sessionId ?? "?"],
-        ["已发送", String(stats.size ?? 0)],
-        ["卡片", String(stats.cards ?? 0)],
-        ["跳过", String(stats.skipped ?? 0)],
-        ["轮次", stats.turnMin === null || stats.turnMin === void 0 ? "无" : `第 ${stats.turnMin}–${stats.turnMax} 轮`],
-        ["错误", String(stats.errors ?? 0)]
-      ] : [["状态", "尚未渲染"]];
-      for (const [key, value] of rows) {
-        const row = el("div", "sa-debug-row");
-        row.append(el("span", "sa-debug-key", key), el("span", "sa-debug-value", value));
-        inner.appendChild(row);
-      }
-      body.appendChild(inner);
-      body.style.display = "none";
-      head.addEventListener("click", (event) => {
-        event.preventDefault();
-        const open = body.style.display === "none";
-        body.style.display = open ? "" : "none";
-        head.setAttribute("aria-expanded", open ? "true" : "false");
-      });
-      wrap.append(head, body);
-      return wrap;
-    }
     function render(panelEl) {
       paint(panelEl, { surface: "panel" });
     }
@@ -2084,7 +2058,7 @@
       panelBody.appendChild(imageSettingsRow());
       panelBody.appendChild(instructionSettingsRow());
       panelBody.appendChild(fallbackSettingsRow());
-      panelBody.appendChild(debugSection());
+      if (typeof debugSettingsRow === "function") panelBody.appendChild(debugSettingsRow());
       panelEl.appendChild(panelBody);
       const panelFoot = el("div", "sa-panel-foot");
       const build = el("span", "sa-build", `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`);
@@ -5806,6 +5780,7 @@ ${PICK_SCRIPT}<\/script>`;
         let imageSettingsOpen = false;
         let instructionSettingsOpen = false;
         let fallbackSettingsOpen = false;
+        let debugSettingsOpen = false;
         function button2(className, text, onClick) {
           const created = el("button", className, text);
           created.type = "button";
@@ -6232,7 +6207,8 @@ ${PICK_SCRIPT}`;
           fallbackSettingsRow: () => fallbackSettingsRow(),
           openSideTab: () => toggleSideAnnotationsTab(),
           isAdopt: hasAdoptNote,
-          sentStats: () => sentRenderStats
+          sentStats: () => sentRenderStats,
+          debugSettingsRow: () => debugSettingsRow()
         });
         const renderPanel = () => panelRenderer.render(panelEl);
         function settingsChevron() {
@@ -6439,6 +6415,37 @@ ${PICK_SCRIPT}`;
             },
             onOpenChange: (open) => {
               fallbackSettingsOpen = open;
+            }
+          });
+          return section.box;
+        }
+        function debugSettingsRow() {
+          const stats = sentRenderStats;
+          const body = [];
+          const rows = stats !== null && typeof stats === "object" ? [
+            ["会话", stats.sessionId ?? "?"],
+            ["已发送", String(stats.size ?? 0)],
+            ["卡片", String(stats.cards ?? 0)],
+            ["跳过", String(stats.skipped ?? 0)],
+            ["轮次", stats.turnMin === null || stats.turnMin === void 0 ? "无" : `第 ${stats.turnMin}–${stats.turnMax} 轮`],
+            ["错误", String(stats.errors ?? 0)]
+          ] : [];
+          for (const [key, value] of rows) {
+            const row = el("div", "sa-debug-row");
+            row.append(el("span", "sa-debug-key", key), el("span", "sa-debug-value", value));
+            body.push(row);
+          }
+          if (body.length === 0) body.push(el("div", "sa-hint", t("panel.debugEmpty")));
+          const section = settingsSection({
+            open: debugSettingsOpen,
+            label: t("panel.debug"),
+            getStatus: () => {
+              if (stats === null || typeof stats !== "object") return "";
+              return `已发送 ${stats.size ?? 0} · 卡片 ${stats.cards ?? 0} · 跳过 ${stats.skipped ?? 0}`;
+            },
+            body,
+            onOpenChange: (open) => {
+              debugSettingsOpen = open;
             }
           });
           return section.box;

@@ -3281,6 +3281,7 @@ const rewindHandled = new Map()
         /** 面板底部的批注指令设置是否展开。*/
         let instructionSettingsOpen = false
         let fallbackSettingsOpen = false
+        let debugSettingsOpen = false
 
         function button(className, text, onClick) {
           const created = el('button', className, text)
@@ -3771,6 +3772,7 @@ const rewindHandled = new Map()
           openSideTab: () => toggleSideAnnotationsTab(),
           isAdopt: hasAdoptNote,
           sentStats: () => sentRenderStats,
+          debugSettingsRow: () => debugSettingsRow(),
         })
         const renderPanel = () => panelRenderer.render(panelEl)
 
@@ -4000,6 +4002,41 @@ const rewindHandled = new Map()
             },
             onOpenChange: (open) => {
               fallbackSettingsOpen = open
+            },
+          })
+          return section.box
+        }
+
+        /** 面板里的调试区：与图片设置、批注指令、空提示词共用同一套折叠头与动效。 */
+        function debugSettingsRow() {
+          const stats = sentRenderStats
+          const body = []
+          const rows = stats !== null && typeof stats === 'object'
+            ? [
+                ['会话', stats.sessionId ?? '?'],
+                ['已发送', String(stats.size ?? 0)],
+                ['卡片', String(stats.cards ?? 0)],
+                ['跳过', String(stats.skipped ?? 0)],
+                ['轮次', stats.turnMin === null || stats.turnMin === undefined ? '无' : `第 ${stats.turnMin}–${stats.turnMax} 轮`],
+                ['错误', String(stats.errors ?? 0)],
+              ]
+            : []
+          for (const [key, value] of rows) {
+            const row = el('div', 'sa-debug-row')
+            row.append(el('span', 'sa-debug-key', key), el('span', 'sa-debug-value', value))
+            body.push(row)
+          }
+          if (body.length === 0) body.push(el('div', 'sa-hint', t('panel.debugEmpty')))
+          const section = settingsSection({
+            open: debugSettingsOpen,
+            label: t('panel.debug'),
+            getStatus: () => {
+              if (stats === null || typeof stats !== 'object') return ''
+              return `已发送 ${stats.size ?? 0} · 卡片 ${stats.cards ?? 0} · 跳过 ${stats.skipped ?? 0}`
+            },
+            body,
+            onOpenChange: (open) => {
+              debugSettingsOpen = open
             },
           })
           return section.box
