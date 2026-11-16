@@ -53,7 +53,7 @@ import {
 } from './core/annotation-clipboard.js'
 import { createWebPicker, PICK_SCRIPT } from './core/web-picker.js'
 import { createPreviewBridge } from './core/preview-bridge.js'
-import { createSentStore } from './core/sent-store.js'
+import { createSentStore, isSentItem } from './core/sent-store.js'
 import { createPayloadHidingRule } from './core/hidden-payload.js'
 import { createRemoteSync } from './core/remote-sync.js'
 import { createDraftCodec } from './core/draft-codec.js'
@@ -503,7 +503,15 @@ const rewindHandled = new Map()
               const items = value.items.filter(isSentItem).slice(0, DRAFT_MAX_ITEMS)
               if (items.length === 0) continue
               const turn = Number.isFinite(value.turn) ? Number(value.turn) : undefined
-              table.set(key, { savedAt: Number(value.savedAt) || 0, items, ...(turn !== undefined ? { turn } : {}) })
+              // 宿主里的旧记录可能用 time:/turn-process 当键；值里的 anchorKey 才是消息行锚点，必须留住。
+              const anchorKey =
+                typeof value.anchorKey === 'string' && value.anchorKey !== '' ? value.anchorKey : undefined
+              table.set(key, {
+                savedAt: Number(value.savedAt) || 0,
+                items,
+                ...(turn !== undefined ? { turn } : {}),
+                ...(anchorKey !== undefined ? { anchorKey } : {}),
+              })
             }
             if (table.size > 0) {
               const localTable = sentBySession.get(sessionId) ?? new Map()
@@ -1154,18 +1162,40 @@ const rewindHandled = new Map()
         /** 在所属轮次的「已完成」之前补出已提交批注卡片；按轮次定位，不依赖消息行是否已加载。*/
         function renderSentCards() {
           const sessionId = currentSessionId()
-          if (sessionId === undefined) return
+          // 统计对象先建好：早退也要落盘，否则面板诊断看不到「为什么一张卡都没有」。
+          const stats = {
+            sessionId,
+            size: 0,
+            cards: 0,
+            skipped: 0,
+            errors: 0,
+            lastError: '',
+            anchorMiss: 0,
+            reasons: { noSession: 0, emptyTable: 0, emptyItems: 0, noTurn: 0, turnNotInDom: 0 },
+          }
+          sentRenderStats = stats
+          if (sessionId === undefined) {
+            stats.reasons.noSession += 1
+            return
+          }
           const table = loadSent(sessionId)
-          if (table.size === 0) return
+          stats.size = table.size
+          if (table.size === 0) {
+            stats.reasons.emptyTable += 1
+            return
+          }
           // 卡片身份取台账键；锚点只用来挂答复卡。
           for (const stale of document.querySelectorAll('[data-sa-ui="sent"]')) {
             const key = stale.getAttribute('data-sa-key')
             if (key === null || !table.has(key)) stale.remove()
           }
           let learnedTurn = false
-          const stats = { size: table.size, cards: 0, skipped: 0, errors: 0, lastError: '', sessionId }
           for (const [storedKey, record] of table) {
-            if (record.items.length === 0) { stats.skipped += 1; continue }
+            if (record.items.length === 0) {
+              stats.skipped += 1
+              stats.reasons.emptyItems += 1
+              continue
+            }
             const anchorKey = typeof record.anchorKey === 'string' && record.anchorKey !== ''
               ? record.anchorKey
               : resolveLegacyAnchor(storedKey)
@@ -1181,7 +1211,14 @@ const rewindHandled = new Map()
               }
             }
             const footer = footerBlockForTurn(turn)
-            if (row === null && footer === null) { stats.skipped += 1; continue }
+            if (row === null && footer === null) {
+              stats.skipped += 1
+              if (!Number.isFinite(turn)) stats.reasons.noTurn += 1
+              else stats.reasons.turnNotInDom += 1
+              continue
+            }
+            // 锚点没查到、靠轮次落位：面板里单独计数，用来区分「锚点丢了」和「轮次根本没渲染」。
+            if (row === null) stats.anchorMiss += 1
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
             const cardOptions = {
               onReuse: () => reuseSentItems(record.items),
@@ -1492,7 +1529,13 @@ const rewindHandled = new Map()
           if (batches.length === 0) return
           for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) {
             const anchorKey = stale.getAttribute('data-anchor')
-            const known = [...table.keys()].some((storedKey) => resolveLegacyAnchor(storedKey) === anchorKey)
+            const known = [...table.entries()].some(([storedKey, record]) => {
+              // 台账记录升级出 anchorKey 后，旧答复卡还挂在旧锚点上，也要认出来替换掉。
+              const candidate = typeof record.anchorKey === 'string' && record.anchorKey !== ''
+                ? record.anchorKey
+                : resolveLegacyAnchor(storedKey)
+              return candidate === anchorKey
+            })
             if (!known) stale.remove()
           }
           const byAnchor = new Map()
@@ -1521,7 +1564,6 @@ const rewindHandled = new Map()
             const escaped = cssEscape(anchorKey)
             const sentCards = document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${escaped}"]`)
             const sentCard = sentCards[sentCards.length - 1]
-            if (sentCard === undefined) continue
             const items = byAnchor.get(anchorKey)?.record.items ?? []
             const turn = byAnchor.get(anchorKey)?.turn ?? null
             const signature = hashString({
@@ -1545,18 +1587,23 @@ const rewindHandled = new Map()
               fresh.dataset.signature = signature
               existing.replaceWith(fresh)
               placeReplyAfterTurnProcess(fresh, turn)
-              collapseSentForReplies(sentCard, signature)
+              if (sentCard !== undefined) collapseSentForReplies(sentCard, signature)
               continue
             }
+            // 宿主节点：优先跟已发送卡；已发送卡没渲染出来时退到该轮的尾行/内容项，
+            // 否则答复卡会跟着整批消失（这正是「两块一起不见」的直接原因）。
+            const host = sentCard !== undefined ? sentCard : Number.isFinite(turn) ? footerBlockForTurn(turn) : null
+            const parent = host?.parentElement ?? null
+            if (parent === null) continue
             const section = buildReplySection(list, items, {
               onReuseAll: () => reuseSentItems(items),
               onReplayItem: (item) => reuseSentItems([item]),
             })
             section.setAttribute('data-anchor', anchorKey)
             section.dataset.signature = signature
-            sentCard.parentElement?.insertBefore(section, sentCard.nextSibling)
+            parent.insertBefore(section, sentCard !== undefined ? sentCard.nextSibling : host)
             placeReplyAfterTurnProcess(section, turn)
-            collapseSentForReplies(sentCard, signature)
+            if (sentCard !== undefined) collapseSentForReplies(sentCard, signature)
           }
         }
 
@@ -4007,6 +4054,26 @@ const rewindHandled = new Map()
           return section.box
         }
 
+        /** 跳过原因的中文标签：诊断行要能直接读懂，不再只是「跳过 3」。 */
+        const SENT_SKIP_REASON_LABELS = {
+          noSession: '无会话',
+          emptyTable: '台账为空',
+          emptyItems: '条目为空',
+          noTurn: '无轮次',
+          turnNotInDom: '轮次不在 DOM',
+        }
+
+        function sentSkipReasonText(stats) {
+          const reasons = stats?.reasons
+          if (reasons === null || typeof reasons !== 'object') return '无'
+          const parts = []
+          for (const [key, label] of Object.entries(SENT_SKIP_REASON_LABELS)) {
+            const count = Number(reasons[key]) || 0
+            if (count > 0) parts.push(`${label} ${count}`)
+          }
+          return parts.length === 0 ? '无' : parts.join('；')
+        }
+
         /** 面板里的调试区：与图片设置、批注指令、空提示词共用同一套折叠头与动效。 */
         function debugSettingsRow() {
           const stats = sentRenderStats
@@ -4017,6 +4084,8 @@ const rewindHandled = new Map()
                 ['已发送', String(stats.size ?? 0)],
                 ['卡片', String(stats.cards ?? 0)],
                 ['跳过', String(stats.skipped ?? 0)],
+                ['跳过原因', sentSkipReasonText(stats)],
+                ['按轮次落位', String(stats.anchorMiss ?? 0)],
                 ['轮次', stats.turnMin === null || stats.turnMin === undefined ? '无' : `第 ${stats.turnMin}–${stats.turnMax} 轮`],
                 ['错误', String(stats.errors ?? 0)],
               ]
@@ -4673,6 +4742,7 @@ const rewindHandled = new Map()
           receipt: () => draftIds[0] ?? null,
           drafts: () => [...draftIds],
           session: () => currentSessionId(),
+          sentStats: () => sentRenderStats,
           repaint,
           remove: removeAnnotation,
           clear: clearAnnotations,

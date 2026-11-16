@@ -8,7 +8,8 @@ export function isSentItem(value) {
 
 /**
  * 已提交批注的本地台账（内存 + localStorage），按会话分表，键是消息锚点键。
- * 记录形如 { savedAt, items, turn? }；turn 用来把卡片固定在所属轮次的「已完成」前后。
+ * 记录形如 { savedAt, items, turn?, anchorKey? }；turn 用来把卡片固定在所属轮次的「已完成」前后，
+ * anchorKey 在没有轮次号（旧记录、跨端合并）时用来回到消息行。
  */
 export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxBytes, maxItems, onChanged }) {
 
@@ -26,7 +27,13 @@ export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxB
           const items = value.items.filter(isSentItem).slice(0, maxItems)
           if (items.length === 0) continue
           const turn = Number.isFinite(value.turn) ? Number(value.turn) : undefined
-          table.set(key, { savedAt: Number(value.savedAt) || 0, items, ...(turn !== undefined ? { turn } : {}) })
+          const anchorKey = typeof value.anchorKey === 'string' && value.anchorKey !== '' ? value.anchorKey : undefined
+          table.set(key, {
+            savedAt: Number(value.savedAt) || 0,
+            items,
+            ...(turn !== undefined ? { turn } : {}),
+            ...(anchorKey !== undefined ? { anchorKey } : {}),
+          })
         }
       }
     }
@@ -73,6 +80,8 @@ export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxB
       savedAt: Date.now(),
       items,
       ...(Number.isFinite(turn) ? { turn } : {}),
+      // 键本身就是锚点；值里再存一份，跨端合并或旧键（time:/turn-process）时才有地方取。
+      anchorKey,
     })
     saveSent(sessionId, table)
   }

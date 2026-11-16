@@ -122,25 +122,30 @@ function element(tag, attrs = {}, children = []) {
   return el
 }
 
-/** 只支持本插件实际用到的那几个选择器形状。 */
+/** 只支持本插件实际用到的那几个选择器形状：逗号分组、标签/类/属性，属性可连写。 */
+function matchesSimple(el, token) {
+  const attrMatch = /^\[([a-zA-Z-]+)(?:="([^"]*)")?\]$/.exec(token)
+  if (attrMatch !== null) {
+    const value = el.getAttribute(attrMatch[1])
+    if (value === null) return false
+    return attrMatch[2] === undefined || value === attrMatch[2]
+  }
+  if (/^\.[A-Za-z0-9_-]+$/.test(token)) {
+    const classes = `${el.className} ${el.getAttribute('class') ?? ''}`.split(/\s+/).filter(Boolean)
+    return classes.includes(token.slice(1))
+  }
+  if (/^[a-z]+$/i.test(token)) return el.tagName === token.toUpperCase()
+  return false
+}
+
 function matches(el, selector) {
   if (el === null || el.nodeType !== 1) return false
   for (const part of selector.split(',')) {
     const candidate = part.trim()
-    const attrMatch = /^\[([a-zA-Z-]+)(?:="([^"]*)")?\]$/.exec(candidate)
-    if (attrMatch !== null) {
-      const value = el.getAttribute(attrMatch[1])
-      if (value === null) continue
-      if (attrMatch[2] === undefined || value === attrMatch[2]) return true
-      continue
-    }
-    if (/^\.[A-Za-z0-9_-]+$/.test(candidate)) {
-      const classes = `${el.className} ${el.getAttribute('class') ?? ''}`.split(/\s+/).filter(Boolean)
-      if (classes.includes(candidate.slice(1))) return true
-      continue
-    }
-    if (/^(input|textarea)$/i.test(candidate) && el.tagName === candidate.toUpperCase()) return true
-    if (/^[a-z]+$/i.test(candidate) && el.tagName === candidate.toUpperCase()) return true
+    if (candidate === '') continue
+    const tokens = candidate.match(/\[[^\]]+\]|\.[A-Za-z0-9_-]+|[a-zA-Z][a-zA-Z0-9-]*/g)
+    if (tokens === null || tokens.join('') !== candidate) continue
+    if (tokens.every((token) => matchesSimple(el, token))) return true
   }
   return false
 }
@@ -1737,4 +1742,191 @@ test('隐藏规则：只把并入消息末尾的批注 JSON 段显示为空', ()
   assert.equal(onlyNode.end, only.length)
   // 文本里出现同样的标记但无法解析成批注负载时，不隐藏（避免误伤用户自己的正文）。
   assert.equal(rule.match('{ "kind": "dsh-selection-annotations", 坏掉的 JSON', 0, { read: () => true }), undefined)
+})
+
+/* ------------------------------------------------------------------ 历史轮次复现 */
+
+const HOST_ANCHOR_5 = '5:input-messagea04d59f4-b649-49f8-ae1c-58b01db770d6'
+const HOST_ANCHOR_7 = '7:input-message90688c9b-db1c-46d5-956a-61a5997d9e77'
+
+/**
+ * 宿主落盘文件的结构（取自真实会话 session-9a74ffc7…）：
+ * sent 用 `time:<毫秒>` 当键，值里带轮次与消息行锚点；replies 是批次数组。
+ * 本地 localStorage 为空，页面刚打开时只有 pull 回来的这一份。
+ */
+const HOST_FIXTURE = {
+  schemaVersion: 1,
+  sessionId: 'session-probe',
+  updatedAt: 1794818395496,
+  drafts: {},
+  sent: {
+    'time:1794814942437': {
+      savedAt: 1794814942437,
+      items: [{ quote: '第 5 轮的引文', note: '第 5 轮的批注' }],
+      turn: 5,
+      anchorKey: HOST_ANCHOR_5,
+      restored: true,
+    },
+    'time:1794818282348': {
+      savedAt: 1794818282348,
+      items: [
+        { quote: '第 7 轮的引文', note: '第 7 轮的批注' },
+        { quote: '第 7 轮第二条', note: '第二条批注' },
+      ],
+      turn: 7,
+      anchorKey: HOST_ANCHOR_7,
+      restored: true,
+    },
+  },
+  replies: [
+    {
+      at: 1794815525726,
+      replies: [{ index: 1, verdict: 'accepted', reason: '第 5 轮的答复' }],
+      accepted: 1,
+      partial: 0,
+      rejected: 0,
+      needsInfo: 0,
+    },
+    {
+      at: 1794818371426,
+      replies: [
+        { index: 1, verdict: 'accepted', reason: '第 7 轮的答复一' },
+        { index: 2, verdict: 'accepted', reason: '第 7 轮的答复二' },
+      ],
+      accepted: 2,
+      partial: 0,
+      rejected: 0,
+      needsInfo: 0,
+    },
+  ],
+}
+
+function stubHostRemote(remote) {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, init = {}) => {
+    if (init.method === 'PUT') return { ok: true, status: 200, async json() { return {} } }
+    return { ok: true, status: 200, async json() { return remote } }
+  }
+  return {
+    restore: () => {
+      globalThis.fetch = originalFetch
+    },
+  }
+}
+
+/** 仿 DSH 历史轮次：用户气泡 + 助手内容项 + 含「已完成」按钮的尾行。 */
+function plantTurn(env, turn, anchorKey) {
+  const column = env.element('div')
+  env.document.body.appendChild(column)
+  const user = env.element('div')
+  user.setAttribute('data-chat-turn', String(turn))
+  user.setAttribute('data-chat-flow-kind', 'user')
+  user.setAttribute('data-chat-anchor-key', anchorKey)
+  const answer = env.element('div')
+  answer.setAttribute('data-chat-turn', String(turn))
+  answer.setAttribute('data-chat-flow-kind', 'assistant-step')
+  const footer = env.element('div')
+  footer.setAttribute('data-chat-flow-kind', 'turn-process')
+  const close = env.element('button')
+  close.setAttribute('data-turn-process', String(turn))
+  footer.appendChild(close)
+  column.append(user, answer, footer)
+  return { column, user, answer, footer }
+}
+
+test('复现：宿主台账拉回后，第 7 轮的已发送卡与答复卡都要渲染', async () => {
+  const remote = HOST_FIXTURE
+  const stub = stubHostRemote(remote)
+  try {
+    const harness = makeHarness({ sessionId: remote.sessionId })
+    const internals = harness.debug._internals
+    plantTurn(harness.env, 7, HOST_ANCHOR_7)
+
+    internals.adoptSession(remote.sessionId)
+    await settle()
+
+    const sent = harness.env.document.querySelector('[data-sa-ui="sent"][data-sa-key="time:1794818282348"]')
+    assert.ok(sent !== null, '第 7 轮的已发送卡片必须出现')
+    assert.equal(sent.getAttribute('data-sa-turn'), '7')
+    assert.equal(sent.getAttribute('data-anchor'), HOST_ANCHOR_7, '卡片锚点应取宿主记录里的 anchorKey')
+    const replies = harness.env.document.querySelector('[data-sa-ui="replies"]')
+    assert.ok(replies !== null, '第 7 轮的答复卡片必须出现')
+    assert.match(replies.textContent, /批注答复 ×2/)
+    assert.equal(replies.dataset.saTurn, '7')
+
+    // 第 5 轮不在 DOM 里：只跳过它，并且在诊断里说清原因。
+    const stats = harness.debug.sentStats()
+    assert.equal(stats.size, 2)
+    assert.equal(stats.cards, 1)
+    assert.equal(stats.skipped, 1)
+    assert.equal(stats.reasons.turnNotInDom, 1)
+    // 宿主记录里的 anchorKey 必须被保留，否则刷新后只剩 time: 键就没法回到消息行。
+    assert.equal(internals.loadSent(remote.sessionId).get('time:1794818282348').anchorKey, HOST_ANCHOR_7)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('宿主记录的 anchorKey 不丢：没有轮次号也能按消息行定位并学会轮次', async () => {
+  const remote = {
+    ...HOST_FIXTURE,
+    sent: {
+      'time:1794818282348': {
+        savedAt: 1794818282348,
+        items: [{ quote: '缺少轮次号', note: '旧记录' }],
+        anchorKey: HOST_ANCHOR_7,
+      },
+    },
+    replies: [],
+  }
+  const stub = stubHostRemote(remote)
+  try {
+    const harness = makeHarness({ sessionId: remote.sessionId })
+    const internals = harness.debug._internals
+    plantTurn(harness.env, 7, HOST_ANCHOR_7)
+
+    internals.adoptSession(remote.sessionId)
+    await settle()
+
+    const sent = harness.env.document.querySelector('[data-sa-ui="sent"]')
+    assert.ok(sent !== null, '有 anchorKey 时应能落到对应的消息行所在轮次')
+    assert.equal(sent.getAttribute('data-sa-turn'), '7')
+    const record = internals.loadSent(remote.sessionId).get('time:1794818282348')
+    assert.equal(record.turn, 7, '第一次定位成功后应把轮次记回台账')
+    assert.equal(record.anchorKey, HOST_ANCHOR_7)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('答复卡不依赖已发送卡：已发送卡不在 DOM 时仍落到所属轮次', async () => {
+  const harness = makeHarness({ sessionId: 's1' })
+  const internals = harness.debug._internals
+  const { footer } = plantTurn(harness.env, 7, HOST_ANCHOR_7)
+
+  internals.recordSent('s1', HOST_ANCHOR_7, [{ quote: '一条引文', note: '一条批注' }], 7)
+  internals.absorbRemoteReplies('s1', {
+    replies: [
+      {
+        at: Date.now(),
+        replies: [{ index: 1, verdict: 'accepted', reason: '照改' }],
+        accepted: 1,
+        partial: 0,
+        rejected: 0,
+        needsInfo: 0,
+      },
+    ],
+  })
+  internals.renderSentCards()
+  const sent = harness.env.document.querySelector('[data-sa-ui="sent"]')
+  assert.ok(sent !== null, '前置条件：已发送卡先渲染出来')
+  sent.remove()
+
+  internals.renderReplySections()
+
+  const replies = harness.env.document.querySelector('[data-sa-ui="replies"]')
+  assert.ok(replies !== null, '已发送卡不在时，答复卡也必须出现')
+  assert.equal(replies.getAttribute('data-anchor'), HOST_ANCHOR_7)
+  assert.equal(replies.dataset.saTurn, '7')
+  assert.equal(replies.parentElement, footer.parentElement, '应落在该轮的内容容器里')
 })

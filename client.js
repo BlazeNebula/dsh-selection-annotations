@@ -2746,7 +2746,7 @@ ${PICK_SCRIPT}<\/script>`;
   }
 
   // src/core/sent-store.js
-  function isSentItem2(value) {
+  function isSentItem(value) {
     if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
     return typeof value.quote === "string" || typeof value.note === "string";
   }
@@ -2762,10 +2762,16 @@ ${PICK_SCRIPT}<\/script>`;
           for (const [key, value] of Object.entries(parsed.entries)) {
             if (typeof key !== "string" || key === "") continue;
             if (value === null || typeof value !== "object" || !Array.isArray(value.items)) continue;
-            const items = value.items.filter(isSentItem2).slice(0, maxItems);
+            const items = value.items.filter(isSentItem).slice(0, maxItems);
             if (items.length === 0) continue;
             const turn = Number.isFinite(value.turn) ? Number(value.turn) : void 0;
-            table.set(key, { savedAt: Number(value.savedAt) || 0, items, ...turn !== void 0 ? { turn } : {} });
+            const anchorKey = typeof value.anchorKey === "string" && value.anchorKey !== "" ? value.anchorKey : void 0;
+            table.set(key, {
+              savedAt: Number(value.savedAt) || 0,
+              items,
+              ...turn !== void 0 ? { turn } : {},
+              ...anchorKey !== void 0 ? { anchorKey } : {}
+            });
           }
         }
       }
@@ -2807,7 +2813,9 @@ ${PICK_SCRIPT}<\/script>`;
       table.set(anchorKey, {
         savedAt: Date.now(),
         items,
-        ...Number.isFinite(turn) ? { turn } : {}
+        ...Number.isFinite(turn) ? { turn } : {},
+        // 键本身就是锚点；值里再存一份，跨端合并或旧键（time:/turn-process）时才有地方取。
+        anchorKey
       });
       saveSent(sessionId, table);
     }
@@ -3489,7 +3497,13 @@ ${PICK_SCRIPT}<\/script>`;
               const items = value.items.filter(isSentItem).slice(0, DRAFT_MAX_ITEMS);
               if (items.length === 0) continue;
               const turn = Number.isFinite(value.turn) ? Number(value.turn) : void 0;
-              table.set(key, { savedAt: Number(value.savedAt) || 0, items, ...turn !== void 0 ? { turn } : {} });
+              const anchorKey = typeof value.anchorKey === "string" && value.anchorKey !== "" ? value.anchorKey : void 0;
+              table.set(key, {
+                savedAt: Number(value.savedAt) || 0,
+                items,
+                ...turn !== void 0 ? { turn } : {},
+                ...anchorKey !== void 0 ? { anchorKey } : {}
+              });
             }
             if (table.size > 0) {
               const localTable = sentBySession.get(sessionId) ?? /* @__PURE__ */ new Map();
@@ -4013,18 +4027,36 @@ ${PICK_SCRIPT}<\/script>`;
         let sentRenderStats = null;
         function renderSentCards() {
           const sessionId = currentSessionId();
-          if (sessionId === void 0) return;
+          const stats = {
+            sessionId,
+            size: 0,
+            cards: 0,
+            skipped: 0,
+            errors: 0,
+            lastError: "",
+            anchorMiss: 0,
+            reasons: { noSession: 0, emptyTable: 0, emptyItems: 0, noTurn: 0, turnNotInDom: 0 }
+          };
+          sentRenderStats = stats;
+          if (sessionId === void 0) {
+            stats.reasons.noSession += 1;
+            return;
+          }
           const table = loadSent(sessionId);
-          if (table.size === 0) return;
+          stats.size = table.size;
+          if (table.size === 0) {
+            stats.reasons.emptyTable += 1;
+            return;
+          }
           for (const stale of document.querySelectorAll('[data-sa-ui="sent"]')) {
             const key = stale.getAttribute("data-sa-key");
             if (key === null || !table.has(key)) stale.remove();
           }
           let learnedTurn = false;
-          const stats = { size: table.size, cards: 0, skipped: 0, errors: 0, lastError: "", sessionId };
           for (const [storedKey, record] of table) {
             if (record.items.length === 0) {
               stats.skipped += 1;
+              stats.reasons.emptyItems += 1;
               continue;
             }
             const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
@@ -4041,8 +4073,11 @@ ${PICK_SCRIPT}<\/script>`;
             const footer = footerBlockForTurn(turn);
             if (row === null && footer === null) {
               stats.skipped += 1;
+              if (!Number.isFinite(turn)) stats.reasons.noTurn += 1;
+              else stats.reasons.turnNotInDom += 1;
               continue;
             }
+            if (row === null) stats.anchorMiss += 1;
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
             const cardOptions = {
               onReuse: () => reuseSentItems(record.items),
@@ -4292,7 +4327,10 @@ ${PICK_SCRIPT}<\/script>`;
           if (batches.length === 0) return;
           for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) {
             const anchorKey = stale.getAttribute("data-anchor");
-            const known = [...table.keys()].some((storedKey) => resolveLegacyAnchor(storedKey) === anchorKey);
+            const known = [...table.entries()].some(([storedKey, record]) => {
+              const candidate = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
+              return candidate === anchorKey;
+            });
             if (!known) stale.remove();
           }
           const byAnchor = /* @__PURE__ */ new Map();
@@ -4319,7 +4357,6 @@ ${PICK_SCRIPT}<\/script>`;
             const escaped = cssEscape(anchorKey);
             const sentCards = document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${escaped}"]`);
             const sentCard = sentCards[sentCards.length - 1];
-            if (sentCard === void 0) continue;
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
             const signature = hashString({
@@ -4341,18 +4378,21 @@ ${PICK_SCRIPT}<\/script>`;
               fresh.dataset.signature = signature;
               existing.replaceWith(fresh);
               placeReplyAfterTurnProcess(fresh, turn);
-              collapseSentForReplies(sentCard, signature);
+              if (sentCard !== void 0) collapseSentForReplies(sentCard, signature);
               continue;
             }
+            const host = sentCard !== void 0 ? sentCard : Number.isFinite(turn) ? footerBlockForTurn(turn) : null;
+            const parent = host?.parentElement ?? null;
+            if (parent === null) continue;
             const section = buildReplySection(list, items, {
               onReuseAll: () => reuseSentItems(items),
               onReplayItem: (item) => reuseSentItems([item])
             });
             section.setAttribute("data-anchor", anchorKey);
             section.dataset.signature = signature;
-            sentCard.parentElement?.insertBefore(section, sentCard.nextSibling);
+            parent.insertBefore(section, sentCard !== void 0 ? sentCard.nextSibling : host);
             placeReplyAfterTurnProcess(section, turn);
-            collapseSentForReplies(sentCard, signature);
+            if (sentCard !== void 0) collapseSentForReplies(sentCard, signature);
           }
         }
         const payloadApi = createPayload({ t, instructionOf });
@@ -6423,6 +6463,23 @@ ${PICK_SCRIPT}`;
           });
           return section.box;
         }
+        const SENT_SKIP_REASON_LABELS = {
+          noSession: "无会话",
+          emptyTable: "台账为空",
+          emptyItems: "条目为空",
+          noTurn: "无轮次",
+          turnNotInDom: "轮次不在 DOM"
+        };
+        function sentSkipReasonText(stats) {
+          const reasons = stats?.reasons;
+          if (reasons === null || typeof reasons !== "object") return "无";
+          const parts = [];
+          for (const [key, label] of Object.entries(SENT_SKIP_REASON_LABELS)) {
+            const count = Number(reasons[key]) || 0;
+            if (count > 0) parts.push(`${label} ${count}`);
+          }
+          return parts.length === 0 ? "无" : parts.join("；");
+        }
         function debugSettingsRow() {
           const stats = sentRenderStats;
           const body = [];
@@ -6431,6 +6488,8 @@ ${PICK_SCRIPT}`;
             ["已发送", String(stats.size ?? 0)],
             ["卡片", String(stats.cards ?? 0)],
             ["跳过", String(stats.skipped ?? 0)],
+            ["跳过原因", sentSkipReasonText(stats)],
+            ["按轮次落位", String(stats.anchorMiss ?? 0)],
             ["轮次", stats.turnMin === null || stats.turnMin === void 0 ? "无" : `第 ${stats.turnMin}–${stats.turnMax} 轮`],
             ["错误", String(stats.errors ?? 0)]
           ] : [];
@@ -7028,6 +7087,7 @@ ${PICK_SCRIPT}`;
           receipt: () => draftIds[0] ?? null,
           drafts: () => [...draftIds],
           session: () => currentSessionId(),
+          sentStats: () => sentRenderStats,
           repaint,
           remove: removeAnnotation,
           clear: clearAnnotations,
