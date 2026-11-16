@@ -904,16 +904,46 @@ const rewindHandled = new Map()
         function scanSentMessages() {
           if (pendingSent.length === 0) return
           const now = Date.now()
-          const before = pendingSent.length
+          const expired = pendingSent.filter((entry) => now - entry.at >= SENT_PENDING_TTL_MS)
           pendingSent = pendingSent.filter((entry) => now - entry.at < SENT_PENDING_TTL_MS)
-          if (pendingSent.length < before && pendingSent.length === 0) restoreConsumedSnapshot()
+          let expiredRecorded = false
+          for (const entry of expired) {
+            const entrySession =
+              typeof entry.sessionId === 'string' && entry.sessionId !== '' ? entry.sessionId : currentSessionId()
+            if (entrySession === undefined) continue
+            let hint = entry.turnHint
+            if (!Number.isFinite(hint) && entry.scope !== null && entry.scope !== undefined && entry.scope.isConnected) {
+              hint = turnHintForScope(entry.scope)
+            }
+            if (!Number.isFinite(hint)) continue
+            recordSent(entrySession, `turn:${hint}:${entry.at}`, entry.items, hint)
+            expiredRecorded = true
+          }
+          if (expiredRecorded) scheduleRepaint()
+          if (expired.length > 0 && !expiredRecorded && pendingSent.length === 0) restoreConsumedSnapshot()
           if (pendingSent.length === 0) return
-          const rows = collectAnchorRows()
-          if (rows.length === 0) return
           const pending = pendingSent[0]
           const sessionId =
             typeof pending.sessionId === 'string' && pending.sessionId !== '' ? pending.sessionId : currentSessionId()
           if (sessionId === undefined) return
+          // 宿主已把批注附件并进用户正文：这条消息不再「新出现」，附件文件也不会渲染，
+          // 按新行找锚点会一直落空。此时直接用发送时数出的轮次落账，卡片仍按轮次显示。
+          const recordWithHint = () => {
+            let hint = pending.turnHint
+            if (!Number.isFinite(hint) && pending.scope !== null && pending.scope !== undefined && pending.scope.isConnected) {
+              hint = turnHintForScope(pending.scope)
+            }
+            if (!Number.isFinite(hint)) return false
+            pendingSent.shift()
+            recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint)
+            scheduleRepaint()
+            return true
+          }
+          const rows = collectAnchorRows()
+          if (rows.length === 0) {
+            recordWithHint()
+            return
+          }
           // 候选：不在「发送前快照」里、也还没落台账的行；「已完成」尾行不是消息，别拿它当锚点。
           const fresh = rows.filter((entry) => {
             if (pending.known.has(entry.anchorKey)) return false
@@ -957,13 +987,7 @@ const rewindHandled = new Map()
           }
           if (target === undefined) {
             // 消息行还没出现也不用干等：发送时数出的轮次已经能定位，先用它落台账。
-            const hint = pending.turnHint
-            if (Number.isFinite(hint)) {
-              pendingSent.shift()
-              // 没有消息行可锚：轮次号本身足够定位，锚点用批次时间保证唯一。
-              recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint)
-              scheduleRepaint()
-            }
+            recordWithHint()
             return
           }
           pendingSent.shift()

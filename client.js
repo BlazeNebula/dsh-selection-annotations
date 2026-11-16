@@ -3781,15 +3781,42 @@ ${PICK_SCRIPT}<\/script>`;
         function scanSentMessages() {
           if (pendingSent.length === 0) return;
           const now = Date.now();
-          const before = pendingSent.length;
+          const expired = pendingSent.filter((entry) => now - entry.at >= SENT_PENDING_TTL_MS);
           pendingSent = pendingSent.filter((entry) => now - entry.at < SENT_PENDING_TTL_MS);
-          if (pendingSent.length < before && pendingSent.length === 0) restoreConsumedSnapshot();
+          let expiredRecorded = false;
+          for (const entry of expired) {
+            const entrySession = typeof entry.sessionId === "string" && entry.sessionId !== "" ? entry.sessionId : currentSessionId();
+            if (entrySession === void 0) continue;
+            let hint = entry.turnHint;
+            if (!Number.isFinite(hint) && entry.scope !== null && entry.scope !== void 0 && entry.scope.isConnected) {
+              hint = turnHintForScope(entry.scope);
+            }
+            if (!Number.isFinite(hint)) continue;
+            recordSent(entrySession, `turn:${hint}:${entry.at}`, entry.items, hint);
+            expiredRecorded = true;
+          }
+          if (expiredRecorded) scheduleRepaint();
+          if (expired.length > 0 && !expiredRecorded && pendingSent.length === 0) restoreConsumedSnapshot();
           if (pendingSent.length === 0) return;
-          const rows = collectAnchorRows();
-          if (rows.length === 0) return;
           const pending = pendingSent[0];
           const sessionId = typeof pending.sessionId === "string" && pending.sessionId !== "" ? pending.sessionId : currentSessionId();
           if (sessionId === void 0) return;
+          const recordWithHint = () => {
+            let hint = pending.turnHint;
+            if (!Number.isFinite(hint) && pending.scope !== null && pending.scope !== void 0 && pending.scope.isConnected) {
+              hint = turnHintForScope(pending.scope);
+            }
+            if (!Number.isFinite(hint)) return false;
+            pendingSent.shift();
+            recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint);
+            scheduleRepaint();
+            return true;
+          };
+          const rows = collectAnchorRows();
+          if (rows.length === 0) {
+            recordWithHint();
+            return;
+          }
           const fresh = rows.filter((entry) => {
             if (pending.known.has(entry.anchorKey)) return false;
             if (loadSent(sessionId).has(entry.anchorKey)) return false;
@@ -3823,12 +3850,7 @@ ${PICK_SCRIPT}<\/script>`;
             }
           }
           if (target === void 0) {
-            const hint = pending.turnHint;
-            if (Number.isFinite(hint)) {
-              pendingSent.shift();
-              recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint);
-              scheduleRepaint();
-            }
+            recordWithHint();
             return;
           }
           pendingSent.shift();
