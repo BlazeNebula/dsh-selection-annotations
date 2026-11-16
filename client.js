@@ -2057,7 +2057,9 @@
       panelFoot.appendChild(build);
       const stats = sentStats();
       if (stats !== null && typeof stats === "object") {
-        const diag = el("span", "sa-build", `已发送 ${stats.size} · 卡片 ${stats.cards} · 跳过 ${stats.skipped}`);
+        const range = stats.turnMin === null || stats.turnMin === void 0 ? "无轮次" : `第 ${stats.turnMin}–${stats.turnMax} 轮`;
+        const shortSession = typeof stats.sessionId === "string" ? stats.sessionId.slice(0, 8) : "?";
+        const diag = el("span", "sa-build", `已发送 ${stats.size} · 卡片 ${stats.cards} · 跳过 ${stats.skipped} · ${shortSession} · ${range}`);
         diag.title = `session ${stats.sessionId ?? "?"} · 错误 ${stats.errors ?? 0} ${stats.lastError ?? ""}`;
         panelFoot.appendChild(diag);
       }
@@ -4099,6 +4101,9 @@ ${PICK_SCRIPT}<\/script>`;
           }
           if (learnedTurn) saveSent(sessionId, table);
           stats.cards = document.querySelectorAll('[data-sa-ui="sent"]').length;
+          const turnsOfTable = [...table.values()].map((record) => record.turn).filter((value) => Number.isFinite(value));
+          stats.turnMin = turnsOfTable.length > 0 ? Math.min(...turnsOfTable) : null;
+          stats.turnMax = turnsOfTable.length > 0 ? Math.max(...turnsOfTable) : null;
           sentRenderStats = stats;
         }
         const buildReplySection = (batches, items, options) => cards.buildReplySection(batches, items, options);

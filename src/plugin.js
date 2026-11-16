@@ -1260,6 +1260,9 @@ const rewindHandled = new Map()
           }
           if (learnedTurn) saveSent(sessionId, table)
           stats.cards = document.querySelectorAll('[data-sa-ui="sent"]').length
+          const turnsOfTable = [...table.values()].map((record) => record.turn).filter((value) => Number.isFinite(value))
+          stats.turnMin = turnsOfTable.length > 0 ? Math.min(...turnsOfTable) : null
+          stats.turnMax = turnsOfTable.length > 0 ? Math.max(...turnsOfTable) : null
           sentRenderStats = stats
         }
 
