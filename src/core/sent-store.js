@@ -80,11 +80,14 @@ export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxB
     }
   }
 
-  /** 宿主返回的条目 uuid 与 items 按序对应；个数对不上或有空项就整批不记，宁缺勿错。 */
+  /** 宿主返回的条目 uuid 与 items 按序对应；只补本地没有的，已有的客户端 uuid 不被覆盖。 */
   function withItemUuids(items, uuids) {
     if (!Array.isArray(uuids) || uuids.length !== items.length) return items
     if (!uuids.every((uuid) => typeof uuid === 'string' && uuid !== '')) return items
-    return items.map((item, index) => ({ ...item, uuid: uuids[index] }))
+    return items.map((item, index) => {
+      if (typeof item?.uuid === 'string' && item.uuid !== '') return item
+      return { ...item, uuid: uuids[index] }
+    })
   }
 
   function batchFields(value) {

@@ -10,6 +10,7 @@ export function createRemoteSync(getSnapshot) {
 
   const storeUrl = (sessionId) => `/selection-annotations/session/${encodeURIComponent(sessionId)}`
   const entryUrl = (uuid) => `/selection-annotations/entry/${encodeURIComponent(uuid)}`
+  const batchUrl = (batchUuid) => `/selection-annotations/batch/${encodeURIComponent(batchUuid)}`
 
   // 新接口可用性：undefined=还没试过，false=确认是旧宿主（之后不再尝试），true=可用。
   let batchSupported
@@ -140,6 +141,26 @@ export function createRemoteSync(getSnapshot) {
     return task
   }
 
+  /**
+   * 回填批次字段：消息真正入库后才知道 turn 与可信锚点。
+   * 宿主只补空值，重复调用结果一致；失败就保持现状，整份快照推送照旧兜底。
+   */
+  async function patchBatch(batchUuid, body) {
+    if (typeof batchUuid !== 'string' || batchUuid === '') return undefined
+    if (typeof fetch !== 'function') return undefined
+    try {
+      const response = await fetch(batchUrl(batchUuid), {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) return undefined
+      return await readObject(response)
+    } catch {
+      return undefined
+    }
+  }
+
   /** 按条目 uuid 写一条答复；旧宿主没有该接口时返回 undefined。 */
   async function patchEntry(uuid, reply) {
     if (typeof uuid !== 'string' || uuid === '') return undefined
@@ -170,5 +191,5 @@ export function createRemoteSync(getSnapshot) {
     }
   }
 
-  return { pull, push: pushOnce, schedule, storeUrl, createBatch, patchEntry, deleteEntry }
+  return { pull, push: pushOnce, schedule, storeUrl, createBatch, patchBatch, patchEntry, deleteEntry }
 }

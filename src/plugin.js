@@ -68,6 +68,7 @@ import {
   withTimeout,
 } from './core/source-locate.js'
 import { safe, cssEscape, el, button, hashString } from './core/util.js'
+import { uuidV4 } from './core/uuid.js'
 import { registerTurnAnchor, findTurnAnchor } from './core/turn-anchor.js'
 
 /**
@@ -651,6 +652,7 @@ const rewindHandled = new Map()
           sequence += 1
           const item = {
             id: `sa-${Date.now().toString(36)}-${sequence}`,
+            uuid: uuidV4(),
             number: annotations.length + 1,
             quote,
             note,
@@ -904,8 +906,9 @@ const rewindHandled = new Map()
          */
         function syncSentBatch(sessionId, anchorKey, items, turn, batchAt) {
           if (typeof sessionId !== 'string' || sessionId === '' || !Array.isArray(items) || items.length === 0) return
-          // thumbs 是本地缩略图，不进宿主请求：宿主只认 index/quote/note/source/images。
+          // thumbs 是本地缩略图，不进宿主请求：宿主只认 uuid/index/quote/note/source/images。
           const wireItems = items.map((item) => ({
+            ...(typeof item.uuid === 'string' && item.uuid !== '' ? { uuid: item.uuid } : {}),
             index: item.index,
             quote: item.quote,
             note: item.note,
@@ -926,6 +929,15 @@ const rewindHandled = new Map()
                 typeof result.batch_uuid === 'string' && result.batch_uuid !== '' ? result.batch_uuid : undefined
               const batchSeq = Number.isSafeInteger(result.batch_seq) ? result.batch_seq : undefined
               if (batchUuid === undefined && batchSeq === undefined) return
+              if (batchUuid !== undefined) {
+                // 创建批次时可能还不知道 turn / 真实锚点：消息行出现后回填，只补空值。
+                void remoteSync
+                  .patchBatch(batchUuid, {
+                    ...(Number.isFinite(turn) ? { turn } : {}),
+                    ...(typeof anchorKey === 'string' && anchorKey !== '' ? { anchor_key: anchorKey } : {}),
+                  })
+                  .catch(() => {})
+              }
               updateSentBatch(sessionId, anchorKey, {
                 batchUuid,
                 batchSeq,
@@ -1763,6 +1775,7 @@ const rewindHandled = new Map()
           if (batches.length === 0) return
           const byAnchor = new Map()
           const anchorOfCardKey = new Map()
+          const anchorOfUuid = new Map()
           for (const [storedKey, record] of table) {
             const anchorKey = typeof record.anchorKey === 'string' && record.anchorKey !== ''
               ? record.anchorKey
@@ -1771,10 +1784,25 @@ const rewindHandled = new Map()
             if (current === undefined || current.record.savedAt < record.savedAt) {
               byAnchor.set(anchorKey, { record, turn: turnOfRecord(record, storedKey) })
             }
+            // 条目 uuid 是答复的唯一依据：先按 uuid 找它属于哪张卡，找不到再退回 cardKey / 批次时间。
+            for (const item of Array.isArray(record.items) ? record.items : []) {
+              if (typeof item?.uuid !== 'string' || item.uuid === '') continue
+              if (!anchorOfUuid.has(item.uuid)) anchorOfUuid.set(item.uuid, anchorKey)
+            }
             // cardKey 说到底是 payload 里那张卡的 anchorKey；本地台账键与值里的锚点都认，
             // 模型照抄 anchorKey、或者拿到的是台账键，都能对上同一张卡。
             if (!anchorOfCardKey.has(storedKey)) anchorOfCardKey.set(storedKey, anchorKey)
             if (!anchorOfCardKey.has(anchorKey)) anchorOfCardKey.set(anchorKey, anchorKey)
+          }
+          // 哪张卡的本地条目已经有 uuid：老卡（升级前发出、本地没记 uuid）仍按 index 兜底。
+          const hasUuidByAnchor = new Map()
+          for (const [anchorKey, entry] of byAnchor) {
+            hasUuidByAnchor.set(
+              anchorKey,
+              (Array.isArray(entry.record.items) ? entry.record.items : []).some(
+                (item) => typeof item?.uuid === 'string' && item.uuid !== '',
+              ),
+            )
           }
           const anchors = [...byAnchor.entries()]
             .map(([anchorKey, entry]) => ({ anchorKey, savedAt: entry.record.savedAt }))
@@ -1789,7 +1817,19 @@ const rewindHandled = new Map()
             }
             for (const reply of Array.isArray(batch.replies) ? batch.replies : []) {
               const cardKey = typeof reply?.cardKey === 'string' ? reply.cardKey.trim() : ''
-              const target = (cardKey === '' ? undefined : anchorOfCardKey.get(cardKey)) ?? fallback
+              const uuid = typeof reply?.uuid === 'string' && reply.uuid !== '' ? reply.uuid : undefined
+              // uuid 优先找条目归属；本地台账已经有 uuid、这条却对不上，说明是别的会话的
+              // 批注（跨会话答复），不在这一轮里硬塞，避免挂到不相干的卡上。
+              let target = uuid === undefined ? undefined : anchorOfUuid.get(uuid)
+              if (target === undefined && uuid === undefined) {
+                target = (cardKey === '' ? undefined : anchorOfCardKey.get(cardKey)) ?? fallback
+              }
+              // 老卡（升级前发出、本地条目没记 uuid）仍按 cardKey / 批次时间归位，保证旧答复照常显示；
+              // 只对「这张卡本来就没有 uuid」生效，别把别的会话的 uuid 答复塞过来。
+              if (target === undefined && uuid !== undefined) {
+                const candidate = (cardKey === '' ? undefined : anchorOfCardKey.get(cardKey)) ?? fallback
+                if (candidate !== undefined && hasUuidByAnchor.get(candidate) !== true) target = candidate
+              }
               if (target === undefined) continue
               let buckets = grouped.get(target)
               if (buckets === undefined) {
@@ -1818,9 +1858,9 @@ const rewindHandled = new Map()
             const items = byAnchor.get(anchorKey)?.record.items ?? []
             const turn = byAnchor.get(anchorKey)?.turn ?? null
             const signature = hashString({
-              v: 3,
+              v: 4,
               batches: list.map((batch) => ({ at: batch.at, replies: batch.replies })),
-              items: items.map((item) => ({ quote: item.quote, note: item.note })),
+              items: items.map((item) => ({ uuid: item.uuid, quote: item.quote, note: item.note })),
             })
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`)
             if (existing !== null) {

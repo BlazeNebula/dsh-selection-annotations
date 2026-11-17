@@ -120,6 +120,10 @@ export function createPayload({ t, instructionOf, uuidOfSent }) {
         note: item.note,
         source: payloadSource(item.source),
       }
+      // 条目 uuid 在捕获时生成，随批注一路带进数据块；旧数据没有就不写这个字段，
+      // 绝不输出 null 或空串。
+      const uuid = typeof item.uuid === 'string' && item.uuid !== '' ? item.uuid : undefined
+      if (uuid !== undefined) entry.uuid = uuid
       const images = Array.isArray(item.images) ? item.images : []
       if (images.length > 0) {
         entry.images = images.map((image) => {

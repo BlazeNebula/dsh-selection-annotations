@@ -189,7 +189,9 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
   function buildReplySection(batches, items = [], options = {}) {
     const replies = mergeReplyBatches(batches)
     const byIndex = new Map()
+    const byUuid = new Map()
     for (const item of Array.isArray(items) ? items : []) {
+      if (typeof item?.uuid === 'string' && item.uuid !== '') byUuid.set(item.uuid, item)
       if (Number.isFinite(item?.index)) byIndex.set(item.index, item)
     }
     const card = document.createElement('div')
@@ -220,12 +222,23 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     // 卡片之间也用同一档 8px，标题到首卡、卡到卡完全一致。
     body.style.rowGap = '8px'
     for (const reply of replies) {
-      const item = byIndex.get(reply.index)
+      // uuid 是唯一依据；老答复没有 uuid 时才退回按序号配对。
+      const item =
+        typeof reply.uuid === 'string' && reply.uuid !== ''
+          ? byUuid.get(reply.uuid)
+          : byIndex.get(reply.index)
+      // 跨会话答复时本地没有原条目，就显示服务端随答复带回的引文与批注内容。
+      const displayItem =
+        item ??
+        (typeof reply.quote === 'string' || typeof reply.note === 'string'
+          ? { quote: reply.quote, note: reply.note }
+          : undefined)
       const [labelKey, tone] = VERDICT_LABELS[reply.verdict] ?? ['verdict.fallback', 'accepted']
       const group = document.createElement('div')
       group.className = `sa-reply-item sa-tone-${tone}`
       group.setAttribute('data-sa-batch-at', String(Number.isFinite(reply.at) ? reply.at : 0))
       group.setAttribute('data-sa-reply-index', String(reply.index))
+      if (typeof reply.uuid === 'string' && reply.uuid !== '') group.setAttribute('data-sa-reply-uuid', reply.uuid)
 
       const cardHead = document.createElement('div')
       cardHead.className = 'sa-reply-head'
@@ -236,7 +249,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       verdict.className = `sa-a-verdict sa-reply-${tone}`
       verdict.textContent = t(labelKey)
       cardHead.append(index, verdict)
-      const replayItem = item ?? { quote: reply.quote, note: reply.note }
+      const replayItem = displayItem ?? { quote: reply.quote, note: reply.note }
       if (typeof options.onReplayItem === 'function') {
         cardHead.appendChild(reuseButton(t('replies.replay'), () => options.onReplayItem(replayItem), t('reuse.hint')))
       }
@@ -245,10 +258,10 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       const content = document.createElement('div')
       content.className = 'sa-reply-body'
 
-      if (item !== undefined) {
+      if (displayItem !== undefined) {
         const q = document.createElement('div')
         q.className = 'sa-q'
-        const quoteText = typeof item.quote === 'string' ? item.quote.trim() : ''
+        const quoteText = typeof displayItem.quote === 'string' ? displayItem.quote.trim() : ''
         if (quoteText !== '') {
           const qLabel = document.createElement('div')
           qLabel.className = 'sa-q-label'
@@ -256,7 +269,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           q.appendChild(qLabel)
           const quote = document.createElement('div')
           quote.className = 'sa-q-quote'
-          if (isAdopt(item.note)) quote.dataset.adopt = '1'
+          if (isAdopt(displayItem.note)) quote.dataset.adopt = '1'
           quote.setAttribute('data-sa-field', 'quote')
           quote.textContent = quoteText
           quote.title = t('expand')
@@ -266,7 +279,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           })
           q.appendChild(quote)
         }
-        if (typeof item.note === 'string' && item.note.trim() !== '') {
+        if (typeof displayItem.note === 'string' && displayItem.note.trim() !== '') {
           const noteLabel = document.createElement('div')
           noteLabel.className = 'sa-q-label'
           noteLabel.textContent = t('label.note')
@@ -274,12 +287,12 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           const note = document.createElement('div')
           note.className = 'sa-q-note'
           note.setAttribute('data-sa-field', 'note')
-          if (isAdopt(item.note)) note.dataset.adopt = '1'
-          note.textContent = item.note
+          if (isAdopt(displayItem.note)) note.dataset.adopt = '1'
+          note.textContent = displayItem.note
           q.appendChild(note)
         }
         // 原批注带的附图属于「批注」内容，跟在批注正文后面、同一层级里。
-        const replyThumbs = Array.isArray(item.thumbs) ? item.thumbs : []
+        const replyThumbs = Array.isArray(displayItem.thumbs) ? displayItem.thumbs : []
         if (replyThumbs.length > 0) {
           const gallery = document.createElement('div')
           gallery.className = 'sa-sent-thumbs'
@@ -308,7 +321,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       aHead.className = 'sa-a-head'
       const aLabel = document.createElement('span')
       aLabel.className = 'sa-a-label'
-      aLabel.textContent = item !== undefined ? t('label.answer') : t('reply.fallbackLabel', { n: reply.index })
+      aLabel.textContent = displayItem !== undefined ? t('label.answer') : t('reply.fallbackLabel', { n: reply.index })
       aHead.appendChild(aLabel)
       a.appendChild(aHead)
       const reason = document.createElement('div')

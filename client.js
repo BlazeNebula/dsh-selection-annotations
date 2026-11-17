@@ -453,16 +453,16 @@
     "## 怎么读\n",
     "- `quote`：用户选中的原文。\n",
     "- `source`：位置。工作区文件用 `path` + `lineStart/lineEnd`（1 基行号）+ `charStart/charEnd`；对话消息用 `role` + `anchorKey` + `charStart/charEnd`。\n",
-    '- `kind: "reply"`（逐条答复区域）：`batchAt` 是批次时间戳，`index` 是批注编号，`field` 取 `quote` / `note` / `reason` / `next`（跨字段为 `item`）。\n',
-    '- `kind: "sent"`（已发送批注区域）：`anchorKey` 是卡片所属消息，`index` 是批注编号，`field` 取 `quote` / `note`（跨字段为 `item`）。\n',
+    '- `kind: "reply"`（逐条答复区域）：`batchAt` 是批次时间戳，`uuid` 是条目 uuid（答复的唯一依据），`index` 是批注序号（仅供阅读，答复不用），`field` 取 `quote` / `note` / `reason` / `next`（跨字段为 `item`）。\n',
+    '- `kind: "sent"`（已发送批注区域）：`anchorKey` 是卡片所属消息，顶层 `uuid` 是这条批注的 uuid（答复的唯一依据），`source.uuid`（若有）只说明它引用了哪条已发送批注，不要拿它当答复目标；`index` 是批注序号（仅供阅读，答复不用），`field` 取 `quote` / `note`（跨字段为 `item`）。\n',
     '- `charStart/charEnd`：半开区间。`textOrigin: "source"` 指文件原文偏移，`"rendered"` 指渲染文本偏移；能读原文时优先 source。\n',
     "- `images`：该条批注的图片，`order` 是它在消息图片附件里的 1 基顺序。\n",
     "\n",
     "## 怎么答\n",
     "- 处理完必须调用 `annotation_replies` 工具，不要在正文里逐条重复。\n",
-    "- 每条批注对应 replies 里的一项，`index` 与批注编号一致。\n",
-    "- 同一轮里有多张已发送卡时，答复某张卡上的批注必须给每条 reply 带 `cardKey`：取 payload 里该卡的 `anchorKey`；不带时整批归到这一轮最后一张卡，前面那张就显示没有答复。\n",
-    "- 已发送批注条目可能自带 `uuid`：答复这一条时把该 `uuid` 一并写进这条 reply，可精确定位那一条；没有 `uuid` 时按上面的 `cardKey` 与 `index` 规则。\n",
+    "- 每条批注自带 `uuid`；replies 里每项用该条的 `uuid` 指定要答复的批注，`uuid` 是唯一依据，不要传序号或轮次。\n",
+    "- 只有升级前入库的老答复可能没有 `uuid`，这种由宿主按 `cardKey` + `index` 配对显示；当前数据块里的每条批注都自带 `uuid`，按 `uuid` 答复即可。\n",
+    "- 同一条批注的 `uuid` 从捕获到入库不变：捕获时生成，随数据块与批次创建请求一起送到宿主。\n",
     "- `verdict` 取 `accepted` / `partial` / `rejected` / `needs_info`；`reason` 写理由，`next` 写下一步。\n",
     "- 答复正文按 Markdown 渲染，优先用要点列表；加粗、行内代码、代码块与表格都可用。\n",
     "- 正文只写整体说明或需要澄清的问题。"
@@ -473,16 +473,16 @@
     "## How to read it\n",
     "- `quote`: the text the user selected.\n",
     "- `source`: the position. Workspace files use `path` + `lineStart/lineEnd` (1-based lines) + `charStart/charEnd`; chat messages use `role` + `anchorKey` + `charStart/charEnd`.\n",
-    '- `kind: "reply"` (per-answer area): `batchAt` is the batch timestamp, `index` is the annotation number, `field` is `quote` / `note` / `reason` / `next` (`item` when the selection spans fields).\n',
-    '- `kind: "sent"` (sent-annotations area): `anchorKey` is the message the card belongs to, `index` is the annotation number, `field` is `quote` / `note` (`item` across fields).\n',
+    '- `kind: "reply"` (per-answer area): `batchAt` is the batch timestamp, `uuid` is the entry uuid (the only key for replies), `index` is the annotation sequence number (for reading only, not for replies), `field` is `quote` / `note` / `reason` / `next` (`item` when the selection spans fields).\n',
+    '- `kind: "sent"` (sent-annotations area): `anchorKey` is the message the card belongs to; the top-level `uuid` is this annotation\'s uuid (the only key for replies); `source.uuid` (when present) only says which sent annotation it references — do not use it as the reply target; `index` is the annotation sequence number (for reading only, not for replies); `field` is `quote` / `note` (`item` across fields).\n',
     '- `charStart/charEnd`: a half-open range. `textOrigin: "source"` means offsets in the original file text, `"rendered"` means offsets in the rendered text; prefer source when the file can be read.\n',
     "- `images`: images attached to that annotation; `order` is the 1-based position among this message's image attachments.\n",
     "\n",
     "## How to answer\n",
     "- When done, you must call the `annotation_replies` tool instead of repeating replies in the body.\n",
-    "- Each annotation maps to one entry in replies; `index` matches the annotation number.\n",
-    "- When a turn has more than one sent-annotation card, a reply about a card must carry `cardKey`: the `anchorKey` of that card in the payload. Without it the whole batch goes to the last card in the turn, and earlier cards show no answers.\n",
-    "- A sent-annotation entry may carry its own `uuid`: when replying to that entry, include the `uuid` in the reply so it targets that exact entry. Without a `uuid`, follow the `cardKey` and `index` rules above.\n",
+    "- Every annotation carries its own `uuid`; each reply uses that `uuid` to name the annotation it answers. The `uuid` is the only key — do not pass the sequence number or the turn.\n",
+    "- Only answers stored before the upgrade may lack a `uuid`; the host pairs those by `cardKey` + `index` for display. Every annotation in the current payload carries its own `uuid` — just reply by `uuid`.\n",
+    "- An annotation keeps the same `uuid` from capture to storage: it is generated at capture and travels with the payload and the batch-create request.\n",
     "- `verdict` is `accepted` / `partial` / `rejected` / `needs_info`; `reason` explains it, `next` states the next step.\n",
     "- Reply bodies render as Markdown: prefer bullet lists; bold, inline code, code fences and tables are supported.\n",
     "- Use the body only for an overall summary or clarifying questions."
@@ -876,16 +876,20 @@
 
   // src/core/annotation-utils.js
   function mergeReplyBatches(batches) {
-    const byIndex = /* @__PURE__ */ new Map();
+    const byKey = /* @__PURE__ */ new Map();
     for (const batch of batches) {
       for (const reply of batch.replies) {
         if (reply === null || typeof reply !== "object") continue;
         const index = Number(reply.index);
         if (!Number.isFinite(index)) continue;
-        byIndex.set(index, { ...reply, index, at: Number(batch.at) || 0 });
+        const uuid = typeof reply.uuid === "string" && reply.uuid !== "" ? reply.uuid : void 0;
+        const key = uuid !== void 0 ? `uuid:${uuid}` : `index:${index}`;
+        byKey.set(key, { ...reply, index, ...uuid !== void 0 ? { uuid } : {}, at: Number(batch.at) || 0 });
       }
     }
-    return [...byIndex.values()].sort((a, b) => a.index - b.index);
+    return [...byKey.values()].sort(
+      (a, b) => a.index - b.index || a.at - b.at || String(a.uuid ?? "").localeCompare(String(b.uuid ?? ""))
+    );
   }
   function shouldDiscardEmpty(mode, note, images) {
     if (mode === "edit") return false;
@@ -1137,6 +1141,8 @@
           note: item.note,
           source: payloadSource(item.source)
         };
+        const uuid = typeof item.uuid === "string" && item.uuid !== "" ? item.uuid : void 0;
+        if (uuid !== void 0) entry.uuid = uuid;
         const images = Array.isArray(item.images) ? item.images : [];
         if (images.length > 0) {
           entry.images = images.map((image) => {
@@ -1720,7 +1726,9 @@
     function buildReplySection(batches, items = [], options = {}) {
       const replies = mergeReplyBatches(batches);
       const byIndex = /* @__PURE__ */ new Map();
+      const byUuid = /* @__PURE__ */ new Map();
       for (const item of Array.isArray(items) ? items : []) {
+        if (typeof item?.uuid === "string" && item.uuid !== "") byUuid.set(item.uuid, item);
         if (Number.isFinite(item?.index)) byIndex.set(item.index, item);
       }
       const card = document.createElement("div");
@@ -1746,12 +1754,14 @@
       body.style.paddingTop = "0px";
       body.style.rowGap = "8px";
       for (const reply of replies) {
-        const item = byIndex.get(reply.index);
+        const item = typeof reply.uuid === "string" && reply.uuid !== "" ? byUuid.get(reply.uuid) : byIndex.get(reply.index);
+        const displayItem = item ?? (typeof reply.quote === "string" || typeof reply.note === "string" ? { quote: reply.quote, note: reply.note } : void 0);
         const [labelKey, tone] = VERDICT_LABELS[reply.verdict] ?? ["verdict.fallback", "accepted"];
         const group = document.createElement("div");
         group.className = `sa-reply-item sa-tone-${tone}`;
         group.setAttribute("data-sa-batch-at", String(Number.isFinite(reply.at) ? reply.at : 0));
         group.setAttribute("data-sa-reply-index", String(reply.index));
+        if (typeof reply.uuid === "string" && reply.uuid !== "") group.setAttribute("data-sa-reply-uuid", reply.uuid);
         const cardHead = document.createElement("div");
         cardHead.className = "sa-reply-head";
         const index = document.createElement("span");
@@ -1761,17 +1771,17 @@
         verdict.className = `sa-a-verdict sa-reply-${tone}`;
         verdict.textContent = t(labelKey);
         cardHead.append(index, verdict);
-        const replayItem = item ?? { quote: reply.quote, note: reply.note };
+        const replayItem = displayItem ?? { quote: reply.quote, note: reply.note };
         if (typeof options.onReplayItem === "function") {
           cardHead.appendChild(reuseButton(t("replies.replay"), () => options.onReplayItem(replayItem), t("reuse.hint")));
         }
         group.appendChild(cardHead);
         const content = document.createElement("div");
         content.className = "sa-reply-body";
-        if (item !== void 0) {
+        if (displayItem !== void 0) {
           const q = document.createElement("div");
           q.className = "sa-q";
-          const quoteText = typeof item.quote === "string" ? item.quote.trim() : "";
+          const quoteText = typeof displayItem.quote === "string" ? displayItem.quote.trim() : "";
           if (quoteText !== "") {
             const qLabel = document.createElement("div");
             qLabel.className = "sa-q-label";
@@ -1779,7 +1789,7 @@
             q.appendChild(qLabel);
             const quote = document.createElement("div");
             quote.className = "sa-q-quote";
-            if (isAdopt(item.note)) quote.dataset.adopt = "1";
+            if (isAdopt(displayItem.note)) quote.dataset.adopt = "1";
             quote.setAttribute("data-sa-field", "quote");
             quote.textContent = quoteText;
             quote.title = t("expand");
@@ -1788,7 +1798,7 @@
             });
             q.appendChild(quote);
           }
-          if (typeof item.note === "string" && item.note.trim() !== "") {
+          if (typeof displayItem.note === "string" && displayItem.note.trim() !== "") {
             const noteLabel = document.createElement("div");
             noteLabel.className = "sa-q-label";
             noteLabel.textContent = t("label.note");
@@ -1796,11 +1806,11 @@
             const note = document.createElement("div");
             note.className = "sa-q-note";
             note.setAttribute("data-sa-field", "note");
-            if (isAdopt(item.note)) note.dataset.adopt = "1";
-            note.textContent = item.note;
+            if (isAdopt(displayItem.note)) note.dataset.adopt = "1";
+            note.textContent = displayItem.note;
             q.appendChild(note);
           }
-          const replyThumbs = Array.isArray(item.thumbs) ? item.thumbs : [];
+          const replyThumbs = Array.isArray(displayItem.thumbs) ? displayItem.thumbs : [];
           if (replyThumbs.length > 0) {
             const gallery = document.createElement("div");
             gallery.className = "sa-sent-thumbs";
@@ -1828,7 +1838,7 @@
         aHead.className = "sa-a-head";
         const aLabel = document.createElement("span");
         aLabel.className = "sa-a-label";
-        aLabel.textContent = item !== void 0 ? t("label.answer") : t("reply.fallbackLabel", { n: reply.index });
+        aLabel.textContent = displayItem !== void 0 ? t("label.answer") : t("reply.fallbackLabel", { n: reply.index });
         aHead.appendChild(aLabel);
         a.appendChild(aHead);
         const reason = document.createElement("div");
@@ -2916,7 +2926,10 @@ ${PICK_SCRIPT}<\/script>`;
     function withItemUuids(items, uuids) {
       if (!Array.isArray(uuids) || uuids.length !== items.length) return items;
       if (!uuids.every((uuid) => typeof uuid === "string" && uuid !== "")) return items;
-      return items.map((item, index) => ({ ...item, uuid: uuids[index] }));
+      return items.map((item, index) => {
+        if (typeof item?.uuid === "string" && item.uuid !== "") return item;
+        return { ...item, uuid: uuids[index] };
+      });
     }
     function batchFields(value) {
       return {
@@ -3009,6 +3022,7 @@ ${PICK_SCRIPT}<\/script>`;
     let timer = null;
     const storeUrl = (sessionId) => `/selection-annotations/session/${encodeURIComponent(sessionId)}`;
     const entryUrl = (uuid) => `/selection-annotations/entry/${encodeURIComponent(uuid)}`;
+    const batchUrl = (batchUuid) => `/selection-annotations/batch/${encodeURIComponent(batchUuid)}`;
     let batchSupported;
     const batchInflight = /* @__PURE__ */ new Map();
     async function pull(sessionId) {
@@ -3119,6 +3133,21 @@ ${PICK_SCRIPT}<\/script>`;
       });
       return task;
     }
+    async function patchBatch(batchUuid, body) {
+      if (typeof batchUuid !== "string" || batchUuid === "") return void 0;
+      if (typeof fetch !== "function") return void 0;
+      try {
+        const response = await fetch(batchUrl(batchUuid), {
+          method: "PATCH",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) return void 0;
+        return await readObject(response);
+      } catch {
+        return void 0;
+      }
+    }
     async function patchEntry(uuid, reply) {
       if (typeof uuid !== "string" || uuid === "") return void 0;
       if (typeof fetch !== "function") return void 0;
@@ -3145,7 +3174,7 @@ ${PICK_SCRIPT}<\/script>`;
         return void 0;
       }
     }
-    return { pull, push: pushOnce, schedule, storeUrl, createBatch, patchEntry, deleteEntry };
+    return { pull, push: pushOnce, schedule, storeUrl, createBatch, patchBatch, patchEntry, deleteEntry };
   }
 
   // src/core/image-codec.js
@@ -3246,12 +3275,33 @@ ${PICK_SCRIPT}<\/script>`;
     });
   }
 
+  // src/core/uuid.js
+  function uuidV4() {
+    try {
+      const native = globalThis.crypto?.randomUUID;
+      if (typeof native === "function") {
+        const value = native.call(globalThis.crypto);
+        if (typeof value === "string" && value !== "") return value;
+      }
+    } catch {
+    }
+    const hex = (length) => {
+      let out = "";
+      while (out.length < length) out += Math.floor(Math.random() * 16).toString(16);
+      return out.slice(0, length);
+    };
+    const time = Date.now().toString(16).slice(-12).padStart(12, "0");
+    return `${time.slice(0, 8)}-${time.slice(8, 12)}-4${hex(3)}-${"89ab"[Math.floor(Math.random() * 4)]}${hex(3)}-${hex(12)}`;
+  }
+
   // src/core/draft-codec.js
   function createDraftCodec({ t, prefix, maxBytes }) {
     const draftKey = (sessionId) => `${prefix}${sessionId}`;
     function draftItems(items) {
       return items.map((item) => ({
         id: item.id,
+        // uuid 在捕获时生成，草稿刷新后必须原样恢复：否则同一条批注会换一个身份。
+        ...typeof item.uuid === "string" && item.uuid !== "" ? { uuid: item.uuid } : {},
         number: item.number,
         quote: item.quote,
         note: item.note,
@@ -3280,6 +3330,8 @@ ${PICK_SCRIPT}<\/script>`;
       });
       return {
         id: typeof item.id === "string" && item.id !== "" ? item.id : `sa-restored-${Math.random().toString(36).slice(2, 10)}`,
+        // 升级前存下的草稿没有 uuid：恢复时补一个，保证发送时数据块里每条都有 uuid。
+        uuid: typeof item.uuid === "string" && item.uuid !== "" ? item.uuid : uuidV4(),
         number: Number.isFinite(item.number) ? item.number : 0,
         quote: typeof item.quote === "string" ? item.quote : "",
         note: typeof item.note === "string" ? item.note : "",
@@ -3836,6 +3888,7 @@ ${PICK_SCRIPT}<\/script>`;
           sequence += 1;
           const item = {
             id: `sa-${Date.now().toString(36)}-${sequence}`,
+            uuid: uuidV4(),
             number: annotations.length + 1,
             quote,
             note,
@@ -4036,6 +4089,7 @@ ${PICK_SCRIPT}<\/script>`;
         function syncSentBatch(sessionId, anchorKey, items, turn, batchAt) {
           if (typeof sessionId !== "string" || sessionId === "" || !Array.isArray(items) || items.length === 0) return;
           const wireItems = items.map((item) => ({
+            ...typeof item.uuid === "string" && item.uuid !== "" ? { uuid: item.uuid } : {},
             index: item.index,
             quote: item.quote,
             note: item.note,
@@ -4053,6 +4107,13 @@ ${PICK_SCRIPT}<\/script>`;
             const batchUuid = typeof result.batch_uuid === "string" && result.batch_uuid !== "" ? result.batch_uuid : void 0;
             const batchSeq = Number.isSafeInteger(result.batch_seq) ? result.batch_seq : void 0;
             if (batchUuid === void 0 && batchSeq === void 0) return;
+            if (batchUuid !== void 0) {
+              void remoteSync.patchBatch(batchUuid, {
+                ...Number.isFinite(turn) ? { turn } : {},
+                ...typeof anchorKey === "string" && anchorKey !== "" ? { anchor_key: anchorKey } : {}
+              }).catch(() => {
+              });
+            }
             updateSentBatch(sessionId, anchorKey, {
               batchUuid,
               batchSeq,
@@ -4704,14 +4765,28 @@ ${PICK_SCRIPT}<\/script>`;
           if (batches.length === 0) return;
           const byAnchor = /* @__PURE__ */ new Map();
           const anchorOfCardKey = /* @__PURE__ */ new Map();
+          const anchorOfUuid = /* @__PURE__ */ new Map();
           for (const [storedKey, record] of table) {
             const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
             const current = byAnchor.get(anchorKey);
             if (current === void 0 || current.record.savedAt < record.savedAt) {
               byAnchor.set(anchorKey, { record, turn: turnOfRecord(record, storedKey) });
             }
+            for (const item of Array.isArray(record.items) ? record.items : []) {
+              if (typeof item?.uuid !== "string" || item.uuid === "") continue;
+              if (!anchorOfUuid.has(item.uuid)) anchorOfUuid.set(item.uuid, anchorKey);
+            }
             if (!anchorOfCardKey.has(storedKey)) anchorOfCardKey.set(storedKey, anchorKey);
             if (!anchorOfCardKey.has(anchorKey)) anchorOfCardKey.set(anchorKey, anchorKey);
+          }
+          const hasUuidByAnchor = /* @__PURE__ */ new Map();
+          for (const [anchorKey, entry] of byAnchor) {
+            hasUuidByAnchor.set(
+              anchorKey,
+              (Array.isArray(entry.record.items) ? entry.record.items : []).some(
+                (item) => typeof item?.uuid === "string" && item.uuid !== ""
+              )
+            );
           }
           const anchors = [...byAnchor.entries()].map(([anchorKey, entry]) => ({ anchorKey, savedAt: entry.record.savedAt })).sort((a, b) => a.savedAt - b.savedAt);
           const grouped = /* @__PURE__ */ new Map();
@@ -4723,7 +4798,15 @@ ${PICK_SCRIPT}<\/script>`;
             }
             for (const reply of Array.isArray(batch.replies) ? batch.replies : []) {
               const cardKey = typeof reply?.cardKey === "string" ? reply.cardKey.trim() : "";
-              const target = (cardKey === "" ? void 0 : anchorOfCardKey.get(cardKey)) ?? fallback;
+              const uuid = typeof reply?.uuid === "string" && reply.uuid !== "" ? reply.uuid : void 0;
+              let target = uuid === void 0 ? void 0 : anchorOfUuid.get(uuid);
+              if (target === void 0 && uuid === void 0) {
+                target = (cardKey === "" ? void 0 : anchorOfCardKey.get(cardKey)) ?? fallback;
+              }
+              if (target === void 0 && uuid !== void 0) {
+                const candidate = (cardKey === "" ? void 0 : anchorOfCardKey.get(cardKey)) ?? fallback;
+                if (candidate !== void 0 && hasUuidByAnchor.get(candidate) !== true) target = candidate;
+              }
               if (target === void 0) continue;
               let buckets = grouped.get(target);
               if (buckets === void 0) {
@@ -4750,9 +4833,9 @@ ${PICK_SCRIPT}<\/script>`;
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
             const signature = hashString({
-              v: 3,
+              v: 4,
               batches: list.map((batch) => ({ at: batch.at, replies: batch.replies })),
-              items: items.map((item) => ({ quote: item.quote, note: item.note }))
+              items: items.map((item) => ({ uuid: item.uuid, quote: item.quote, note: item.note }))
             });
             const existing = document.querySelector(`[data-sa-ui="replies"][data-anchor="${escaped}"]`);
             if (existing !== null) {

@@ -1,5 +1,6 @@
 import { dataUrlToFile } from './image-codec.js'
 import { log } from './log.js'
+import { uuidV4 } from './uuid.js'
 
 /**
  * 草稿的序列化与恢复。
@@ -11,6 +12,8 @@ export function createDraftCodec({ t, prefix, maxBytes }) {
   function draftItems(items) {
     return items.map((item) => ({
       id: item.id,
+      // uuid 在捕获时生成，草稿刷新后必须原样恢复：否则同一条批注会换一个身份。
+      ...(typeof item.uuid === 'string' && item.uuid !== '' ? { uuid: item.uuid } : {}),
       number: item.number,
       quote: item.quote,
       note: item.note,
@@ -45,6 +48,8 @@ export function createDraftCodec({ t, prefix, maxBytes }) {
       })
     return {
       id: typeof item.id === 'string' && item.id !== '' ? item.id : `sa-restored-${Math.random().toString(36).slice(2, 10)}`,
+      // 升级前存下的草稿没有 uuid：恢复时补一个，保证发送时数据块里每条都有 uuid。
+      uuid: typeof item.uuid === 'string' && item.uuid !== '' ? item.uuid : uuidV4(),
       number: Number.isFinite(item.number) ? item.number : 0,
       quote: typeof item.quote === 'string' ? item.quote : '',
       note: typeof item.note === 'string' ? item.note : '',
