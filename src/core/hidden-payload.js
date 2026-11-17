@@ -17,12 +17,16 @@ const KIND_LINE = '"kind": "dsh-selection-annotations"'
 const BLANK = /\s/
 
 /**
- * 折叠后显示的一行占位。N 取负载里的批注条数；条数缺失或不是正整数时退回
- * 不带数字的 `【额外批注】`，不往气泡里写错数。
+ * 折叠后显示的一行占位。N 先取负载里的 `count`；它不是正整数时改用 `annotations`
+ * 数组的条数（只认非空数组）。两条都拿不到才退回不带数字的 `【额外批注】`，
+ * 不往气泡里写错数。
  */
 function displayOf(payload) {
   const count = payload.count
-  return Number.isInteger(count) && count > 0 ? `【额外批注 x ${count}】` : '【额外批注】'
+  if (Number.isInteger(count) && count > 0) return `【额外批注 x ${count}】`
+  const annotations = payload.annotations
+  if (Array.isArray(annotations) && annotations.length > 0) return `【额外批注 x ${annotations.length}】`
+  return '【额外批注】'
 }
 
 /**

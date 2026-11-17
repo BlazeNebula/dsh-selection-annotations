@@ -1847,6 +1847,24 @@ test('隐藏规则：条数缺失或非法时占位退回【额外批注】', ()
   }
 })
 
+test('隐藏规则：count 缺失或非法时用 annotations 条数兜底', () => {
+  const harness = makeHarness()
+  const rule = harness.userTextRules[0]
+  const read = { read: () => true }
+  const make = (countField, annotations) => `{\n  "kind": "dsh-selection-annotations",\n  "version": 1${countField},\n  "annotations": ${annotations}\n}`
+  const annotationsOf = (n) => JSON.stringify(Array.from({ length: n }, (_, i) => ({ index: i + 1, quote: `引文${i + 1}` })))
+
+  // 旧版本或手工改过的块可能没有 count：用 annotations 的条数把数字补回来。
+  const missingCount = make('', annotationsOf(3))
+  assert.equal(rule.match(`正文\n\n${missingCount}`, 0, read).data.display, '\n\n【额外批注 x 3】', 'count 缺失时按 annotations 条数显示')
+
+  // count 非法（0、字符串）但 annotations 有两条：显示 2，不退回无数字文案。
+  for (const bad of [',\n  "count": 0', ',\n  "count": "9"']) {
+    const twoAnnotations = make(bad, annotationsOf(2))
+    assert.equal(rule.match(`正文\n\n${twoAnnotations}`, 0, read).data.display, '\n\n【额外批注 x 2】', `count 为 ${bad} 时按 annotations 条数显示`)
+  }
+})
+
 /* ------------------------------------------------------------------ 历史轮次复现 */
 
 const HOST_ANCHOR_5 = '5:input-messagea04d59f4-b649-49f8-ae1c-58b01db770d6'

@@ -2909,7 +2909,10 @@ ${PICK_SCRIPT}<\/script>`;
   var BLANK = /\s/;
   function displayOf(payload) {
     const count = payload.count;
-    return Number.isInteger(count) && count > 0 ? `【额外批注 x ${count}】` : "【额外批注】";
+    if (Number.isInteger(count) && count > 0) return `【额外批注 x ${count}】`;
+    const annotations = payload.annotations;
+    if (Array.isArray(annotations) && annotations.length > 0) return `【额外批注 x ${annotations.length}】`;
+    return "【额外批注】";
   }
   function createPayloadHidingRule() {
     return {
