@@ -4664,27 +4664,30 @@ ${PICK_SCRIPT}<\/script>`;
               while (top.parentElement !== null && top.parentElement.getAttribute?.("data-chat-turn") === key) {
                 top = top.parentElement;
               }
-              const container2 = top.parentElement;
-              if (container2 !== null && container2 !== section) {
-                moveSection(section, container2, top);
+              const container = top.parentElement;
+              if (container !== null && container !== section) {
+                moveSection(section, container, top);
                 return;
               }
             }
             let lastMember = null;
-            let bodyItem = null;
             for (const item of items) {
               if (item.hasAttribute?.("data-turn-process-member")) {
                 lastMember = item;
-              } else if (item.getAttribute?.("data-chat-flow-kind") === "assistant") {
-                bodyItem = item;
               }
             }
-            const container = (bodyItem ?? lastMember ?? items[0])?.parentElement ?? null;
-            if (lastMember !== null && container !== null) {
-              let node = lastMember;
-              while (node.parentElement !== null && node.parentElement !== container) node = node.parentElement;
-              if (node.parentElement === container) {
-                moveSection(section, container, node.nextSibling);
+            const isProcessContainer = (el2) => el2 !== null && el2 !== void 0 && typeof el2.matches === "function" && el2.matches(
+              '[data-step-process-body],[data-turn-process-inline],[data-chat-flow-kind="turn-process"],[data-turn-process-member]'
+            );
+            if (lastMember !== null) {
+              let processBlock = lastMember;
+              let host = processBlock.parentElement ?? null;
+              while (host !== null && isProcessContainer(host)) {
+                processBlock = host;
+                host = processBlock.parentElement ?? null;
+              }
+              if (host !== null) {
+                moveSection(section, host, processBlock.nextSibling);
                 return;
               }
             }

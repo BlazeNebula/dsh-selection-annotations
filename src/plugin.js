@@ -1660,22 +1660,30 @@ const rewindHandled = new Map()
                 return
               }
             }
-            // 旧结构：过程成员嵌在过程容器里，先上溯到对话列的直接子节点再插。
+            // 旧结构：过程成员嵌在过程容器里。答复卡要挂在过程块外面、与折叠块同级，
+            // 否则会被带进「已调用工具」折叠区。先按最后一个成员定位，再上溯到最外层过程块。
             let lastMember = null
-            let bodyItem = null
             for (const item of items) {
               if (item.hasAttribute?.('data-turn-process-member')) {
                 lastMember = item
-              } else if (item.getAttribute?.('data-chat-flow-kind') === 'assistant') {
-                bodyItem = item
               }
             }
-            const container = (bodyItem ?? lastMember ?? items[0])?.parentElement ?? null
-            if (lastMember !== null && container !== null) {
-              let node = lastMember
-              while (node.parentElement !== null && node.parentElement !== container) node = node.parentElement
-              if (node.parentElement === container) {
-                moveSection(section, container, node.nextSibling)
+            const isProcessContainer = (el) =>
+              el !== null
+              && el !== undefined
+              && typeof el.matches === 'function'
+              && el.matches(
+                '[data-step-process-body],[data-turn-process-inline],[data-chat-flow-kind="turn-process"],[data-turn-process-member]',
+              )
+            if (lastMember !== null) {
+              let processBlock = lastMember
+              let host = processBlock.parentElement ?? null
+              while (host !== null && isProcessContainer(host)) {
+                processBlock = host
+                host = processBlock.parentElement ?? null
+              }
+              if (host !== null) {
+                moveSection(section, host, processBlock.nextSibling)
                 return
               }
             }
