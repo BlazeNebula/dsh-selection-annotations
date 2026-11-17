@@ -791,10 +791,16 @@
   };
 
   // src/core/util.js
-  var safe = (fn) => {
+  var safe = (fn, onError) => {
     try {
       return fn();
-    } catch {
+    } catch (error) {
+      if (typeof onError === "function") {
+        try {
+          onError(error);
+        } catch {
+        }
+      }
       return void 0;
     }
   };
@@ -3787,7 +3793,9 @@ ${PICK_SCRIPT}<\/script>`;
           emit();
           scheduleRepaint();
           if (annotations.length > 0) scheduleSync();
-          void hydrateRemoteSession(sessionId);
+          void hydrateRemoteSession(sessionId).catch((error) => {
+            warn("[selection-annotations] 远端台账合并失败:", sessionId, error);
+          });
         }
         const sourceResolver = createSourceResolver({
           ctx,
@@ -4983,6 +4991,36 @@ ${PICK_SCRIPT}<\/script>`;
         function keepScrollStable(mutate) {
           const saved = [];
           const seen = /* @__PURE__ */ new Set();
+          const anchorRowOf = (container) => {
+            const box = safe(() => container.getBoundingClientRect());
+            if (box === void 0) return void 0;
+            const turns = safe(() => container.querySelectorAll("[data-chat-turn]")) ?? [];
+            const rows = turns.length > 0 ? turns : safe(() => container.querySelectorAll("[data-chat-anchor-key]")) ?? [];
+            let measured = 0;
+            for (const row of rows) {
+              if (measured >= 400) return void 0;
+              if (safe(() => row.closest("[data-sa-ui]") !== null) === true) continue;
+              const rect = safe(() => row.getBoundingClientRect());
+              if (rect === void 0) continue;
+              measured += 1;
+              if (rect.bottom <= box.top) continue;
+              return { row, offset: rect.top - box.top };
+            }
+            return void 0;
+          };
+          const capture = (container) => {
+            const top = container.scrollTop;
+            const sticky = top + container.clientHeight >= container.scrollHeight - 2;
+            const entry = { el: container, top, scrollHeight: container.scrollHeight, sticky };
+            if (!sticky) {
+              const anchor = anchorRowOf(container);
+              if (anchor !== void 0) {
+                entry.row = anchor.row;
+                entry.offset = anchor.offset;
+              }
+            }
+            saved.push(entry);
+          };
           const remember = (start) => {
             let current = start;
             for (let i = 0; i < 32 && current !== null && current !== void 0; i += 1) {
@@ -4992,7 +5030,7 @@ ${PICK_SCRIPT}<\/script>`;
                 const overflowY = typeof window.getComputedStyle === "function" ? safe(() => window.getComputedStyle(current).overflowY) ?? "" : "";
                 if (overflowY === "auto" || overflowY === "scroll") {
                   seen.add(current);
-                  saved.push({ el: current, top: current.scrollTop });
+                  capture(current);
                 }
               }
               current = current.parentElement ?? null;
@@ -5002,62 +5040,103 @@ ${PICK_SCRIPT}<\/script>`;
           for (const scope of visibleConversationScopes()) roots.push(scope);
           for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node);
           for (const root of roots) remember(root);
-          mutate();
-          if (saved.length === 0) return;
-          const restore = () => {
+          const restore = (late) => {
             for (const entry of saved) {
-              if (entry.el.scrollTop !== entry.top) entry.el.scrollTop = entry.top;
+              const container = entry.el;
+              if (entry.sticky) {
+                if (container.scrollTop < container.scrollHeight - container.clientHeight - 1) {
+                  container.scrollTop = container.scrollHeight;
+                }
+                continue;
+              }
+              if (entry.row !== void 0 && entry.row.isConnected === true) {
+                const box = safe(() => container.getBoundingClientRect());
+                const rect = safe(() => entry.row.getBoundingClientRect());
+                if (box !== void 0 && rect !== void 0) {
+                  const delta = rect.top - box.top - entry.offset;
+                  if (delta !== 0) container.scrollTop += delta;
+                  continue;
+                }
+              }
+              if (late === true) continue;
+              const grown = container.scrollHeight - entry.scrollHeight;
+              if (grown !== 0) container.scrollTop = entry.top + grown;
             }
           };
-          restore();
-          if (typeof window.requestAnimationFrame === "function") safe(() => window.requestAnimationFrame(restore));
+          try {
+            mutate();
+          } finally {
+            if (saved.length > 0) {
+              restore();
+              if (typeof window.requestAnimationFrame === "function") {
+                safe(() => window.requestAnimationFrame(() => restore(true)));
+              }
+            }
+          }
         }
-        function collectHighlightNodes(nodes) {
+        const repaintFailures = /* @__PURE__ */ new Set();
+        function reportRepaintFailure(key, step, error) {
+          if (repaintFailures.has(key)) return;
+          repaintFailures.add(key);
+          warn("[selection-annotations] 重绘步骤失败:", step, error);
+        }
+        function collectHighlightNodes(nodes, hits) {
+          const target = Array.isArray(hits) ? hits : highlightHits;
           for (const item of annotations) {
-            const range = locateRange(item);
-            if (range === void 0) continue;
-            const rects = safe(() => [...range.getClientRects()]) ?? [];
-            if (rects.length > 0) highlightHits.push({ id: item.id, rects });
-            let badged = false;
-            for (const rect of rects) {
-              if (rect.width <= 0 || rect.height <= 0) continue;
-              const box = document.createElement("div");
-              box.className = "sa-hl";
-              if (hasAdoptNote(item.note)) box.dataset.adopt = "1";
-              box.style.left = `${rect.left}px`;
-              box.style.top = `${rect.top}px`;
-              box.style.width = `${rect.width}px`;
-              box.style.height = `${rect.height}px`;
-              nodes.push(box);
-              if (!badged) {
-                badged = true;
-                const badge = document.createElement("button");
-                badge.type = "button";
-                badge.className = "sa-badge";
-                badge.textContent = String(item.number);
-                badge.style.left = `${rect.left - 11}px`;
-                badge.style.top = `${rect.top - 8}px`;
-                badge.title = item.note === "" ? item.quote : `${item.quote}
+            safe(
+              () => collectHighlightOf(item, nodes, target),
+              (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, "collectHighlightNodes", error)
+            );
+          }
+        }
+        function collectHighlightOf(item, nodes, target) {
+          const range = locateRange(item);
+          if (range === void 0) return;
+          const rects = safe(() => [...range.getClientRects()]) ?? [];
+          if (rects.length > 0) target.push({ id: item.id, rects });
+          let badged = false;
+          for (const rect of rects) {
+            if (rect.width <= 0 || rect.height <= 0) continue;
+            const box = document.createElement("div");
+            box.className = "sa-hl";
+            if (hasAdoptNote(item.note)) box.dataset.adopt = "1";
+            box.style.left = `${rect.left}px`;
+            box.style.top = `${rect.top}px`;
+            box.style.width = `${rect.width}px`;
+            box.style.height = `${rect.height}px`;
+            nodes.push(box);
+            if (!badged) {
+              badged = true;
+              const badge = document.createElement("button");
+              badge.type = "button";
+              badge.className = "sa-badge";
+              badge.textContent = String(item.number);
+              badge.style.left = `${rect.left - 11}px`;
+              badge.style.top = `${rect.top - 8}px`;
+              badge.title = item.note === "" ? item.quote : `${item.quote}
 
 批注：${item.note}`;
-                badge.addEventListener("click", (event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  openEditPopover(item.id, badge);
-                });
-                nodes.push(badge);
-              }
+              badge.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openEditPopover(item.id, badge);
+              });
+              nodes.push(badge);
             }
           }
         }
         function repaint() {
           const nodes = [];
+          const hits = [];
+          const step = (name, run) => safe(run, (error) => reportRepaintFailure(name, name, error));
           keepScrollStable(() => {
-            highlightHits = [];
-            scanSentMessages();
-            renderSentCards();
-            renderReplySections();
-            collectHighlightNodes(nodes);
+            step("scanSentMessages", scanSentMessages);
+            step("renderSentCards", renderSentCards);
+            step("renderReplySections", renderReplySections);
+          });
+          step("collectHighlightNodes", () => {
+            collectHighlightNodes(nodes, hits);
+            highlightHits = hits;
           });
           if (typeof overlay.replaceChildren === "function") {
             overlay.replaceChildren(...nodes);
@@ -6108,8 +6187,12 @@ ${PICK_SCRIPT}<\/script>`;
           for (const node of document.elementsFromPoint(x, y)) {
             if (node === document.body || node === document.documentElement) break;
             const className = typeof node.className === "string" ? node.className : "";
-            if (className.includes("sa-hl")) continue;
-            if (node.closest?.("[data-sa-ui]") !== null && node.closest?.("[data-sa-ui]") !== void 0) return false;
+            if (className.includes("sa-hl") || className.includes("sa-badge")) continue;
+            const host = node.closest?.("[data-sa-ui]");
+            if (host !== null && host !== void 0) {
+              if (host.getAttribute("data-sa-ui") === "overlay") continue;
+              return false;
+            }
             const style = window.getComputedStyle(node);
             const z = Number(style.zIndex);
             if ((style.position === "fixed" || style.position === "sticky") && Number.isFinite(z) && z >= 10) return false;

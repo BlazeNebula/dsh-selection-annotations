@@ -1,8 +1,15 @@
-/** 不在主流程里抛错的调用。 */
-export const safe = (fn) => {
+/** 不在主流程里抛错的调用。onError 用于把异常交回调用方记录，避免「吞掉」。*/
+export const safe = (fn, onError) => {
   try {
     return fn()
-  } catch {
+  } catch (error) {
+    if (typeof onError === 'function') {
+      try {
+        onError(error)
+      } catch {
+        // 记录失败不能再制造新的异常。
+      }
+    }
     return undefined
   }
 }

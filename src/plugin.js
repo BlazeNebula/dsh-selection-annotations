@@ -589,7 +589,10 @@ const rewindHandled = new Map()
           scheduleRepaint()
           if (annotations.length > 0) scheduleSync()
           // 本地是空的就当远端有数据：跨端切换会话时靠这一步把记录带回来。
-          void hydrateRemoteSession(sessionId)
+          // 合并失败只影响远端补齐，不能变成未处理的拒绝把后续重绘一起带走。
+          void hydrateRemoteSession(sessionId).catch((error) => {
+            warn('[selection-annotations] 远端台账合并失败:', sessionId, error)
+          })
         }
 
         const sourceResolver = createSourceResolver({
@@ -2131,12 +2134,52 @@ const rewindHandled = new Map()
 
         /**
          * 重绘会在视口上方摘挂节点，浏览器为了保住可见内容会改写滚动位置，表现为会话区自己跳。
-         * 位置保护：先记下受影响滚动容器的位置，改完补回；下一帧再补一次，
-         * 抵掉浏览器在同一帧里按新布局重新做的锚定。
+         * 位置保护改成「就地锚定」，不回写旧数值：
+         * - 已经贴底的容器，重绘后保持贴底；
+         * - 其余容器记住「视口顶部那条消息行」和它相对容器顶部的偏移，重绘后把这条行滚回同样的偏移；
+         * - 找不到可锚定的行时，退回按 scrollHeight 的差值补偿。
+         * 回写绝对数值会把浏览器为保住可见内容所做的锚定、以及 dsh 自己滚到最新一轮的结果一并撤销，
+         * 表现就是进入会话约两秒后视野从最后一轮跳回更早的位置。
          */
         function keepScrollStable(mutate) {
           const saved = []
           const seen = new Set()
+          /** 视口顶部那条消息行：消息行按文档顺序排列，取第一条底边越过容器顶边的。*/
+          const anchorRowOf = (container) => {
+            const box = safe(() => container.getBoundingClientRect())
+            if (box === undefined) return undefined
+            // 优先用 dsh 自己的消息行：它们不会被重绘重建，重绘前后是同一个节点。
+            const turns = safe(() => container.querySelectorAll('[data-chat-turn]')) ?? []
+            const rows = turns.length > 0
+              ? turns
+              : safe(() => container.querySelectorAll('[data-chat-anchor-key]')) ?? []
+            let measured = 0
+            for (const row of rows) {
+              // 一次上溯封顶 32 层，这里同样给行数封顶，避免超大会话上每次重绘都量一遍全表。
+              if (measured >= 400) return undefined
+              // 插件自己插进去的卡片会被重绘替换，不能拿来当锚点。
+              if (safe(() => row.closest('[data-sa-ui]') !== null) === true) continue
+              const rect = safe(() => row.getBoundingClientRect())
+              if (rect === undefined) continue
+              measured += 1
+              if (rect.bottom <= box.top) continue
+              return { row, offset: rect.top - box.top }
+            }
+            return undefined
+          }
+          const capture = (container) => {
+            const top = container.scrollTop
+            const sticky = top + container.clientHeight >= container.scrollHeight - 2
+            const entry = { el: container, top, scrollHeight: container.scrollHeight, sticky }
+            if (!sticky) {
+              const anchor = anchorRowOf(container)
+              if (anchor !== undefined) {
+                entry.row = anchor.row
+                entry.offset = anchor.offset
+              }
+            }
+            saved.push(entry)
+          }
           const remember = (start) => {
             let current = start
             for (let i = 0; i < 32 && current !== null && current !== undefined; i += 1) {
@@ -2151,7 +2194,7 @@ const rewindHandled = new Map()
                   : ''
                 if (overflowY === 'auto' || overflowY === 'scroll') {
                   seen.add(current)
-                  saved.push({ el: current, top: current.scrollTop })
+                  capture(current)
                 }
               }
               current = current.parentElement ?? null
@@ -2162,66 +2205,121 @@ const rewindHandled = new Map()
           for (const scope of visibleConversationScopes()) roots.push(scope)
           for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node)
           for (const root of roots) remember(root)
-          mutate()
-          if (saved.length === 0) return
-          const restore = () => {
+          const restore = (late) => {
             for (const entry of saved) {
-              if (entry.el.scrollTop !== entry.top) entry.el.scrollTop = entry.top
+              const container = entry.el
+              if (entry.sticky) {
+                // 贴底：内容变高就跟着到底，内容变矮就自然夹回。
+                // 差 1px 以内视为已在底部，避免每次重绘都写一遍同一个值。
+                if (container.scrollTop < container.scrollHeight - container.clientHeight - 1) {
+                  container.scrollTop = container.scrollHeight
+                }
+                continue
+              }
+              if (entry.row !== undefined && entry.row.isConnected === true) {
+                const box = safe(() => container.getBoundingClientRect())
+                const rect = safe(() => entry.row.getBoundingClientRect())
+                if (box !== undefined && rect !== undefined) {
+                  const delta = rect.top - box.top - entry.offset
+                  if (delta !== 0) container.scrollTop += delta
+                  continue
+                }
+              }
+              // 拿不到锚点行：按内容高度的差值补偿。下一帧不再做这一步，避免两遍补偿叠加。
+              if (late === true) continue
+              const grown = container.scrollHeight - entry.scrollHeight
+              if (grown !== 0) container.scrollTop = entry.top + grown
             }
           }
-          restore()
-          if (typeof window.requestAnimationFrame === 'function') safe(() => window.requestAnimationFrame(restore))
+          try {
+            mutate()
+          } finally {
+            if (saved.length > 0) {
+              restore()
+              // 下一帧再补一次：抵掉浏览器在同一帧里按新布局重新做的锚定。
+              if (typeof window.requestAnimationFrame === 'function') {
+                safe(() => window.requestAnimationFrame(() => restore(true)))
+              }
+            }
+          }
         }
 
-        /** 高亮层节点：位置要在会话区回到原位之后量，所以与 DOM 重绘放在同一个保护段里。*/
-        function collectHighlightNodes(nodes) {
+        const repaintFailures = new Set()
+        /** 同一处失败只报一次：重绘每 120ms 一轮，逐轮打会把日志刷满，反而看不出真正的那条。*/
+        function reportRepaintFailure(key, step, error) {
+          if (repaintFailures.has(key)) return
+          repaintFailures.add(key)
+          warn('[selection-annotations] 重绘步骤失败:', step, error)
+        }
+
+        /**
+         * 高亮层节点与命中矩形：位置要在会话区回到原位之后量，
+         * 所以从 keepScrollStable 的保护段里挪到这里，由 repaint 在滚动回正之后单独调用。
+         */
+        function collectHighlightNodes(nodes, hits) {
+          const target = Array.isArray(hits) ? hits : highlightHits
           for (const item of annotations) {
-            const range = locateRange(item)
-            if (range === undefined) continue
-            const rects = safe(() => [...range.getClientRects()]) ?? []
-            if (rects.length > 0) highlightHits.push({ id: item.id, rects })
-            let badged = false
-            for (const rect of rects) {
-              if (rect.width <= 0 || rect.height <= 0) continue
-              const box = document.createElement('div')
-              box.className = 'sa-hl'
-              if (hasAdoptNote(item.note)) box.dataset.adopt = '1'
-              box.style.left = `${rect.left}px`
-              box.style.top = `${rect.top}px`
-              box.style.width = `${rect.width}px`
-              box.style.height = `${rect.height}px`
-              nodes.push(box)
-              if (!badged) {
-                badged = true
-                // 角标是唯一的「从正文直接回到这条批注」的入口，必须可点击。
-                const badge = document.createElement('button')
-                badge.type = 'button'
-                badge.className = 'sa-badge'
-                badge.textContent = String(item.number)
-                badge.style.left = `${rect.left - 11}px`
-                badge.style.top = `${rect.top - 8}px`
-                badge.title = item.note === '' ? item.quote : `${item.quote}\n\n批注：${item.note}`
-                badge.addEventListener('click', (event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  openEditPopover(item.id, badge)
-                })
-                nodes.push(badge)
-              }
+            // 一条批注定位失败不该拖掉整层高亮：逐条兜住，失败的那条只少一条划线。
+            safe(
+              () => collectHighlightOf(item, nodes, target),
+              (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, 'collectHighlightNodes', error),
+            )
+          }
+        }
+
+        function collectHighlightOf(item, nodes, target) {
+          const range = locateRange(item)
+          if (range === undefined) return
+          const rects = safe(() => [...range.getClientRects()]) ?? []
+          if (rects.length > 0) target.push({ id: item.id, rects })
+          let badged = false
+          for (const rect of rects) {
+            if (rect.width <= 0 || rect.height <= 0) continue
+            const box = document.createElement('div')
+            box.className = 'sa-hl'
+            if (hasAdoptNote(item.note)) box.dataset.adopt = '1'
+            box.style.left = `${rect.left}px`
+            box.style.top = `${rect.top}px`
+            box.style.width = `${rect.width}px`
+            box.style.height = `${rect.height}px`
+            nodes.push(box)
+            if (!badged) {
+              badged = true
+              // 角标是唯一的「从正文直接回到这条批注」的入口，必须可点击。
+              const badge = document.createElement('button')
+              badge.type = 'button'
+              badge.className = 'sa-badge'
+              badge.textContent = String(item.number)
+              badge.style.left = `${rect.left - 11}px`
+              badge.style.top = `${rect.top - 8}px`
+              badge.title = item.note === '' ? item.quote : `${item.quote}\n\n批注：${item.note}`
+              badge.addEventListener('click', (event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                openEditPopover(item.id, badge)
+              })
+              nodes.push(badge)
             }
           }
         }
 
         function repaint() {
           const nodes = []
+          // 命中表整份替换：中途失败时保留上一份，一次重绘失败不会让悬停整片失效。
+          const hits = []
+          // 每一步单独兜住异常并留日志：任何一步失败都不能挡住后面的高亮重建。
+          const step = (name, run) => safe(run, (error) => reportRepaintFailure(name, name, error))
           // 只包住会动会话区 DOM 的几步；overlay 是 fixed 层，不在滚动流里，不必包。
           keepScrollStable(() => {
-            highlightHits = []
             // 历史回看先于高亮：新消息行刚出现时在这里完成配对，卡片随即补上。
-            scanSentMessages()
-            renderSentCards()
-            renderReplySections()
-            collectHighlightNodes(nodes)
+            step('scanSentMessages', scanSentMessages)
+            step('renderSentCards', renderSentCards)
+            step('renderReplySections', renderReplySections)
+          })
+          // 高亮最后量：量在滚动位置回正之前，记下的是回正前的视口坐标，划线与命中会跟着错开。
+          step('collectHighlightNodes', () => {
+            collectHighlightNodes(nodes, hits)
+            highlightHits = hits
           })
           // 一次性换掉整层：先清空再逐个插入会在帧间露出空白，看起来像界面闪了一下。
           if (typeof overlay.replaceChildren === 'function') {
@@ -3483,8 +3581,14 @@ const rewindHandled = new Map()
           for (const node of document.elementsFromPoint(x, y)) {
             if (node === document.body || node === document.documentElement) break
             const className = typeof node.className === 'string' ? node.className : ''
-            if (className.includes('sa-hl')) continue
-            if (node.closest?.('[data-sa-ui]') !== null && node.closest?.('[data-sa-ui]') !== undefined) return false
+            // 高亮框画的就是被批注的文字本身，角标也挂在同一层上，都不能算遮挡。
+            if (className.includes('sa-hl') || className.includes('sa-badge')) continue
+            const host = node.closest?.('[data-sa-ui]')
+            if (host !== null && host !== undefined) {
+              // 角标的祖先就是高亮层：它盖住文字时仍按文字处理。
+              if (host.getAttribute('data-sa-ui') === 'overlay') continue
+              return false
+            }
             const style = window.getComputedStyle(node)
             const z = Number(style.zIndex)
             if ((style.position === 'fixed' || style.position === 'sticky') && Number.isFinite(z) && z >= 10) return false
