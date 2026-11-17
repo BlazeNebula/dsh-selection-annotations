@@ -2029,3 +2029,110 @@ test('答复卡不依赖已发送卡：已发送卡不在 DOM 时仍落到所属
   assert.equal(replies.dataset.saTurn, '7')
   assert.equal(replies.parentElement, footer.parentElement, '应落在该轮的内容容器里')
 })
+
+/* ------------------------------------------------------------------ 同一轮多张已发送卡 */
+
+/**
+ * 同一轮里发出两张卡：卡片键是 `turn:<轮次>:<毫秒>`，两次 recordSent 的 savedAt
+ * 都早于下面的答复批次；一次工具调用里同时答复两张卡。
+ */
+function plantTwoCards(sessionId) {
+  const harness = makeHarness({ sessionId })
+  plantTurn(harness.env, 7, HOST_ANCHOR_7)
+  const internals = harness.debug._internals
+  const keyA = 'turn:7:1794819000001'
+  const keyB = 'turn:7:1794819000002'
+  internals.recordSent(sessionId, keyA, [{ index: 1, quote: '一号引文', note: '一号批注' }], 7)
+  internals.recordSent(sessionId, keyB, [
+    { index: 1, quote: '二号引文', note: '二号批注' },
+    { index: 2, quote: '二号第二条', note: '第二条批注' },
+  ], 7)
+  internals.renderSentCards()
+  return { harness, internals, keyA, keyB }
+}
+
+test('同一轮两张已发送卡：带 cardKey 的答复各归各卡，同 index 不会互相顶掉', () => {
+  const { harness, internals, keyA, keyB } = plantTwoCards('s-two-cards')
+  internals.absorbRemoteReplies('s-two-cards', {
+    replies: [
+      {
+        at: Date.now() + 1000,
+        replies: [
+          { index: 1, cardKey: keyA, verdict: 'accepted', reason: '对一号的答复' },
+          { index: 1, cardKey: keyB, verdict: 'accepted', reason: '对二号的答复' },
+        ],
+      },
+    ],
+  })
+
+  internals.renderReplySections()
+
+  const document = harness.env.document
+  assert.ok(document.querySelector(`[data-sa-ui="sent"][data-sa-key="${keyA}"]`) !== null, '前置条件：第一张卡已渲染')
+  assert.ok(document.querySelector(`[data-sa-ui="sent"][data-sa-key="${keyB}"]`) !== null, '前置条件：第二张卡已渲染')
+  const sectionA = document.querySelector(`[data-sa-ui="replies"][data-anchor="${keyA}"]`)
+  const sectionB = document.querySelector(`[data-sa-ui="replies"][data-anchor="${keyB}"]`)
+  assert.ok(sectionA !== null, '第一张卡也要出现自己的答复卡')
+  assert.ok(sectionB !== null, '第二张卡的答复卡仍在')
+  assert.match(sectionA.textContent, /批注答复 ×1/)
+  assert.match(sectionA.textContent, /一号引文/)
+  assert.match(sectionA.textContent, /对一号的答复/)
+  assert.doesNotMatch(sectionA.textContent, /对二号的答复/)
+  assert.match(sectionB.textContent, /批注答复 ×1/)
+  assert.match(sectionB.textContent, /二号引文/)
+  assert.match(sectionB.textContent, /对二号的答复/)
+  assert.doesNotMatch(sectionB.textContent, /对一号的答复/)
+})
+
+test('同一轮两张已发送卡：不带 cardKey 时保持旧行为，整批归到后一张卡', () => {
+  const { harness, internals, keyA, keyB } = plantTwoCards('s-no-card-key')
+  internals.absorbRemoteReplies('s-no-card-key', {
+    replies: [
+      {
+        at: Date.now() + 1000,
+        replies: [
+          { index: 1, verdict: 'accepted', reason: '不带键的答复一' },
+          { index: 2, verdict: 'accepted', reason: '不带键的答复二' },
+        ],
+      },
+    ],
+  })
+
+  internals.renderReplySections()
+
+  const document = harness.env.document
+  assert.equal(
+    document.querySelector(`[data-sa-ui="replies"][data-anchor="${keyA}"]`),
+    null,
+    '没有 cardKey 时不会凭空归到前一张卡',
+  )
+  const sectionB = document.querySelector(`[data-sa-ui="replies"][data-anchor="${keyB}"]`)
+  assert.ok(sectionB !== null, '整批答复仍挂在最近生成的那张卡上')
+  assert.match(sectionB.textContent, /批注答复 ×2/)
+  assert.match(sectionB.textContent, /不带键的答复一/)
+  assert.match(sectionB.textContent, /不带键的答复二/)
+})
+
+test('同一轮两张已发送卡：cardKey 在台账里找不到时回落按时间归位', () => {
+  const { harness, internals, keyA, keyB } = plantTwoCards('s-unknown-card-key')
+  internals.absorbRemoteReplies('s-unknown-card-key', {
+    replies: [
+      {
+        at: Date.now() + 1000,
+        replies: [{ index: 1, cardKey: 'turn:7:missing', verdict: 'accepted', reason: '找不到卡也照答' }],
+      },
+    ],
+  })
+
+  internals.renderReplySections()
+
+  const document = harness.env.document
+  assert.equal(
+    document.querySelector(`[data-sa-ui="replies"][data-anchor="${keyA}"]`),
+    null,
+    '认不出的 cardKey 不能乱挂到前一张卡',
+  )
+  const sectionB = document.querySelector(`[data-sa-ui="replies"][data-anchor="${keyB}"]`)
+  assert.ok(sectionB !== null, '认不出 cardKey 时按批次时间回落到最近一张卡')
+  assert.match(sectionB.textContent, /找不到卡也照答/)
+})

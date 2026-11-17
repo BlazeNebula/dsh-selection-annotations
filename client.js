@@ -161,6 +161,7 @@
 .sa-side-note { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); white-space: pre-wrap; word-break: break-word; }
 .sa-side-adopt { color: var(--dsw-alias-state-success-primary, #3fb950); }
 .sa-panel-hint { position: relative; min-width: 0; flex: 1 1 16em; max-width: 100%; display: inline-block; overflow: hidden; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
+  text-align: right;
   color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-hint-layer { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sa-hint-layer.sa-hint-out { animation: sa-hint-out 160ms ease forwards; }
@@ -460,6 +461,7 @@
     "## 怎么答\n",
     "- 处理完必须调用 `annotation_replies` 工具，不要在正文里逐条重复。\n",
     "- 每条批注对应 replies 里的一项，`index` 与批注编号一致。\n",
+    "- 同一轮里有多张已发送卡时，答复某张卡上的批注必须给每条 reply 带 `cardKey`：取 payload 里该卡的 `anchorKey`；不带时整批归到这一轮最后一张卡，前面那张就显示没有答复。\n",
     "- `verdict` 取 `accepted` / `partial` / `rejected` / `needs_info`；`reason` 写理由，`next` 写下一步。\n",
     "- 答复正文按 Markdown 渲染，优先用要点列表；加粗、行内代码、代码块与表格都可用。\n",
     "- 正文只写整体说明或需要澄清的问题。"
@@ -478,6 +480,7 @@
     "## How to answer\n",
     "- When done, you must call the `annotation_replies` tool instead of repeating replies in the body.\n",
     "- Each annotation maps to one entry in replies; `index` matches the annotation number.\n",
+    "- When a turn has more than one sent-annotation card, a reply about a card must carry `cardKey`: the `anchorKey` of that card in the payload. Without it the whole batch goes to the last card in the turn, and earlier cards show no answers.\n",
     "- `verdict` is `accepted` / `partial` / `rejected` / `needs_info`; `reason` explains it, `next` states the next step.\n",
     "- Reply bodies render as Markdown: prefer bullet lists; bold, inline code, code fences and tables are supported.\n",
     "- Use the body only for an overall summary or clarifying questions."
@@ -2152,7 +2155,7 @@
         sideIcon.setAttribute("fill", "none");
         sideIcon.setAttribute("stroke", "currentColor");
         sideIcon.setAttribute("stroke-width", "1.2");
-        const sideIconPaths = sideOpen ? ["M4.4 4.4l7.2 7.2", "M11.6 4.4l-7.2 7.2"] : ["M2.2 3.2h11.6v9.6H2.2z", "M10.2 3.2v9.6"];
+        const sideIconPaths = ["M2.2 3.2h11.6v9.6H2.2z", "M10.2 3.2v9.6"];
         for (const d of sideIconPaths) {
           const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
           path.setAttribute("d", d);
@@ -4439,42 +4442,55 @@ ${PICK_SCRIPT}<\/script>`;
           if (table.size === 0) return;
           const batches = remoteReplyCache.get(sessionId) ?? [];
           if (batches.length === 0) return;
-          for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) {
-            const anchorKey = stale.getAttribute("data-anchor");
-            const known = [...table.entries()].some(([storedKey, record]) => {
-              const candidate = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
-              return candidate === anchorKey;
-            });
-            if (!known) stale.remove();
-          }
           const byAnchor = /* @__PURE__ */ new Map();
+          const anchorOfCardKey = /* @__PURE__ */ new Map();
           for (const [storedKey, record] of table) {
             const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
             const current = byAnchor.get(anchorKey);
             if (current === void 0 || current.record.savedAt < record.savedAt) {
               byAnchor.set(anchorKey, { record, turn: turnOfRecord(record, storedKey) });
             }
+            if (!anchorOfCardKey.has(storedKey)) anchorOfCardKey.set(storedKey, anchorKey);
+            if (!anchorOfCardKey.has(anchorKey)) anchorOfCardKey.set(anchorKey, anchorKey);
           }
-          const records = [...byAnchor.entries()].sort((a, b) => a[1].record.savedAt - b[1].record.savedAt);
+          const anchors = [...byAnchor.entries()].map(([anchorKey, entry]) => ({ anchorKey, savedAt: entry.record.savedAt })).sort((a, b) => a.savedAt - b.savedAt);
           const grouped = /* @__PURE__ */ new Map();
           for (const batch of batches) {
-            let target;
-            for (const [key, entry] of records) {
-              if (entry.record.savedAt <= batch.at) target = key;
+            const at = Number(batch.at) || 0;
+            let fallback;
+            for (const anchor of anchors) {
+              if (anchor.savedAt <= at) fallback = anchor.anchorKey;
             }
-            if (target === void 0) continue;
-            const list = grouped.get(target) ?? [];
-            list.push(batch);
-            grouped.set(target, list);
+            for (const reply of Array.isArray(batch.replies) ? batch.replies : []) {
+              const cardKey = typeof reply?.cardKey === "string" ? reply.cardKey.trim() : "";
+              const target = (cardKey === "" ? void 0 : anchorOfCardKey.get(cardKey)) ?? fallback;
+              if (target === void 0) continue;
+              let buckets = grouped.get(target);
+              if (buckets === void 0) {
+                buckets = /* @__PURE__ */ new Map();
+                grouped.set(target, buckets);
+              }
+              let bucket = buckets.get(at);
+              if (bucket === void 0) {
+                bucket = [];
+                buckets.set(at, bucket);
+              }
+              bucket.push(reply);
+            }
           }
-          for (const [anchorKey, list] of grouped) {
+          for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) {
+            const anchorKey = stale.getAttribute("data-anchor");
+            if (anchorKey === null || !byAnchor.has(anchorKey) || !grouped.has(anchorKey)) stale.remove();
+          }
+          for (const [anchorKey, buckets] of grouped) {
+            const list = [...buckets.entries()].map(([at, replies]) => ({ at, replies }));
             const escaped = cssEscape(anchorKey);
             const sentCards = document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${escaped}"]`);
             const sentCard = sentCards[sentCards.length - 1];
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
             const signature = hashString({
-              v: 2,
+              v: 3,
               batches: list.map((batch) => ({ at: batch.at, replies: batch.replies })),
               items: items.map((item) => ({ quote: item.quote, note: item.note }))
             });

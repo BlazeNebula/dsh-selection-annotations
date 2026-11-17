@@ -1553,7 +1553,9 @@ const rewindHandled = new Map()
          * 把答复挂到对应的「已发送的批注」卡片后面。
          *
          * 台账按「批注消息行」的锚点存；旧版本还可能把「已完成」尾行写进台账，
-         * 渲染时先用 resolveLegacyAnchor 改认那一轮的批注消息行，再按 savedAt 分给批次。
+         * 渲染时先用 resolveLegacyAnchor 改认那一轮的批注消息行。
+         * 归位优先看每条答复自带的 cardKey：同一轮发出多张卡时，单看批次时间只能
+         * 把整批挂到最近的一张卡，前面几张的答复会缺；没有 cardKey 才回落到批次时间。
          */
         function renderReplySections() {
           const sessionId = currentSessionId()
@@ -1562,18 +1564,8 @@ const rewindHandled = new Map()
           if (table.size === 0) return
           const batches = remoteReplyCache.get(sessionId) ?? []
           if (batches.length === 0) return
-          for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) {
-            const anchorKey = stale.getAttribute('data-anchor')
-            const known = [...table.entries()].some(([storedKey, record]) => {
-              // 台账记录升级出 anchorKey 后，旧答复卡还挂在旧锚点上，也要认出来替换掉。
-              const candidate = typeof record.anchorKey === 'string' && record.anchorKey !== ''
-                ? record.anchorKey
-                : resolveLegacyAnchor(storedKey)
-              return candidate === anchorKey
-            })
-            if (!known) stale.remove()
-          }
           const byAnchor = new Map()
+          const anchorOfCardKey = new Map()
           for (const [storedKey, record] of table) {
             const anchorKey = typeof record.anchorKey === 'string' && record.anchorKey !== ''
               ? record.anchorKey
@@ -1582,27 +1574,54 @@ const rewindHandled = new Map()
             if (current === undefined || current.record.savedAt < record.savedAt) {
               byAnchor.set(anchorKey, { record, turn: turnOfRecord(record, storedKey) })
             }
+            // cardKey 说到底是 payload 里那张卡的 anchorKey；本地台账键与值里的锚点都认，
+            // 模型照抄 anchorKey、或者拿到的是台账键，都能对上同一张卡。
+            if (!anchorOfCardKey.has(storedKey)) anchorOfCardKey.set(storedKey, anchorKey)
+            if (!anchorOfCardKey.has(anchorKey)) anchorOfCardKey.set(anchorKey, anchorKey)
           }
-          const records = [...byAnchor.entries()].sort((a, b) => a[1].record.savedAt - b[1].record.savedAt)
+          const anchors = [...byAnchor.entries()]
+            .map(([anchorKey, entry]) => ({ anchorKey, savedAt: entry.record.savedAt }))
+            .sort((a, b) => a.savedAt - b.savedAt)
+          // 归位落到「条目」一级：同一张卡下仍按原批次时间分组，渲染结构不变。
           const grouped = new Map()
           for (const batch of batches) {
-            let target
-            for (const [key, entry] of records) {
-              if (entry.record.savedAt <= batch.at) target = key
+            const at = Number(batch.at) || 0
+            let fallback
+            for (const anchor of anchors) {
+              if (anchor.savedAt <= at) fallback = anchor.anchorKey
             }
-            if (target === undefined) continue
-            const list = grouped.get(target) ?? []
-            list.push(batch)
-            grouped.set(target, list)
+            for (const reply of Array.isArray(batch.replies) ? batch.replies : []) {
+              const cardKey = typeof reply?.cardKey === 'string' ? reply.cardKey.trim() : ''
+              const target = (cardKey === '' ? undefined : anchorOfCardKey.get(cardKey)) ?? fallback
+              if (target === undefined) continue
+              let buckets = grouped.get(target)
+              if (buckets === undefined) {
+                buckets = new Map()
+                grouped.set(target, buckets)
+              }
+              let bucket = buckets.get(at)
+              if (bucket === undefined) {
+                bucket = []
+                buckets.set(at, bucket)
+              }
+              bucket.push(reply)
+            }
           }
-          for (const [anchorKey, list] of grouped) {
+          for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) {
+            const anchorKey = stale.getAttribute('data-anchor')
+            // 台账里认不出的锚点要清；卡还在但一条答复都没归到它，也要清 ——
+            // 否则答复改挂别处后，上一版留下的内容会赖在这张卡上。
+            if (anchorKey === null || !byAnchor.has(anchorKey) || !grouped.has(anchorKey)) stale.remove()
+          }
+          for (const [anchorKey, buckets] of grouped) {
+            const list = [...buckets.entries()].map(([at, replies]) => ({ at, replies }))
             const escaped = cssEscape(anchorKey)
             const sentCards = document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${escaped}"]`)
             const sentCard = sentCards[sentCards.length - 1]
             const items = byAnchor.get(anchorKey)?.record.items ?? []
             const turn = byAnchor.get(anchorKey)?.turn ?? null
             const signature = hashString({
-              v: 2,
+              v: 3,
               batches: list.map((batch) => ({ at: batch.at, replies: batch.replies })),
               items: items.map((item) => ({ quote: item.quote, note: item.note })),
             })

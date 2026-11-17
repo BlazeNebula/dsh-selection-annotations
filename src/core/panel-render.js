@@ -277,10 +277,9 @@ export function createPanelRenderer({
       sideIcon.setAttribute('fill', 'none')
       sideIcon.setAttribute('stroke', 'currentColor')
       sideIcon.setAttribute('stroke-width', '1.2')
-      // 打开态画出叉号，明确再点一下是关闭；未打开态保留侧栏图标。
-      const sideIconPaths = sideOpen
-        ? ['M4.4 4.4l7.2 7.2', 'M11.6 4.4l-7.2 7.2']
-        : ['M2.2 3.2h11.6v9.6H2.2z', 'M10.2 3.2v9.6']
+      // 开合都用侧栏图标：右上角已有收起面板的叉号，这里再画叉号会重复；
+      // 是否已打开由 title、aria-label 与 aria-pressed 表达。
+      const sideIconPaths = ['M2.2 3.2h11.6v9.6H2.2z', 'M10.2 3.2v9.6']
       for (const d of sideIconPaths) {
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
         path.setAttribute('d', d)

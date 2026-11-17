@@ -159,6 +159,7 @@ export const CSS = `
 .sa-side-note { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); white-space: pre-wrap; word-break: break-word; }
 .sa-side-adopt { color: var(--dsw-alias-state-success-primary, #3fb950); }
 .sa-panel-hint { position: relative; min-width: 0; flex: 1 1 16em; max-width: 100%; display: inline-block; overflow: hidden; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4);
+  text-align: right;
   color: var(--dsw-alias-label-tertiary, GrayText); }
 .sa-hint-layer { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sa-hint-layer.sa-hint-out { animation: sa-hint-out 160ms ease forwards; }
