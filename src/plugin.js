@@ -918,9 +918,40 @@ const rewindHandled = new Map()
           return rows
         }
 
-        /** 当前页面上已有的候选锚点键。*/
+        /** 当前页面上已有的候选锚点键；排队气泡还不是「已发出」，不能进发送前快照。*/
         function captureAnchorKeys() {
-          return new Set(collectAnchorRows().map((entry) => entry.anchorKey))
+          return new Set(
+            collectAnchorRows()
+              .filter((entry) => !isPendingEchoRow(entry.row))
+              .map((entry) => entry.anchorKey),
+          )
+        }
+
+        /** 还没真正发出的消息：DSH 先渲染带等待态属性的裸 userRow，admission 后才换成入库消息行。*/
+        const PENDING_ECHO_SELECTOR = '[data-pending-steering], [data-submission-echo]'
+
+        /** 这一行是否还带等待态属性。只认真正的属性，方法缺失时按「不是等待态」处理。*/
+        function isPendingEchoRow(row) {
+          if (row === null || row === undefined || typeof row.getAttribute !== 'function') return false
+          return (
+            row.getAttribute('data-pending-steering') !== null ||
+            row.getAttribute('data-submission-echo') !== null
+          )
+        }
+
+        /**
+         * 收集「还没真正发出」的排队气泡。这类节点没有锚点键，混不进 collectAnchorRows；
+         * 它们带 data-pending-steering（主机待确认的插队消息）或 data-submission-echo（本地提交回声），
+         * 真正发出后会被不带这两个属性的消息行替换。
+         */
+        function pendingEchoes(scope) {
+          const root = scope !== null && scope !== undefined && scope.isConnected ? scope : document
+          const echoes = []
+          for (const element of root.querySelectorAll(PENDING_ECHO_SELECTOR)) {
+            if (typeof element.getClientRects === 'function' && element.getClientRects().length === 0) continue
+            echoes.push(element)
+          }
+          return echoes
         }
 
         /** 把新出现的候选行与刚发出的批注负载按出现顺序配对。*/
@@ -970,8 +1001,22 @@ const rewindHandled = new Map()
         function scanSentMessages() {
           if (pendingSent.length === 0) return
           const now = Date.now()
-          const expired = pendingSent.filter((entry) => now - entry.at >= SENT_PENDING_TTL_MS)
-          pendingSent = pendingSent.filter((entry) => now - entry.at < SENT_PENDING_TTL_MS)
+          const expired = []
+          const stillPending = []
+          for (const entry of pendingSent) {
+            if (now - entry.at < SENT_PENDING_TTL_MS) {
+              stillPending.push(entry)
+              continue
+            }
+            // 排队中的消息还没真正发出：TTL 只能兜底「发出后一直找不到锚点」，
+            // 不能把还在队列里的卡片提前放出来，所以继续留在待记账队列里等。
+            if (pendingEchoes(entry.scope).length > 0) {
+              stillPending.push(entry)
+              continue
+            }
+            expired.push(entry)
+          }
+          pendingSent = stillPending
           let expiredRecorded = false
           for (const entry of expired) {
             const entrySession =
@@ -1006,7 +1051,10 @@ const rewindHandled = new Map()
             return true
           }
           const rows = collectAnchorRows()
+          // 这一批可能还排在队列里：等待态气泡已经出现，但还没 admission。
+          const queued = pendingEchoes(pending.scope)
           if (rows.length === 0) {
+            if (queued.length > 0) return
             recordWithHint()
             return
           }
@@ -1016,6 +1064,8 @@ const rewindHandled = new Map()
             if (loadSent(sessionId).has(entry.anchorKey)) return false
             const kind = entry.row.getAttribute('data-chat-flow-kind') ?? ''
             if (kind === 'turn-process') return false
+            // 还带等待态属性的行不是「真的发出了」：既不能当锚点，也不该让卡片提前出现。
+            if (isPendingEchoRow(entry.row)) return false
             // 发送时记下的那一屏会话范围：别的会话的行即使可见，也不参与这一批的记账。
             if (pending.scope !== null && pending.scope !== undefined && pending.scope.isConnected && !pending.scope.contains(entry.row)) return false
             // 别的会话留在页面里、已切走但未卸载时也会被扫到；只认真正看得见的行。
@@ -1038,7 +1088,7 @@ const rewindHandled = new Map()
           const pool = attached.length > 0 ? attached : bubbles.length > 0 ? bubbles : loose
           // 等气泡最多 1.2 秒：消息气泡有时要等回合开始才挂出来，但「已发送」不该因此迟到太久。
           const wait = Date.now() - pending.at
-          const fallback = pool.length === 0 && wait > 1200 ? fresh.slice(-1) : []
+          const fallback = pool.length === 0 && queued.length === 0 && wait > 1200 ? fresh.slice(-1) : []
           const usable = pool.length > 0 ? pool : fallback
           // 同一时间可能有多个会话的 DOM 留在页面里；取轮次最大的那一条，避免挂到旧会话的气泡上。
           let target = usable[0]
@@ -1052,6 +1102,8 @@ const rewindHandled = new Map()
             }
           }
           if (target === undefined) {
+            // 还排在队列里就先不记账：等它真正发出、等待态气泡被消息行替换后再认领。
+            if (queued.length > 0) return
             // 消息行还没出现也不用干等：发送时数出的轮次已经能定位，先用它落台账。
             recordWithHint()
             return
@@ -1254,6 +1306,14 @@ const rewindHandled = new Map()
             }
             // 锚点没查到、靠轮次落位：面板里单独计数，用来区分「锚点丢了」和「轮次根本没渲染」。
             if (row === null) stats.anchorMiss += 1
+            // 排队中的消息还没真正发出：卡片不提前挂到等待态气泡下面，
+            // 已经残留的旧卡也先收起来，等真正发出后的那一遍再补。
+            if (row !== null && isPendingEchoRow(row)) {
+              const queuedCard = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
+              if (queuedCard !== null) queuedCard.remove()
+              stats.skipped += 1
+              continue
+            }
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
             const cardOptions = {
               onReuse: () => reuseSentItems(record.items),
@@ -1281,14 +1341,14 @@ const rewindHandled = new Map()
             if (Number.isFinite(turn)) card.setAttribute('data-sa-turn', String(turn))
             else if (typeof card.removeAttribute === 'function') card.removeAttribute('data-sa-turn')
             // 批注优先挂在用户消息气泡下方：插队（steering）消息还没有轮次尾行时也能出现，
-            // 位置也贴着「自己这一条」，不必等整轮结束。
+            // 位置也贴着「自己这一条」，不必等整轮结束。等待态气泡在上面已跳过。
             const bubbleKind = row === null ? '' : (row.getAttribute('data-chat-flow-kind') ?? '')
             // 有轮次就按轮次定位，不再看锚点键指向哪条消息：即使锚点记错（曾抓到别的会话的消息），
             // 卡片也只会落在正确的那一轮，不会漂到看不见的节点上。锚点仍保留给答复卡配对。
             const onBubble =
               !Number.isFinite(turn) &&
               row !== null &&
-              (bubbleKind === 'user' || bubbleKind === 'steering' || row.hasAttribute('data-pending-steering'))
+              (bubbleKind === 'user' || bubbleKind === 'steering')
             if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {
               if (card.parentElement !== row.parentElement || card.previousSibling !== row) {
                 row.parentElement.insertBefore(card, row.nextSibling)

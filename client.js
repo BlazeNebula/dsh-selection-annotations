@@ -3920,7 +3920,23 @@ ${PICK_SCRIPT}<\/script>`;
           return rows;
         }
         function captureAnchorKeys() {
-          return new Set(collectAnchorRows().map((entry) => entry.anchorKey));
+          return new Set(
+            collectAnchorRows().filter((entry) => !isPendingEchoRow(entry.row)).map((entry) => entry.anchorKey)
+          );
+        }
+        const PENDING_ECHO_SELECTOR = "[data-pending-steering], [data-submission-echo]";
+        function isPendingEchoRow(row) {
+          if (row === null || row === void 0 || typeof row.getAttribute !== "function") return false;
+          return row.getAttribute("data-pending-steering") !== null || row.getAttribute("data-submission-echo") !== null;
+        }
+        function pendingEchoes(scope) {
+          const root = scope !== null && scope !== void 0 && scope.isConnected ? scope : document;
+          const echoes = [];
+          for (const element of root.querySelectorAll(PENDING_ECHO_SELECTOR)) {
+            if (typeof element.getClientRects === "function" && element.getClientRects().length === 0) continue;
+            echoes.push(element);
+          }
+          return echoes;
         }
         function chatScopeOfInput() {
           const inputs = [...document.querySelectorAll('textarea, [contenteditable="true"]')].filter((input) => {
@@ -3962,8 +3978,20 @@ ${PICK_SCRIPT}<\/script>`;
         function scanSentMessages() {
           if (pendingSent.length === 0) return;
           const now = Date.now();
-          const expired = pendingSent.filter((entry) => now - entry.at >= SENT_PENDING_TTL_MS);
-          pendingSent = pendingSent.filter((entry) => now - entry.at < SENT_PENDING_TTL_MS);
+          const expired = [];
+          const stillPending = [];
+          for (const entry of pendingSent) {
+            if (now - entry.at < SENT_PENDING_TTL_MS) {
+              stillPending.push(entry);
+              continue;
+            }
+            if (pendingEchoes(entry.scope).length > 0) {
+              stillPending.push(entry);
+              continue;
+            }
+            expired.push(entry);
+          }
+          pendingSent = stillPending;
           let expiredRecorded = false;
           for (const entry of expired) {
             const entrySession = typeof entry.sessionId === "string" && entry.sessionId !== "" ? entry.sessionId : currentSessionId();
@@ -3994,7 +4022,9 @@ ${PICK_SCRIPT}<\/script>`;
             return true;
           };
           const rows = collectAnchorRows();
+          const queued = pendingEchoes(pending.scope);
           if (rows.length === 0) {
+            if (queued.length > 0) return;
             recordWithHint();
             return;
           }
@@ -4003,6 +4033,7 @@ ${PICK_SCRIPT}<\/script>`;
             if (loadSent(sessionId).has(entry.anchorKey)) return false;
             const kind = entry.row.getAttribute("data-chat-flow-kind") ?? "";
             if (kind === "turn-process") return false;
+            if (isPendingEchoRow(entry.row)) return false;
             if (pending.scope !== null && pending.scope !== void 0 && pending.scope.isConnected && !pending.scope.contains(entry.row)) return false;
             if (typeof entry.row.getClientRects === "function" && entry.row.getClientRects().length === 0) return false;
             return true;
@@ -4018,7 +4049,7 @@ ${PICK_SCRIPT}<\/script>`;
           });
           const pool = attached.length > 0 ? attached : bubbles.length > 0 ? bubbles : loose;
           const wait = Date.now() - pending.at;
-          const fallback = pool.length === 0 && wait > 1200 ? fresh.slice(-1) : [];
+          const fallback = pool.length === 0 && queued.length === 0 && wait > 1200 ? fresh.slice(-1) : [];
           const usable = pool.length > 0 ? pool : fallback;
           let target = usable[0];
           let bestTurn = -1;
@@ -4031,6 +4062,7 @@ ${PICK_SCRIPT}<\/script>`;
             }
           }
           if (target === void 0) {
+            if (queued.length > 0) return;
             recordWithHint();
             return;
           }
@@ -4198,6 +4230,12 @@ ${PICK_SCRIPT}<\/script>`;
               continue;
             }
             if (row === null) stats.anchorMiss += 1;
+            if (row !== null && isPendingEchoRow(row)) {
+              const queuedCard = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
+              if (queuedCard !== null) queuedCard.remove();
+              stats.skipped += 1;
+              continue;
+            }
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
             const cardOptions = {
               onReuse: () => reuseSentItems(record.items),
@@ -4225,7 +4263,7 @@ ${PICK_SCRIPT}<\/script>`;
             if (Number.isFinite(turn)) card.setAttribute("data-sa-turn", String(turn));
             else if (typeof card.removeAttribute === "function") card.removeAttribute("data-sa-turn");
             const bubbleKind = row === null ? "" : row.getAttribute("data-chat-flow-kind") ?? "";
-            const onBubble = !Number.isFinite(turn) && row !== null && (bubbleKind === "user" || bubbleKind === "steering" || row.hasAttribute("data-pending-steering"));
+            const onBubble = !Number.isFinite(turn) && row !== null && (bubbleKind === "user" || bubbleKind === "steering");
             if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {
               if (card.parentElement !== row.parentElement || card.previousSibling !== row) {
                 row.parentElement.insertBefore(card, row.nextSibling);
