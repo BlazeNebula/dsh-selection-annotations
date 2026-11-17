@@ -4176,6 +4176,52 @@ ${PICK_SCRIPT}<\/script>`;
           if (button3 === null) return null;
           return button3.closest('[data-chat-flow-kind="turn-process"]') ?? button3;
         }
+        function conversationScopeOf(node) {
+          let scope = null;
+          let current = node.parentElement ?? null;
+          for (let i = 0; i < 32 && current !== null && current !== void 0; i += 1) {
+            if (current === document.body || current === document.documentElement) break;
+            if (typeof current.querySelector === "function" && current.querySelector("[data-chat-turn]") !== null) scope = current;
+            current = current.parentElement ?? null;
+          }
+          return scope;
+        }
+        function visibleConversationScopes() {
+          const scopes = [];
+          for (const input of document.querySelectorAll('textarea, [contenteditable="true"]')) {
+            const rect = safe(() => input.getBoundingClientRect());
+            if (rect === void 0 || rect.width <= 0 || rect.height <= 0) continue;
+            const scope = conversationScopeOf(input);
+            if (scope !== null) scopes.push(scope);
+          }
+          return scopes;
+        }
+        function sentSweepScopes(table) {
+          const scopes = /* @__PURE__ */ new Set();
+          const collect = (node) => {
+            const scope = conversationScopeOf(node);
+            if (scope !== null) scopes.add(scope);
+          };
+          for (const scope of visibleConversationScopes()) scopes.add(scope);
+          for (const [storedKey, record] of table) {
+            const card = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
+            if (card !== null) collect(card);
+            const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
+            const row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`);
+            if (row !== null) collect(row);
+          }
+          return scopes;
+        }
+        function replaceCardChildren(target, fresh) {
+          const children = [];
+          for (const child of fresh.childNodes ?? []) children.push(child);
+          if (typeof target.replaceChildren === "function") {
+            target.replaceChildren(...children);
+            return;
+          }
+          target.textContent = "";
+          for (const child of children) target.appendChild(child);
+        }
         let sentRenderStats = null;
         function renderSentCards() {
           const sessionId = currentSessionId();
@@ -4200,9 +4246,11 @@ ${PICK_SCRIPT}<\/script>`;
             stats.reasons.emptyTable += 1;
             return;
           }
-          for (const stale of document.querySelectorAll('[data-sa-ui="sent"]')) {
-            const key = stale.getAttribute("data-sa-key");
-            if (key === null || !table.has(key)) stale.remove();
+          for (const scope of sentSweepScopes(table)) {
+            for (const stale of scope.querySelectorAll('[data-sa-ui="sent"]')) {
+              const key = stale.getAttribute("data-sa-key");
+              if (key === null || !table.has(key)) stale.remove();
+            }
           }
           let learnedTurn = false;
           for (const [storedKey, record] of table) {
@@ -4251,10 +4299,9 @@ ${PICK_SCRIPT}<\/script>`;
               }))
             });
             if (card !== null && card.getAttribute("data-sa-sig") !== sentSignature) {
-              const fresh = buildSentCard(record, anchorKey, cardOptions);
-              fresh.setAttribute("data-sa-key", storedKey);
-              existing.replaceWith(fresh);
-              card = fresh;
+              replaceCardChildren(existing, buildSentCard(record, anchorKey, cardOptions));
+              if (typeof existing.removeAttribute === "function") existing.removeAttribute("data-sa-reply-sig");
+              card = existing;
             }
             if (card === null) card = buildSentCard(record, anchorKey, cardOptions);
             card.setAttribute("data-sa-sig", sentSignature);
@@ -4753,12 +4800,39 @@ ${PICK_SCRIPT}<\/script>`;
             repaint();
           }, REPAINT_MS);
         }
-        function repaint() {
-          highlightHits = [];
-          scanSentMessages();
-          renderSentCards();
-          renderReplySections();
-          const nodes = [];
+        function keepScrollStable(mutate) {
+          const saved = [];
+          const seen = /* @__PURE__ */ new Set();
+          const remember = (start) => {
+            let current = start;
+            for (let i = 0; i < 32 && current !== null && current !== void 0; i += 1) {
+              if (current === document.body || current === document.documentElement) break;
+              const scrollable = typeof current.scrollHeight === "number" && typeof current.clientHeight === "number" && current.scrollHeight > current.clientHeight + 1;
+              if (scrollable && !seen.has(current)) {
+                const overflowY = typeof window.getComputedStyle === "function" ? safe(() => window.getComputedStyle(current).overflowY) ?? "" : "";
+                if (overflowY === "auto" || overflowY === "scroll") {
+                  seen.add(current);
+                  saved.push({ el: current, top: current.scrollTop });
+                }
+              }
+              current = current.parentElement ?? null;
+            }
+          };
+          const roots = [];
+          for (const scope of visibleConversationScopes()) roots.push(scope);
+          for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node);
+          for (const root of roots) remember(root);
+          mutate();
+          if (saved.length === 0) return;
+          const restore = () => {
+            for (const entry of saved) {
+              if (entry.el.scrollTop !== entry.top) entry.el.scrollTop = entry.top;
+            }
+          };
+          restore();
+          if (typeof window.requestAnimationFrame === "function") safe(() => window.requestAnimationFrame(restore));
+        }
+        function collectHighlightNodes(nodes) {
           for (const item of annotations) {
             const range = locateRange(item);
             if (range === void 0) continue;
@@ -4795,6 +4869,16 @@ ${PICK_SCRIPT}<\/script>`;
               }
             }
           }
+        }
+        function repaint() {
+          const nodes = [];
+          keepScrollStable(() => {
+            highlightHits = [];
+            scanSentMessages();
+            renderSentCards();
+            renderReplySections();
+            collectHighlightNodes(nodes);
+          });
           if (typeof overlay.replaceChildren === "function") {
             overlay.replaceChildren(...nodes);
           } else {
@@ -6012,7 +6096,7 @@ ${PICK_SCRIPT}<\/script>`;
             openPanel(anchor);
           }, 140);
         }
-        function scheduleHoverClose() {
+        function scheduleChipHoverClose() {
           if (!panelOpen || !panelOpenedByHover) return;
           if (chipHoverCloseTimer !== 0) return;
           chipHoverCloseTimer = window.setTimeout(() => {
@@ -6825,7 +6909,7 @@ ${PICK_SCRIPT}`;
         });
         panelRoot.addEventListener("mouseleave", () => {
           panelHovered = false;
-          scheduleHoverClose();
+          scheduleChipHoverClose();
         });
         const onPanelOutsidePointerDown = (event) => {
           if (!panelOpen) return;
@@ -6865,7 +6949,7 @@ ${PICK_SCRIPT}`;
               type: "button",
               title: count === 0 ? t("chip.emptyTitle") : t("chip.title"),
               onMouseEnter: (event) => scheduleHoverOpen(event.currentTarget),
-              onMouseLeave: () => scheduleHoverClose(),
+              onMouseLeave: () => scheduleChipHoverClose(),
               onClick: (event) => {
                 cancelChipTimers();
                 if (panelOpen && !panelOpenedByHover) {

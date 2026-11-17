@@ -1243,6 +1243,73 @@ const rewindHandled = new Map()
           return button.closest('[data-chat-flow-kind="turn-process"]') ?? button
         }
 
+        /**
+         * 节点所在的会话容器：往上找、取最外层仍含消息行的祖先。
+         * body 与 documentElement 不算——覆盖层都挂在 body 上，算进来就等于全页面。
+         */
+        function conversationScopeOf(node) {
+          let scope = null
+          let current = node.parentElement ?? null
+          for (let i = 0; i < 32 && current !== null && current !== undefined; i += 1) {
+            if (current === document.body || current === document.documentElement) break
+            if (typeof current.querySelector === 'function' && current.querySelector('[data-chat-turn]') !== null) scope = current
+            current = current.parentElement ?? null
+          }
+          return scope
+        }
+
+        /**
+         * 活动会话的那一屏：只认真正长在会话里的输入框，覆盖层挂在 body 上，
+         * 经 conversationScopeOf 上溯会被 body 边界挡住，拿不到会话容器。
+         */
+        function visibleConversationScopes() {
+          const scopes = []
+          for (const input of document.querySelectorAll('textarea, [contenteditable="true"]')) {
+            const rect = safe(() => input.getBoundingClientRect())
+            if (rect === undefined || rect.width <= 0 || rect.height <= 0) continue
+            const scope = conversationScopeOf(input)
+            if (scope !== null) scopes.push(scope)
+          }
+          return scopes
+        }
+
+        /**
+         * 清扫旧卡的作用范围：只取本次台账里的卡片和锚点行所在的会话容器。
+         * 页面同时留着另一个会话的 DOM 时，按全页面扫会把那边的卡一起删掉。
+         */
+        function sentSweepScopes(table) {
+          const scopes = new Set()
+          const collect = (node) => {
+            const scope = conversationScopeOf(node)
+            if (scope !== null) scopes.add(scope)
+          }
+          // 台账记录可能暂时既没有卡片也没有锚点行（轮次还没渲染），
+          // 但这一屏此前留下的旧卡仍应清掉，所以把活动会话也算一份。
+          for (const scope of visibleConversationScopes()) scopes.add(scope)
+          for (const [storedKey, record] of table) {
+            const card = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
+            if (card !== null) collect(card)
+            const anchorKey = typeof record.anchorKey === 'string' && record.anchorKey !== ''
+              ? record.anchorKey
+              : resolveLegacyAnchor(storedKey)
+            const row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`)
+            if (row !== null) collect(row)
+          }
+          return scopes
+        }
+
+        /** 把新卡的子节点搬进旧卡里，根节点与它在父级里的位置都不动。*/
+        function replaceCardChildren(target, fresh) {
+          const children = []
+          for (const child of fresh.childNodes ?? []) children.push(child)
+          if (typeof target.replaceChildren === 'function') {
+            target.replaceChildren(...children)
+            return
+          }
+          target.textContent = ''
+          for (const child of children) target.appendChild(child)
+        }
+
         /** 已发送卡片的最近一次渲染统计，给面板底部诊断行用。 */
         let sentRenderStats = null
 
@@ -1272,9 +1339,12 @@ const rewindHandled = new Map()
             return
           }
           // 卡片身份取台账键；锚点只用来挂答复卡。
-          for (const stale of document.querySelectorAll('[data-sa-ui="sent"]')) {
-            const key = stale.getAttribute('data-sa-key')
-            if (key === null || !table.has(key)) stale.remove()
+          // 清扫按会话容器分组做：全页面扫会把另一个会话的 DOM 里渲染出的卡一起删掉。
+          for (const scope of sentSweepScopes(table)) {
+            for (const stale of scope.querySelectorAll('[data-sa-ui="sent"]')) {
+              const key = stale.getAttribute('data-sa-key')
+              if (key === null || !table.has(key)) stale.remove()
+            }
           }
           let learnedTurn = false
           for (const [storedKey, record] of table) {
@@ -1329,10 +1399,12 @@ const rewindHandled = new Map()
               })),
             })
             if (card !== null && card.getAttribute('data-sa-sig') !== sentSignature) {
-              const fresh = buildSentCard(record, anchorKey, cardOptions)
-              fresh.setAttribute('data-sa-key', storedKey)
-              existing.replaceWith(fresh)
-              card = fresh
+              // 内容变了只换子节点，不 replaceWith 整卡：整卡摘挂会让浏览器重算滚动锚定，
+              // 会话区在卡出现/变化时自己跳一下。
+              replaceCardChildren(existing, buildSentCard(record, anchorKey, cardOptions))
+              // 原来换的是新节点，答复收起标记自然没了；就地更新要手动清掉才与旧行为一致。
+              if (typeof existing.removeAttribute === 'function') existing.removeAttribute('data-sa-reply-sig')
+              card = existing
             }
             if (card === null) card = buildSentCard(record, anchorKey, cardOptions)
             card.setAttribute('data-sa-sig', sentSignature)
@@ -1971,13 +2043,52 @@ const rewindHandled = new Map()
           }, REPAINT_MS)
         }
 
-        function repaint() {
-          highlightHits = []
-          // 历史回看先于高亮：新消息行刚出现时在这里完成配对，卡片随即补上。
-          scanSentMessages()
-          renderSentCards()
-          renderReplySections()
-          const nodes = []
+        /**
+         * 重绘会在视口上方摘挂节点，浏览器为了保住可见内容会改写滚动位置，表现为会话区自己跳。
+         * 位置保护：先记下受影响滚动容器的位置，改完补回；下一帧再补一次，
+         * 抵掉浏览器在同一帧里按新布局重新做的锚定。
+         */
+        function keepScrollStable(mutate) {
+          const saved = []
+          const seen = new Set()
+          const remember = (start) => {
+            let current = start
+            for (let i = 0; i < 32 && current !== null && current !== undefined; i += 1) {
+              if (current === document.body || current === document.documentElement) break
+              const scrollable =
+                typeof current.scrollHeight === 'number' &&
+                typeof current.clientHeight === 'number' &&
+                current.scrollHeight > current.clientHeight + 1
+              if (scrollable && !seen.has(current)) {
+                const overflowY = typeof window.getComputedStyle === 'function'
+                  ? safe(() => window.getComputedStyle(current).overflowY) ?? ''
+                  : ''
+                if (overflowY === 'auto' || overflowY === 'scroll') {
+                  seen.add(current)
+                  saved.push({ el: current, top: current.scrollTop })
+                }
+              }
+              current = current.parentElement ?? null
+            }
+          }
+          const roots = []
+          // 输入框与已有卡片都在会话区里，从它们上溯就能找到承载消息的滚动层。
+          for (const scope of visibleConversationScopes()) roots.push(scope)
+          for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node)
+          for (const root of roots) remember(root)
+          mutate()
+          if (saved.length === 0) return
+          const restore = () => {
+            for (const entry of saved) {
+              if (entry.el.scrollTop !== entry.top) entry.el.scrollTop = entry.top
+            }
+          }
+          restore()
+          if (typeof window.requestAnimationFrame === 'function') safe(() => window.requestAnimationFrame(restore))
+        }
+
+        /** 高亮层节点：位置要在会话区回到原位之后量，所以与 DOM 重绘放在同一个保护段里。*/
+        function collectHighlightNodes(nodes) {
           for (const item of annotations) {
             const range = locateRange(item)
             if (range === undefined) continue
@@ -2013,6 +2124,19 @@ const rewindHandled = new Map()
               }
             }
           }
+        }
+
+        function repaint() {
+          const nodes = []
+          // 只包住会动会话区 DOM 的几步；overlay 是 fixed 层，不在滚动流里，不必包。
+          keepScrollStable(() => {
+            highlightHits = []
+            // 历史回看先于高亮：新消息行刚出现时在这里完成配对，卡片随即补上。
+            scanSentMessages()
+            renderSentCards()
+            renderReplySections()
+            collectHighlightNodes(nodes)
+          })
           // 一次性换掉整层：先清空再逐个插入会在帧间露出空白，看起来像界面闪了一下。
           if (typeof overlay.replaceChildren === 'function') {
             overlay.replaceChildren(...nodes)
@@ -3469,7 +3593,8 @@ const rewindHandled = new Map()
           }, 140)
         }
 
-        function scheduleHoverClose() {
+        /** composer 上批注按钮的悬停面板：指针移开就收起（与弹层的 scheduleHoverClose 是两套状态）。*/
+        function scheduleChipHoverClose() {
           if (!panelOpen || !panelOpenedByHover) return
           if (chipHoverCloseTimer !== 0) return
           chipHoverCloseTimer = window.setTimeout(() => {
@@ -4419,7 +4544,7 @@ const rewindHandled = new Map()
         })
         panelRoot.addEventListener('mouseleave', () => {
           panelHovered = false
-          scheduleHoverClose()
+          scheduleChipHoverClose()
         })
 
         const onPanelOutsidePointerDown = (event) => {
@@ -4466,7 +4591,7 @@ const rewindHandled = new Map()
               type: 'button',
               title: count === 0 ? t('chip.emptyTitle') : t('chip.title'),
               onMouseEnter: (event) => scheduleHoverOpen(event.currentTarget),
-              onMouseLeave: () => scheduleHoverClose(),
+              onMouseLeave: () => scheduleChipHoverClose(),
               onClick: (event) => {
                 cancelChipTimers()
                 // 点击是持久的开合；悬停只是临时展开，移开就收回去。
