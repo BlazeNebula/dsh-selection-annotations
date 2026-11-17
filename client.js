@@ -5163,6 +5163,12 @@ ${PICK_SCRIPT}<\/script>`;
           repaintFailures.add(key);
           warn("[selection-annotations] 重绘步骤失败:", step, error);
         }
+        const hoverMisses = /* @__PURE__ */ new Set();
+        function reportHoverMiss(id) {
+          if (hoverMisses.has(id)) return;
+          hoverMisses.add(id);
+          warn("[selection-annotations] 悬停命中找不到对应批注:", id);
+        }
         function collectHighlightNodes(nodes, hits) {
           const target = Array.isArray(hits) ? hits : highlightHits;
           for (const item of annotations) {
@@ -5177,12 +5183,13 @@ ${PICK_SCRIPT}<\/script>`;
           if (range === void 0) return;
           const rects = safe(() => [...range.getClientRects()]) ?? [];
           if (rects.length > 0) target.push({ id: item.id, rects });
+          const adopt = safe(() => hasAdoptNote(item.note)) === true;
           let badged = false;
           for (const rect of rects) {
             if (rect.width <= 0 || rect.height <= 0) continue;
             const box = document.createElement("div");
             box.className = "sa-hl";
-            if (hasAdoptNote(item.note)) box.dataset.adopt = "1";
+            if (adopt) box.dataset.adopt = "1";
             box.style.left = `${rect.left}px`;
             box.style.top = `${rect.top}px`;
             box.style.width = `${rect.width}px`;
@@ -5952,6 +5959,7 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function closePopover(options = {}) {
           popover.dataset.open = "0";
+          if (popoverSource === "hover") cancelHoverOpen();
           lowerPopover();
           safe(() => popInput.blur());
           if (options.discardWebEmpty !== false && popoverMode === "edit" && popoverTargetId !== null) {
@@ -6258,7 +6266,8 @@ ${PICK_SCRIPT}<\/script>`;
           }, 250);
         }
         function hitHighlight(x, y) {
-          for (const entry of highlightHits) {
+          for (let index = highlightHits.length - 1; index >= 0; index -= 1) {
+            const entry = highlightHits[index];
             for (const rect of entry.rects) {
               if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return entry;
             }
@@ -6271,6 +6280,8 @@ ${PICK_SCRIPT}<\/script>`;
             if (node === document.body || node === document.documentElement) break;
             const className = typeof node.className === "string" ? node.className : "";
             if (className.includes("sa-hl") || className.includes("sa-badge")) continue;
+            if (className.includes("sa-token")) continue;
+            if (popover.contains(node)) continue;
             const host = node.closest?.("[data-sa-ui]");
             if (host !== null && host !== void 0) {
               if (host.getAttribute("data-sa-ui") === "overlay") continue;
@@ -6290,8 +6301,22 @@ ${PICK_SCRIPT}<\/script>`;
           if (open) {
             if (popoverSource !== "hover") return;
             if (popoverTouched || popoverHovered) return;
-            if (hit !== void 0) return;
-            scheduleHoverClose();
+            if (hit === void 0) {
+              scheduleHoverClose();
+              return;
+            }
+            cancelHoverClose();
+            const popoverBox = safe(() => popover.getBoundingClientRect());
+            if (popoverBox !== void 0 && popoverBox !== null && event.clientX >= popoverBox.left && event.clientX <= popoverBox.right && event.clientY >= popoverBox.top && event.clientY <= popoverBox.bottom) {
+              return;
+            }
+            if (popoverTargetId === hit.id) return;
+            const nextRect = unionRects(hit.rects);
+            if (nextRect === null) return;
+            if (popoverMode === "edit") commitPopover(true);
+            else closePopover();
+            if (popover.dataset.open === "1") return;
+            openEditPopover(hit.id, { getBoundingClientRect: () => nextRect }, "hover");
             return;
           }
           if (hit === void 0) {
@@ -6306,7 +6331,10 @@ ${PICK_SCRIPT}<\/script>`;
             hoverTargetId = null;
             if (popover.dataset.open === "1") return;
             const target = annotations.find((item) => item.id === hit.id);
-            if (target === void 0) return;
+            if (target === void 0) {
+              reportHoverMiss(hit.id);
+              return;
+            }
             const rect = unionRects(hit.rects);
             if (rect === null) return;
             openEditPopover(target.id, { getBoundingClientRect: () => rect }, "hover");

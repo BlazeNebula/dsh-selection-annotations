@@ -2292,6 +2292,14 @@ const rewindHandled = new Map()
           warn('[selection-annotations] 重绘步骤失败:', step, error)
         }
 
+        const hoverMisses = new Set()
+        /** 悬停命中的划线在批注里找不到：说明这条划线是上一轮重绘的残留，报一次好定位。*/
+        function reportHoverMiss(id) {
+          if (hoverMisses.has(id)) return
+          hoverMisses.add(id)
+          warn('[selection-annotations] 悬停命中找不到对应批注:', id)
+        }
+
         /**
          * 高亮层节点与命中矩形：位置要在会话区回到原位之后量，
          * 所以从 keepScrollStable 的保护段里挪到这里，由 repaint 在滚动回正之后单独调用。
@@ -2312,12 +2320,14 @@ const rewindHandled = new Map()
           if (range === undefined) return
           const rects = safe(() => [...range.getClientRects()]) ?? []
           if (rects.length > 0) target.push({ id: item.id, rects })
+          // 采纳判定要读设置项：它只决定配色，读不到也必须照常把这条划线画出来。
+          const adopt = safe(() => hasAdoptNote(item.note)) === true
           let badged = false
           for (const rect of rects) {
             if (rect.width <= 0 || rect.height <= 0) continue
             const box = document.createElement('div')
             box.className = 'sa-hl'
-            if (hasAdoptNote(item.note)) box.dataset.adopt = '1'
+            if (adopt) box.dataset.adopt = '1'
             box.style.left = `${rect.left}px`
             box.style.top = `${rect.top}px`
             box.style.width = `${rect.width}px`
@@ -3233,6 +3243,9 @@ const rewindHandled = new Map()
 
         function closePopover(options = {}) {
           popover.dataset.open = '0'
+          // 悬停预览收起后不能留下「刚才瞄的就是这条」的记忆：指针再回到同一条划线上时，
+          // onHoverMove 会因为 hoverTargetId 相同直接返回，这条就再也弹不出来了。
+          if (popoverSource === 'hover') cancelHoverOpen()
           lowerPopover()
           // 页面刷新、关闭或插件卸载前再存一次：只靠状态变更时保存会丢掉最后几秒的编辑。
           safe(() => popInput.blur())
@@ -3602,8 +3615,14 @@ const rewindHandled = new Map()
           }, 250)
         }
 
+        /**
+         * 命中取「画在最上面的那条」：几条划线重叠时后建的压在上面，与眼睛看到的一致。
+         * 顺着数组取第一条会让被压住的旧批注抢走命中——鼠标停在新的（例如采纳）划线上，
+         * 弹出来的却是压在下面的那条；那条若正开着，计时器里的「已开就别再开」会直接吞掉这次悬停。
+         */
         function hitHighlight(x, y) {
-          for (const entry of highlightHits) {
+          for (let index = highlightHits.length - 1; index >= 0; index -= 1) {
+            const entry = highlightHits[index]
             for (const rect of entry.rects) {
               if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return entry
             }
@@ -3623,6 +3642,11 @@ const rewindHandled = new Map()
             const className = typeof node.className === 'string' ? node.className : ''
             // 高亮框画的就是被批注的文字本身，角标也挂在同一层上，都不能算遮挡。
             if (className.includes('sa-hl') || className.includes('sa-badge')) continue
+            // 弹层正文里的采纳 token 是插件自己画的字，替它遮挡没有意义。
+            if (className.includes('sa-token')) continue
+            // 弹层就贴在划线旁边，常常压住半行字：它挡住自己这块区域时仍按「看得见文字」处理，
+            // 否则预览一弹出就把自己判成遮挡，接着被 250ms 的收起逻辑关掉，看起来像弹不出来。
+            if (popover.contains(node)) continue
             const host = node.closest?.('[data-sa-ui]')
             if (host !== null && host !== undefined) {
               // 角标的祖先就是高亮层：它盖住文字时仍按文字处理。
@@ -3645,8 +3669,34 @@ const rewindHandled = new Map()
             // 主动点开的弹层不会被悬停逻辑关掉；只有悬停预览才自动收。
             if (popoverSource !== 'hover') return
             if (popoverTouched || popoverHovered) return
-            if (hit !== undefined) return
-            scheduleHoverClose()
+            if (hit === undefined) {
+              scheduleHoverClose()
+              return
+            }
+            // 指针仍在某条划线上：撤销已经排上的收起，别让它到点把预览关掉。
+            cancelHoverClose()
+            // 指针落在弹层自己身上时什么都不做：弹层常压在别的划线上，照几何判断会误判成「换目标」。
+            const popoverBox = safe(() => popover.getBoundingClientRect())
+            if (
+              popoverBox !== undefined &&
+              popoverBox !== null &&
+              event.clientX >= popoverBox.left &&
+              event.clientX <= popoverBox.right &&
+              event.clientY >= popoverBox.top &&
+              event.clientY <= popoverBox.bottom
+            ) {
+              return
+            }
+            // 预览开着时又扫到另一条批注：换过去。不换的话只有最先扫到的那条能弹，
+            // 后面的（常常是后加的采纳批注）看起来永远弹不出来。
+            if (popoverTargetId === hit.id) return
+            const nextRect = unionRects(hit.rects)
+            if (nextRect === null) return
+            // 收掉旧预览再开新的：编辑态走保存式收起，其它态直接关。
+            if (popoverMode === 'edit') commitPopover(true)
+            else closePopover()
+            if (popover.dataset.open === '1') return
+            openEditPopover(hit.id, { getBoundingClientRect: () => nextRect }, 'hover')
             return
           }
           if (hit === undefined) {
@@ -3661,7 +3711,10 @@ const rewindHandled = new Map()
             hoverTargetId = null
             if (popover.dataset.open === '1') return
             const target = annotations.find((item) => item.id === hit.id)
-            if (target === undefined) return
+            if (target === undefined) {
+              reportHoverMiss(hit.id)
+              return
+            }
             const rect = unionRects(hit.rects)
             if (rect === null) return
             openEditPopover(target.id, { getBoundingClientRect: () => rect }, 'hover')
