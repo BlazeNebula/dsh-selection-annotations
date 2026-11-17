@@ -3522,6 +3522,8 @@ ${PICK_SCRIPT}<\/script>`;
         let repaintDeferredAt = null;
         const REPAINT_DEFER_MAX_MS = 1500;
         let conversationChanges = 0;
+        let conversationDirty = true;
+        let placementPending = false;
         let scrollGuardCapture = null;
         let settleTimer = null;
         let pendingSelection = null;
@@ -3810,7 +3812,10 @@ ${PICK_SCRIPT}<\/script>`;
               }
             }
           }
-          if (touched) scheduleRepaint();
+          if (touched) {
+            markConversationDirty();
+            scheduleRepaint();
+          }
           hydratedSessions.add(sessionId);
           flushPendingRemotePush(sessionId);
         }
@@ -3843,6 +3848,8 @@ ${PICK_SCRIPT}<\/script>`;
           annotationsSession = sessionId;
           if (first && annotations.length > 0) {
             saveDraft(sessionId);
+            markConversationDirty();
+            scheduleRepaint();
             return;
           }
           annotations = loadDraft(sessionId);
@@ -3850,6 +3857,7 @@ ${PICK_SCRIPT}<\/script>`;
           draftSeen = false;
           for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) stale.remove();
           emit();
+          markConversationDirty();
           scheduleRepaint();
           if (annotations.length > 0) scheduleSync();
           void hydrateRemoteSession(sessionId).catch((error) => {
@@ -4083,8 +4091,12 @@ ${PICK_SCRIPT}<\/script>`;
         const recordSent = (sessionId, anchorKey, items, turn, options) => {
           sentStore.recordSent(sessionId, anchorKey, items, turn, options);
           consumedSnapshot = null;
+          markConversationDirty();
         };
-        const updateSentBatch = (sessionId, anchorKey, options) => sentStore.updateSentBatch(sessionId, anchorKey, options);
+        const updateSentBatch = (sessionId, anchorKey, options) => {
+          sentStore.updateSentBatch(sessionId, anchorKey, options);
+          markConversationDirty();
+        };
         function batchItemUuids(result, count) {
           const list = Array.isArray(result?.items) ? result.items : Array.isArray(result?.entries) ? result.entries : Array.isArray(result?.uuids) ? result.uuids : void 0;
           if (list === void 0 || list.length !== count) return void 0;
@@ -4126,6 +4138,7 @@ ${PICK_SCRIPT}<\/script>`;
               batchSeq,
               uuids: batchItemUuids(result, items.length)
             });
+            scheduleRepaint();
           }).catch(() => {
           });
         }
@@ -4520,6 +4533,7 @@ ${PICK_SCRIPT}<\/script>`;
               stats.skipped += 1;
               if (!Number.isFinite(turn)) stats.reasons.noTurn += 1;
               else stats.reasons.turnNotInDom += 1;
+              placementPending = true;
               continue;
             }
             if (row === null) stats.anchorMiss += 1;
@@ -4892,7 +4906,10 @@ ${PICK_SCRIPT}<\/script>`;
             }
             const host = sentCard !== void 0 ? sentCard : Number.isFinite(turn) ? footerBlockForTurn(turn) : null;
             const parent = host?.parentElement ?? null;
-            if (parent === null) continue;
+            if (parent === null) {
+              placementPending = true;
+              continue;
+            }
             const section = buildReplySection(list, items, {
               onReuseAll: () => reuseSentItems(items),
               onReplayItem: (item) => reuseSentItems([item])
@@ -5106,6 +5123,12 @@ ${PICK_SCRIPT}<\/script>`;
           conversationChanges += 1;
           if (scrollGuardCapture !== null) scrollGuardCapture();
         }
+        function markConversationDirty() {
+          conversationDirty = true;
+        }
+        function conversationNeedsRender() {
+          return conversationDirty === true || placementPending === true;
+        }
         function scheduleRepaint() {
           if (repaintTimer !== null) return;
           repaintTimer = window.setTimeout(() => {
@@ -5271,7 +5294,10 @@ ${PICK_SCRIPT}<\/script>`;
           const anchor = selection.anchorNode;
           const element = anchor === null || anchor === void 0 ? null : anchor.nodeType === 1 ? anchor : anchor.parentElement;
           if (element === null || element === void 0) return true;
-          return safe(() => element.closest("[data-sa-ui]") !== null) !== true;
+          const safeHost = safe(() => element.closest(
+            '[data-sa-ui="popover"], [data-sa-ui="panel"], input, textarea, [contenteditable="true"]'
+          )) ?? null;
+          return safeHost === null;
         }
         function flushPendingRepaint() {
           if (repaintPending !== true || pointerSelecting === true) return;
@@ -5299,8 +5325,13 @@ ${PICK_SCRIPT}<\/script>`;
             const replies = step("renderReplySections", renderReplySections) === true;
             return scanned || sent || replies;
           };
-          if (blocked) renderConversation();
-          else keepScrollStable(renderConversation);
+          const rebuild = conversationNeedsRender();
+          conversationDirty = false;
+          placementPending = false;
+          if (rebuild) {
+            if (blocked) renderConversation();
+            else keepScrollStable(renderConversation);
+          }
           step("collectHighlightNodes", () => {
             collectHighlightNodes(nodes, hits);
             highlightHits = hits;
@@ -7567,6 +7598,7 @@ ${PICK_SCRIPT}`;
                     applyRewind(sessionId, mark);
                   }
                   if (remote !== null && remote !== void 0 && absorbRemoteReplies(sessionId, remote)) {
+                    markConversationDirty();
                     scheduleRepaint();
                   }
                 }
@@ -7683,11 +7715,12 @@ ${PICK_SCRIPT}`;
               const target = elementOf2(record.target);
               if (target !== null && target.closest("[data-sa-ui]") !== null) continue;
               if (pendingSent.length > 0) safe(() => scanSentMessages());
-              scheduleRepaint();
+              if (conversationNeedsRender()) scheduleRepaint();
               return;
             }
           });
           observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+          scheduleRepaint();
           return () => {
             markdown.dispose();
             document.removeEventListener("selectionchange", onSelectionChange);

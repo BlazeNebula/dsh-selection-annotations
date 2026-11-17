@@ -151,6 +151,14 @@ export function createPlugin(React, extras = {}) {
         const REPAINT_DEFER_MAX_MS = 1500
         /** 会话区节点被重绘改写的次数：渲染函数拿它回答「这一遍到底动没动过 DOM」。*/
         let conversationChanges = 0
+        /**
+         * 台账或答复的数据真的变了：只有为真才重建会话区（卡片与答复区）。
+         * 宿主自己的重排、流式输出、时间刷新都只改它自己的 DOM，不再驱动我们重建。
+         * 初值为真：第一遍总要把页面上的卡片与答复区建出来。
+         */
+        let conversationDirty = true
+        /** 上一遍有卡片/答复因为锚点还没进 DOM 而没落位：为真时继续重试，否则新卡永远出不来。*/
+        let placementPending = false
         /** 非空表示正在受保护的这一遍重绘里：渲染函数在真要摘挂节点前调它记下滚动位置。*/
         let scrollGuardCapture = null
         let settleTimer = null
@@ -548,7 +556,11 @@ const rewindHandled = new Map()
               }
             }
           }
-          if (touched) scheduleRepaint()
+          if (touched) {
+            // 远端带回来的草稿/台账/答复都算数据变化：会话区要按新的表重建一次。
+            markConversationDirty()
+            scheduleRepaint()
+          }
           hydratedSessions.add(sessionId)
           flushPendingRemotePush(sessionId)
         }
@@ -589,6 +601,9 @@ const rewindHandled = new Map()
           // 首次挂载时内存里可能已有批注（测试台或热换前注入的），直接归到这个会话。
           if (first && annotations.length > 0) {
             saveDraft(sessionId)
+            // 这条支路也要让会话区重建一次：本地台账里的卡片还没画过。
+            markConversationDirty()
+            scheduleRepaint()
             return
           }
           annotations = loadDraft(sessionId)
@@ -597,6 +612,8 @@ const rewindHandled = new Map()
           // 换会话时把上一会话的答复卡片清掉；新会话的数据用hydrate 补回来。
           for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) stale.remove()
           emit()
+          // 换会话就是换了整套数据：会话区必须重建，不能等宿主下一次 DOM 变化。
+          markConversationDirty()
           scheduleRepaint()
           if (annotations.length > 0) scheduleSync()
           // 本地是空的就当远端有数据：跨端切换会话时靠这一步把记录带回来。
@@ -890,9 +907,14 @@ const rewindHandled = new Map()
         const recordSent = (sessionId, anchorKey, items, turn, options) => {
           sentStore.recordSent(sessionId, anchorKey, items, turn, options)
           consumedSnapshot = null
+          // 台账多了一条：会话区必须重建一次，否则新卡要等下一次无关的变化才肯出现。
+          markConversationDirty()
         }
-        const updateSentBatch = (sessionId, anchorKey, options) =>
+        const updateSentBatch = (sessionId, anchorKey, options) => {
           sentStore.updateSentBatch(sessionId, anchorKey, options)
+          // 批次号与条目 uuid 回填后，答复才认得出自己属于哪张卡，得再归位一遍。
+          markConversationDirty()
+        }
 
         /** 宿主返回的条目 uuid 与请求里的 items 按序对应；缺列表或长度对不上就整批不记。 */
         function batchItemUuids(result, count) {
@@ -953,6 +975,8 @@ const rewindHandled = new Map()
                 batchSeq,
                 uuids: batchItemUuids(result, items.length),
               })
+              // 回填只发生一次：这时才需要重建一遍会话区，让答复按 uuid 归到这张卡上。
+              scheduleRepaint()
             })
             .catch(() => {})
         }
@@ -1465,6 +1489,9 @@ const rewindHandled = new Map()
               stats.skipped += 1
               if (!Number.isFinite(turn)) stats.reasons.noTurn += 1
               else stats.reasons.turnNotInDom += 1
+              // 消息行与「已完成」都还没进 DOM：这条卡不是不存在，是暂时无处可放。
+              // 置上标记，下一遍重绘继续试着落位，否则这张卡要等到用户再发消息才出现。
+              placementPending = true
               continue
             }
             // 锚点没查到、靠轮次落位：面板里单独计数，用来区分「锚点丢了」和「轮次根本没渲染」。
@@ -1931,7 +1958,11 @@ const rewindHandled = new Map()
             // 否则答复卡会跟着整批消失（这正是「两块一起不见」的直接原因）。
             const host = sentCard !== undefined ? sentCard : Number.isFinite(turn) ? footerBlockForTurn(turn) : null
             const parent = host?.parentElement ?? null
-            if (parent === null) continue
+            if (parent === null) {
+              // 已发送卡与「已完成」都还不在页面上：答复区等下一遍重绘再落位。
+              placementPending = true
+              continue
+            }
             const section = buildReplySection(list, items, {
               onReuseAll: () => reuseSentItems(items),
               onReplayItem: (item) => reuseSentItems([item]),
@@ -2221,6 +2252,20 @@ const rewindHandled = new Map()
           if (scrollGuardCapture !== null) scrollGuardCapture()
         }
 
+        /**
+         * 数据真的变了（台账写了、答复变了、换了会话）：下一遍重绘必须重建会话区。
+         * 只置标记，不排定时器 —— 排重绘仍由调用方的 scheduleRepaint 负责，
+         * 避免「渲染里落账 → 又排一遍重绘」这种自激。
+         */
+        function markConversationDirty() {
+          conversationDirty = true
+        }
+
+        /** 有没有必须重建会话区的理由：数据变了，或者还有卡片/答复在等锚点进 DOM。*/
+        function conversationNeedsRender() {
+          return conversationDirty === true || placementPending === true
+        }
+
         function scheduleRepaint() {
           if (repaintTimer !== null) return
           repaintTimer = window.setTimeout(() => {
@@ -2435,7 +2480,12 @@ const rewindHandled = new Map()
             ? null
             : anchor.nodeType === 1 ? anchor : anchor.parentElement
           if (element === null || element === undefined) return true
-          return safe(() => element.closest('[data-sa-ui]') !== null) !== true
+          // 只有我们自己的输入区不算风险：弹层与面板里的编辑框，重绘不会换掉它的端点。
+          // 已发送卡和答复区也带 data-sa-ui，但它们的正文是用户可以划选的，必须算风险。
+          const safeHost = safe(() => element.closest(
+            '[data-sa-ui="popover"], [data-sa-ui="panel"], input, textarea, [contenteditable="true"]',
+          )) ?? null
+          return safeHost === null
         }
 
         /** 上一遍重绘被选区挡住时，选区一收就补一次。*/
@@ -2475,10 +2525,18 @@ const rewindHandled = new Map()
             // 三步都没插入/删除/移动/替换会话区节点时，keepScrollStable 不读也不写 scrollTop。
             return scanned || sent || replies
           }
-          // 被选区挡住且已经超时：直接渲染，跳过 keepScrollStable——不加位置锚点、不读不写 scrollTop。
-          // 只包住会动会话区 DOM 的几步；overlay 是 fixed 层，不在滚动流里，不必包。
-          if (blocked) renderConversation()
-          else keepScrollStable(renderConversation)
+          // 会话区只在数据真的变了、或还有卡片/答复在等锚点进 DOM 时才重建。
+          // 宿主自己的重排、流式增量、时间刷新都不再触发这里，滚动与窗口尺寸变化只更新高亮。
+          const rebuild = conversationNeedsRender()
+          // 先清标记再跑：这一遍渲染过程中新落账的记录会把标记重新置上，留到下一遍再补。
+          conversationDirty = false
+          placementPending = false
+          if (rebuild) {
+            // 被选区挡住且已经超时：直接渲染，跳过 keepScrollStable——不加位置锚点、不读不写 scrollTop。
+            // 只包住会动会话区 DOM 的几步；overlay 是 fixed 层，不在滚动流里，不必包。
+            if (blocked) renderConversation()
+            else keepScrollStable(renderConversation)
+          }
           // 高亮最后量：放在位置保护之后，量到的视口坐标才与最终的滚动位置一致。
           step('collectHighlightNodes', () => {
             collectHighlightNodes(nodes, hits)
@@ -5174,6 +5232,7 @@ const rewindHandled = new Map()
                     applyRewind(sessionId, mark)
                   }
                   if (remote !== null && remote !== undefined && absorbRemoteReplies(sessionId, remote)) {
+                    markConversationDirty()
                     scheduleRepaint()
                   }
                 }
@@ -5311,11 +5370,15 @@ const rewindHandled = new Map()
               if (target !== null && target.closest('[data-sa-ui]') !== null) continue
               // 有批次等着记账时，任何 DOM 变化都立刻再试一次：消息气泡一挂出来就能落台账。
               if (pendingSent.length > 0) safe(() => scanSentMessages())
-              scheduleRepaint()
+              // 宿主自己的重排、流式增量、时间刷新都不再排重绘：会话区只在数据真的变了、
+              // 或有卡片/答复等着落位时才重建。滚动与窗口尺寸变化走 onViewport，只更新高亮。
+              if (conversationNeedsRender()) scheduleRepaint()
               return
             }
           })
           observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+          // 挂载时先建一遍：会话数据可能已经在本地台账里，而页面上没有任何变化会触发观察器。
+          scheduleRepaint()
           return () => {
             markdown.dispose()
             document.removeEventListener('selectionchange', onSelectionChange)
