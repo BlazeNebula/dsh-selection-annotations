@@ -366,7 +366,7 @@ export const CSS = `
   font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 400; letter-spacing: .08em; line-height: 1;
   color: var(--sa-tone, var(--dsw-alias-label-secondary, #8b949e));
   background: color-mix(in srgb, var(--sa-tone, var(--dsw-alias-border-l1, #888)) 16%, transparent); }
-.sa-a-next { display: flex; align-items: stretch; gap: 8px; margin-top: 2px; padding: 6px 10px; border-radius: 6px;
+.sa-a-next { display: flex; align-items: center; gap: 8px; margin-top: 2px; padding: 6px 10px; border-radius: 6px;
   border-left: 2px solid var(--sa-tone, var(--dsw-alias-border-l1, ButtonBorder));
   background: var(--dsw-alias-bg-layer-2, #ffffff08); font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;
   color: var(--dsw-alias-label-secondary, #8b949e); }

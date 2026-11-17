@@ -245,6 +245,7 @@ function makeEnvironment(options = {}) {
     body,
     createElement: (tag) => element(tag),
     createElementNS: (_namespace, tag) => element(tag),
+    createTextNode: (text) => node(String(text)),
     addEventListener: (type, handler) => listeners.set(type, handler),
     removeEventListener: (type) => listeners.delete(type),
     createRange: () => new FakeRange(),
@@ -610,6 +611,7 @@ function makeHarness(options = {}) {
     conversation,
     locale: options.locale === false ? undefined : localeService,
   }
+  if (options.sidebarRight !== undefined) ctx.sidebarRight = options.sidebarRight
 
   mod.apply(ctx)
 
@@ -1790,7 +1792,8 @@ test('隐藏规则：折叠并入消息末尾的批注 JSON 段，普通正文�
   assert.equal(node.id, 'text')
   assert.equal(node.start, body.length, '区间从 JSON 前的空行开始，而不是从 `{` 开始')
   assert.equal(node.end, text.length)
-  assert.equal(node.data.display, '\n【批注 x 1】', '有正文时前置换行，占位独占一行')
+  assert.equal(node.data.display, '\n\n【额外批注 x 1】', '有正文时前置一整行空行，占位落在空行下面')
+  assert.equal(`${text.slice(0, node.start)}${node.data.display}`, `${body}\n\n【额外批注 x 1】`, '渲染出来是：正文、一整行空行、占位')
   assert.equal(node.data.text, text.slice(node.start, node.end), '候选必须原样保留原文切片')
   assert.equal(text.slice(0, node.start), body, '正文最后一行不能被吞进隐藏区间')
 
@@ -1799,7 +1802,7 @@ test('隐藏规则：折叠并入消息末尾的批注 JSON 段，普通正文�
   const tightNode = rule.match(tight, 0, { read: () => true })
   assert.equal(tightNode.start, body.length)
   assert.equal(tightNode.data.text, payload)
-  assert.equal(tightNode.data.display, '\n【批注 x 1】', '紧贴正文时也把占位放到下一行')
+  assert.equal(tightNode.data.display, '\n\n【额外批注 x 1】', '紧贴正文时也空一行再显示占位')
 
   // 普通消息（没有批注块）不产生节点，气泡照常显示。
   assert.equal(rule.match(body, 0, { read: () => true }), undefined)
@@ -1807,39 +1810,40 @@ test('隐藏规则：折叠并入消息末尾的批注 JSON 段，普通正文�
   assert.equal(rule.match('{ "kind": "dsh-selection-annotations", 坏掉的 JSON', 0, { read: () => true }), undefined)
 })
 
-test('隐藏规则：正文 + 空行 + JSON 与只有 JSON 无正文，都折叠成一行占位', () => {
+test('隐藏规则：正文 + 空行 + JSON 折叠成「正文 / 空行 / 占位」，只有 JSON 时只剩占位', () => {
   const harness = makeHarness()
   const rule = harness.userTextRules[0]
   const payload = '{\n  "kind": "dsh-selection-annotations",\n  "version": 1,\n  "count": 3,\n  "annotations": []\n}'
   const read = { read: () => true }
 
-  // 正文 + 空行 + JSON：空行一起被折叠，气泡里只剩一行占位文字。
+  // 正文 + 空行 + JSON：空行随空白一起进隐藏区间，显示时补回一整行空行，再放占位。
   const body = '正文最后一行'
   const withBody = `${body}\n\n${payload}`
   const a = rule.match(withBody, 0, read)
   assert.equal(a.start, body.length)
   assert.equal(a.end, withBody.length)
   assert.equal(a.data.text, `\n\n${payload}`)
-  assert.equal(a.data.display, '\n【批注 x 3】')
+  assert.equal(a.data.display, '\n\n【额外批注 x 3】')
+  assert.equal(`${withBody.slice(0, a.start)}${a.data.display}`, `${body}\n\n【额外批注 x 3】`, '正文、一整行空行、占位三行')
 
-  // 只有 JSON、没有正文：从消息开头折叠，气泡里只有一行占位。
+  // 只有 JSON、没有正文：从消息开头折叠，气泡里只有一行占位，顶部不多空行。
   const only = `\n\n${payload}`
   const b = rule.match(only, 0, read)
   assert.equal(b.start, 0)
   assert.equal(b.end, only.length)
   assert.equal(b.data.text, only)
-  assert.equal(b.data.display, '【批注 x 3】', '正文为空时不要前导换行，否则气泡顶部会多一条空行')
+  assert.equal(b.data.display, '【额外批注 x 3】', '正文为空时不要前导换行，否则气泡顶部会多一条空行')
 })
 
-test('隐藏规则：条数缺失或非法时占位退回【批注】', () => {
+test('隐藏规则：条数缺失或非法时占位退回【额外批注】', () => {
   const harness = makeHarness()
   const rule = harness.userTextRules[0]
   const read = { read: () => true }
   const make = (countField) => `{\n  "kind": "dsh-selection-annotations",\n  "version": 1${countField},\n  "annotations": []\n}`
 
-  assert.equal(rule.match(`正文\n\n${make(',\n  "count": 12')}`, 0, read).data.display, '\n【批注 x 12】')
+  assert.equal(rule.match(`正文\n\n${make(',\n  "count": 12')}`, 0, read).data.display, '\n\n【额外批注 x 12】')
   for (const bad of [',\n  "count": 0', ',\n  "count": -2', ',\n  "count": 1.5', ',\n  "count": "3"', ',\n  "count": null', '']) {
-    assert.equal(rule.match(`正文\n\n${make(bad)}`, 0, read).data.display, '\n【批注】', `count 字段为 ${bad || '缺失'} 时不显示数字`)
+    assert.equal(rule.match(`正文\n\n${make(bad)}`, 0, read).data.display, '\n\n【额外批注】', `count 字段为 ${bad || '缺失'} 时不显示数字`)
   }
 })
 
@@ -2135,4 +2139,94 @@ test('同一轮两张已发送卡：cardKey 在台账里找不到时回落按时
   const sectionB = document.querySelector(`[data-sa-ui="replies"][data-anchor="${keyB}"]`)
   assert.ok(sectionB !== null, '认不出 cardKey 时按批次时间回落到最近一张卡')
   assert.match(sectionB.textContent, /找不到卡也照答/)
+})
+
+/* ------------------------------------------------- 面板定位：打开后位置定格 */
+
+test('面板打开后位置定格：侧栏开合只重画按钮，不再移动面板', () => {
+  // 侧栏快照：开合状态可切换，订阅回调可手动触发（模拟侧栏按钮挪位后的那次状态同步）。
+  let expanded = false
+  const subscribers = new Set()
+  const sidebar = {
+    tabsIn: () => [{ id: 'tab-1', kind: 'selection-annotations' }],
+    isExpanded: () => expanded,
+    active: () => (expanded ? { id: 'tab-1' } : { id: 'other' }),
+    openTabs: {
+      subscribe(fn) {
+        subscribers.add(fn)
+        return () => subscribers.delete(fn)
+      },
+    },
+  }
+  const harness = makeHarness({ sidebarRight: sidebar })
+  const panel = harness.env.document.querySelector('.sa-float')
+  assert.ok(panel !== null, '前置条件：面板浮层已挂到 body 上')
+
+  // 按钮在右下角：右侧 1100、上下沿 700/730。
+  const rect = { top: 700, bottom: 730, right: 1100, left: 1050, width: 50, height: 30 }
+  const anchor = harness.env.element('button')
+  anchor.getBoundingClientRect = () => rect
+
+  harness.debug._internals.openPanel(anchor)
+  assert.equal(panel.style.left, '980px', '打开时贴着按钮左缘（按钮右侧 1100 - 面板宽 120）')
+  assert.equal(panel.style.top, '662px', '打开时放在按钮上方（按钮上沿 700 - 面板高 30 - 间距 8）')
+  assert.equal(subscribers.size, 1, '前置条件：侧栏快照订阅已建立')
+
+  // 侧栏展开：按钮会挪到别处。面板位置在打开时已经定格，按钮状态刷新不能带着它跑。
+  expanded = true
+  rect.top = 640
+  rect.bottom = 670
+  rect.right = 900
+  rect.left = 850
+  for (const fn of [...subscribers]) fn()
+
+  // 先确认这次刷新真的重画了按钮（否则下面的「位置不变」可能只是没触发重排）。
+  const repaintedSideButton = panel.querySelector('.sa-panel-side')
+  assert.ok(repaintedSideButton !== null, '前置条件：面板底部有侧栏按钮')
+  assert.equal(repaintedSideButton.title, '关闭右侧批注标签页', '前置条件：侧栏状态刷新确实重画了按钮')
+
+  assert.equal(panel.style.left, '980px', '侧栏开合后面板左侧不变')
+  assert.equal(panel.style.top, '662px', '侧栏开合后面板顶边不变')
+})
+
+test('面板关闭后再打开会按按钮的新位置重新定位', () => {
+  const harness = makeHarness()
+  const panel = harness.env.document.querySelector('.sa-float')
+  assert.ok(panel !== null, '前置条件：面板浮层已挂到 body 上')
+
+  const rect = { top: 700, bottom: 730, right: 1100, left: 1050, width: 50, height: 30 }
+  const anchor = harness.env.element('button')
+  anchor.getBoundingClientRect = () => rect
+
+  harness.debug._internals.openPanel(anchor)
+  assert.equal(panel.style.left, '980px', '第一次打开按按钮定位')
+
+  harness.debug._internals.closePanel()
+  rect.top = 500
+  rect.bottom = 530
+  rect.right = 700
+  rect.left = 650
+
+  harness.debug._internals.openPanel(anchor)
+  assert.equal(panel.style.left, '580px', '重开时按按钮的新位置重新量')
+  assert.equal(panel.style.top, '462px', '重开时按按钮的新位置重新量')
+})
+
+test('窗口尺寸变化只把越界的面板夹回视口，不按按钮重排', () => {
+  const harness = makeHarness()
+  const panel = harness.env.document.querySelector('.sa-float')
+  const rect = { top: 700, bottom: 730, right: 1100, left: 1050, width: 50, height: 30 }
+  const anchor = harness.env.element('button')
+  anchor.getBoundingClientRect = () => rect
+
+  harness.debug._internals.openPanel(anchor)
+  assert.equal(panel.style.left, '980px', '前置条件：面板按按钮定格在右下角')
+
+  // 窗口缩到装不下这块面板：兜底只把定格的位置夹回视口内，不重新读按钮坐标。
+  harness.env.window.innerWidth = 500
+  harness.env.window.innerHeight = 400
+  harness.debug._internals.clampPanelToViewport()
+
+  assert.equal(panel.style.left, '372px', '窗口变窄后夹到右缘（宽 500 - 面板宽 120 - 边距 8）')
+  assert.equal(panel.style.top, '362px', '窗口变矮后夹到底缘（高 400 - 面板高 30 - 边距 8）')
 })

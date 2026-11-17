@@ -18,11 +18,11 @@ const BLANK = /\s/
 
 /**
  * 折叠后显示的一行占位。N 取负载里的批注条数；条数缺失或不是正整数时退回
- * 不带数字的 `【批注】`，不往气泡里写错数。
+ * 不带数字的 `【额外批注】`，不往气泡里写错数。
  */
 function displayOf(payload) {
   const count = payload.count
-  return Number.isInteger(count) && count > 0 ? `【批注 x ${count}】` : '【批注】'
+  return Number.isInteger(count) && count > 0 ? `【额外批注 x ${count}】` : '【额外批注】'
 }
 
 /**
@@ -50,18 +50,19 @@ export function createPayloadHidingRule() {
       if (payload === null || typeof payload !== 'object' || payload.kind !== 'dsh-selection-annotations') {
         return undefined
       }
-      // 宿主并块时在 JSON 前固定加了 `\n\n`，只隐藏 JSON 会在气泡里留下一条空行。
-      // 这里把区间往前吞掉空白；遇到非空白字符就停，用户正文的最后一行不会被吃进来。
+      // 宿主并块时在 JSON 前固定加了 `\n\n`。这里把区间往前吞掉空白，数据前的空白残留不留在正文里；
+      // 遇到非空白字符就停，用户正文的最后一行不会被吃进来。
       let start = jsonStart
       while (start > from && BLANK.test(text[start - 1])) start -= 1
-      // 气泡（UserMessageBubble）按 pre-wrap 内联渲染节点：display 不带换行就会紧贴正文最后一行，
-      // 所以有正文时前置一个换行，让占位独占一行；只有 JSON、正文为空时不能前置，否则气泡顶部多出一条空行。
+      // 气泡（UserMessageBubble）按 pre-wrap 内联渲染节点：display 不带换行就会紧贴正文最后一行。
+      // 有正文时前置两个换行，把被吞掉的那一整行空行还回去，占位落在空行下面；
+      // 只有 JSON、正文为空时不能前置，否则气泡顶部多出一条空行。
       const ownLine = start > 0 && text[start - 1] !== '\n'
       return {
         id: 'text',
         start,
         end: text.length,
-        data: { text: text.slice(start), display: `${ownLine ? '\n' : ''}${displayOf(payload)}` },
+        data: { text: text.slice(start), display: `${ownLine ? '\n\n' : ''}${displayOf(payload)}` },
       }
     },
   }

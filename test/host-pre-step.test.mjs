@@ -1,5 +1,5 @@
 /**
- * 宿主半边冒烟测试：验证「摘掉批注附件块、把批注 JSON 并入原用户消息」的确切行为。
+ * 宿主半边冒烟测试：验证「摘掉批注附件块、把批注 JSON 并入原用户消息、另发一条独立记录」的确切行为。
  * 运行：node --import ./test/loader.mjs --test test/*.test.mjs
  */
 import test from 'node:test'
@@ -67,13 +67,16 @@ const payloadTextOf = (message) =>
 /** 解析并入的批注负载（去掉宿主加的前导空行）。 */
 const payloadOf = (message) => JSON.parse(payloadTextOf(message).text.replace(/^\n\n/u, ''))
 
-test('正文 + 批注附件 → 仍然只有一条用户消息，批注 JSON 并入正文', async () => {
+/** 取出独立批注记录消息；没有就返回 undefined。 */
+const annotationRecordOf = (decision) => decision.messages.find((message) => message?.source?.kind === 'annotation')
+
+test('正文 + 批注附件 → 合并后的用户消息 + 一条独立批注记录', async () => {
   const decision = await run([userMessage([{ type: 'text', text: '这段为什么这么写？' }, fileBlock('a1')])], { a1: REPORT })
 
   assert.equal(decision.kind, 'enter')
-  assert.equal(decision.messages.length, 1, '不该再单独合成一条批注消息')
+  assert.equal(decision.messages.length, 2, '一条合并后的用户消息 + 一条独立批注记录')
 
-  const [message] = decision.messages
+  const [message, record] = decision.messages
   assert.equal(message.id, 'm1', '沿用原消息 id，不另造一条')
   assert.deepEqual(message.content[0], { type: 'text', text: '这段为什么这么写？' })
   assert.equal(message.content.length, 2, '正文块 + 并入的批注数据块')
@@ -91,6 +94,12 @@ test('正文 + 批注附件 → 仍然只有一条用户消息，批注 JSON 并
   assert.equal(forwarded.annotations[0].source.lineStart, 3)
   assert.equal(forwarded.annotations[0].source.charStart, 10)
   assert.equal(forwarded.annotations[0].source.charEnd, 14)
+
+  // 第二条通道：独立记录，source.kind 与旧实现一致，正文是同一份 JSON。
+  assert.deepEqual(record.source, { kind: 'annotation', version: 1, count: 1 })
+  assert.equal(record.role, 'user')
+  assert.notEqual(record.id, message.id, '独立记录必须有自己的 id')
+  assert.deepEqual(record.content, [{ type: 'text', text: REPORT }], '记录正文不带前导空行')
 })
 
 test('没有批注附件时原样放行（同一个对象，不做无谓复制）', async () => {
@@ -121,9 +130,10 @@ test('文件名被改过也能按内容认领（认领依据是 JSON，不是文
     [userMessage([{ type: 'text', text: 'q' }, fileBlock('a4', 'renamed-payload.json')])],
     { a4: REPORT },
   )
-  assert.equal(decision.messages.length, 1)
+  assert.equal(decision.messages.length, 2)
   assert.equal(decision.messages[0].source.kind, 'user')
   assert.equal(decision.messages[0].source.annotation.count, 1)
+  assert.equal(decision.messages[1].source.kind, 'annotation')
 })
 
 test('扩展名不是 .json 时不做候选，不读取也不认领', async () => {
@@ -142,11 +152,12 @@ test('附件读取失败时降级为不认领，不抛错', async () => {
 
 test('只有批注附件、没有正文时，保留这一条用户消息，正文即批注数据块', async () => {
   const decision = await run([userMessage([fileBlock('a6')])], { a6: REPORT })
-  assert.equal(decision.messages.length, 1)
+  assert.equal(decision.messages.length, 2)
   assert.equal(decision.messages[0].source.kind, 'user')
   assert.equal(decision.messages[0].source.annotation.count, 1)
   assert.equal(decision.messages[0].content.length, 1, '没有用户正文时只剩并入的批注块')
   assert.match(payloadTextOf(decision.messages[0]).text, /^\n\n\{/u)
+  assert.equal(decision.messages[1].source.kind, 'annotation')
 })
 
 test('非 user 来源的消息不被处理', async () => {
@@ -161,9 +172,10 @@ test('同一份批注块被挂了两遍时只算一份（附件被 restore 回�
     [userMessage([{ type: 'text', text: 'q' }, fileBlock('a1'), fileBlock('a2')])],
     { a1: REPORT, a2: REPORT },
   )
-  assert.equal(decision.messages.length, 1, '仍然是同一条用户消息，不该多出第二条')
+  assert.equal(decision.messages.length, 2, '一条合并后的用户消息 + 一条独立记录，不该多出第二条')
   const forwarded = payloadOf(decision.messages[0])
   assert.equal(forwarded.count, 1, '两份一模一样的内容只保留一份')
+  assert.equal(annotationRecordOf(decision)?.source.count, 1, '记录里也只出现一份')
 })
 
 test('多个批注附件会被合并成一份数据块，index 重新连续', async () => {
@@ -172,7 +184,7 @@ test('多个批注附件会被合并成一份数据块，index 重新连续', as
     [userMessage([{ type: 'text', text: 'q' }, fileBlock('a1'), fileBlock('a2')])],
     { a1: REPORT, a2: second },
   )
-  assert.equal(decision.messages.length, 1)
+  assert.equal(decision.messages.length, 2)
   const forwarded = payloadOf(decision.messages[0])
   assert.equal(forwarded.count, 2)
   assert.deepEqual(
@@ -180,6 +192,8 @@ test('多个批注附件会被合并成一份数据块，index 重新连续', as
     [1, 2],
   )
   assert.equal(forwarded.annotations[1].quote, '第二处')
+  // 记录承载的是合并后的同一份负载，不是其中一份附件。
+  assert.deepEqual(JSON.parse(annotationRecordOf(decision).content[0].text), forwarded)
 })
 
 test('下游 reject 决策原样透传', async () => {
@@ -199,8 +213,61 @@ test('Config：超过 maxPayloadBytes 的负载视为无效，整条消息原样
 test('Config：非法 maxPayloadBytes 回落到默认值而不是报错', async () => {
   const message = userMessage([{ type: 'text', text: 'q' }, fileBlock('a1')])
   const decision = await run([message], { a1: REPORT }, { maxPayloadBytes: -5 })
-  assert.equal(decision.messages.length, 1, '回落默认上限后应当正常认领并合并')
+  assert.equal(decision.messages.length, 2, '回落默认上限后应当正常认领并合并')
   assert.equal(decision.messages[0].source.annotation.count, 1)
+  assert.equal(decision.messages[1].source.kind, 'annotation')
+})
+
+test('重复 pre-step（把上一轮输出再送一遍）不会重复注入', async () => {
+  const preStep = makeCtx({ a1: REPORT })
+  const first = await preStep({ signal: undefined }, async () => ({
+    kind: 'enter',
+    messages: [userMessage([{ type: 'text', text: 'q' }, fileBlock('a1')])],
+  }))
+  assert.equal(first.messages.length, 2)
+
+  // 合并后的消息带着已摘好的正文，独立记录也在批里；两者都不该再被处理一次。
+  const second = await preStep({ signal: undefined }, async () => ({ kind: 'enter', messages: first.messages }))
+  assert.equal(second.messages, first.messages, '没有可认领的附件时原样放行')
+  assert.equal(second.messages.length, 2, '不该再多出一条记录')
+})
+
+test('记录已在批里时不再合成第二条（同一次负载只留一条记录）', async () => {
+  const record = { id: 'r1', role: 'user', content: [{ type: 'text', text: REPORT }], source: { kind: 'annotation', version: 1, count: 1 } }
+  const decision = await run([record, userMessage([{ type: 'text', text: 'q' }, fileBlock('a1')])], { a1: REPORT })
+
+  assert.equal(decision.messages.length, 2, '一条原来的记录 + 一条合并后的用户消息')
+  assert.equal(decision.messages.filter((message) => message.source.kind === 'annotation').length, 1)
+  assert.equal(decision.messages[1].source.kind, 'user')
+})
+
+test('两条通道共用一次认领：附件只读一次', async () => {
+  let reads = 0
+  let preStep
+  const ctx = {
+    on(name, handler) {
+      if (name === 'agent/pre-step') preStep = handler
+    },
+    get(key) {
+      if (key !== 'attachments') return undefined
+      return {
+        async *readFileStream() {
+          reads += 1
+          yield new TextEncoder().encode(REPORT)
+        },
+      }
+    },
+    tools: { register: () => () => {} },
+  }
+  apply(ctx, undefined)
+  const decision = await preStep({ signal: undefined }, async () => ({
+    kind: 'enter',
+    messages: [userMessage([{ type: 'text', text: 'q' }, fileBlock('a1')])],
+  }))
+
+  assert.equal(reads, 1, '同一条附件只被读取一次')
+  assert.equal(decision.messages.length, 2)
+  assert.equal(annotationRecordOf(decision).content[0].text, payloadTextOf(decision.messages[0]).text.replace(/^\n\n/u, ''))
 })
 
 let reminderSessionSeq = 0
@@ -272,6 +339,14 @@ test('回合结束检查：收到批注却没调用工具时补一条提醒，�
   assert.equal(steered[0].source.form, 'notice')
   stop(3)
   assert.equal(steered.length, 1)
+})
+
+test('回合结束检查：独立记录那条也能触发提醒（source.kind 为 annotation）', () => {
+  const { steered, emit, stop } = makeReminderCtx()
+  emit('turn/start', { turn: 6 })
+  emit('user/message', { source: { kind: 'annotation', version: 1, count: 1 } })
+  stop(6)
+  assert.equal(steered.length, 1, '两条通道任一到达都算这一轮收到了批注')
 })
 
 test('回合结束检查：调用了 annotation_replies 就不再提醒', () => {

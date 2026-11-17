@@ -3350,10 +3350,20 @@ const rewindHandled = new Map()
         /** 面板尺寸变化时（例如手动拖高设置输入框）重新贴底。*/
         let panelRaf = 0
         let panelObserver = null
+        /** 上一次定位时面板的尺寸：只有内容尺寸真的变了才重排。*/
+        let panelWidthSeen = -1
+        let panelHeightSeen = -1
+        /** 窗口尺寸变化期间，面板被 CSS 带着改尺寸不算内容变化。*/
+        let viewportResizing = false
+        let viewportResizeTimer = 0
         // 输入框被手动拖高、或内容增减导致面板尺寸变化时，重新计算位置让底边不动。
         if (typeof ResizeObserver === 'function') {
           panelObserver = new ResizeObserver(() => {
-            if (!panelOpen || panelRaf !== 0) return
+            if (!panelOpen || panelRaf !== 0 || viewportResizing) return
+            // 只是重画一遍（例如侧栏开合刷新按钮状态）不重排：内容尺寸没变就保持原位。
+            const width = panelEl.offsetWidth
+            const height = panelEl.offsetHeight
+            if (width === panelWidthSeen && height === panelHeightSeen) return
             panelRaf = window.requestAnimationFrame(() => {
               panelRaf = 0
               positionPanel()
@@ -3364,6 +3374,8 @@ const rewindHandled = new Map()
 
         let panelOpen = false
         let panelAnchor = null
+        /** 打开面板时量到的按钮位置：之后侧栏开合把按钮挪走，面板也不跟着跑。*/
+        let panelAnchorRect = null
         /** 关闭动画结束后再隐藏面板，避免过渡被 display:none 打断。*/
         let panelHideTimer = 0
         /** 悬停入口临时展开：指针移开就收起；点击则固定。*/
@@ -3419,11 +3431,18 @@ const rewindHandled = new Map()
           return created
         }
 
-        /** 面板贴着按钮放，优先在按钮上方；高度按上下可用空间自适应。*/
+        /**
+         * 面板贴着按钮放，优先在按钮上方；高度按上下可用空间自适应。
+         * 按钮位置只在打开时量一次：侧栏开合会让按钮挪动，面板留在原地。
+         */
         function positionPanel() {
           if (!panelOpen || panelAnchor === null) return
-          const rect = safe(() => panelAnchor.getBoundingClientRect())
-          if (rect === undefined) return
+          if (panelAnchorRect === null) {
+            const measured = safe(() => panelAnchor.getBoundingClientRect())
+            if (measured === undefined) return
+            panelAnchorRect = { top: measured.top, bottom: measured.bottom, right: measured.right }
+          }
+          const rect = panelAnchorRect
           const width = panelEl.offsetWidth || 360
           const viewport = window.innerHeight
           const spaceAbove = rect.top - 16
@@ -3437,7 +3456,38 @@ const rewindHandled = new Map()
           const above = rect.top - height - 8
           const top = above >= 8 ? above : Math.min(rect.bottom + 8, viewport - height - 8)
           panelRoot.style.left = `${left}px`
-          panelRoot.style.top = `${Math.max(8, top)}px`
+          panelRoot.style.top = `${Math.max(8, Math.min(top, viewport - height - 8))}px`
+          panelWidthSeen = width
+          panelHeightSeen = height
+        }
+
+        /**
+         * 窗口尺寸变化后的兜底：面板已经定格，只在它被挤出视口时夹回来，
+         * 不按按钮的新位置重新排版。
+         */
+        function clampPanelToViewport() {
+          if (!panelOpen) return
+          const left = Number.parseFloat(panelRoot.style.left)
+          const top = Number.parseFloat(panelRoot.style.top)
+          if (!Number.isFinite(left) || !Number.isFinite(top)) return
+          const width = panelEl.offsetWidth || 360
+          const height = panelEl.offsetHeight || 240
+          const maxLeft = Math.max(8, window.innerWidth - width - 8)
+          const maxTop = Math.max(8, window.innerHeight - height - 8)
+          const nextLeft = Math.min(Math.max(left, 8), maxLeft)
+          const nextTop = Math.min(Math.max(top, 8), maxTop)
+          if (nextLeft !== left) panelRoot.style.left = `${nextLeft}px`
+          if (nextTop !== top) panelRoot.style.top = `${nextTop}px`
+        }
+
+        /** 记下「正在改窗口尺寸」：这段时间里 ResizeObserver 报的尺寸变化不算内容变化。*/
+        function markViewportResize() {
+          viewportResizing = true
+          if (viewportResizeTimer !== 0) window.clearTimeout(viewportResizeTimer)
+          viewportResizeTimer = window.setTimeout(() => {
+            viewportResizeTimer = 0
+            viewportResizing = false
+          }, 160)
         }
 
         /**
@@ -3776,8 +3826,8 @@ const rewindHandled = new Map()
           const open = sideAnnotationsTabOpen()
           if (open === sideTabPaintedOpen) return
           sideTabPaintedOpen = open
+          // 侧栏开合会让按钮挪位，但面板位置在打开时已经定格，这里不重排。
           renderPanel()
-          if (panelOpen) positionPanel()
         }
 
         /** 订阅侧栏公开的快照；拿不到的入口跳过，后面的采样负责兜底。 */
@@ -4261,6 +4311,8 @@ const rewindHandled = new Map()
         function openPanel(anchor) {
           panelOpen = true
           panelAnchor = anchor
+          // 每次打开都按按钮的当前位置重新量一次；打开后位置就定格。
+          panelAnchorRect = null
           cancelChipTimers()
           if (panelHideTimer !== 0) {
             window.clearTimeout(panelHideTimer)
@@ -4283,6 +4335,7 @@ const rewindHandled = new Map()
           if (!panelOpen) return
           panelOpen = false
           panelAnchor = null
+          panelAnchorRect = null
           stopSideTabSync()
           sideTabPaintedOpen = null
           cancelChipTimers()
@@ -4643,11 +4696,15 @@ const rewindHandled = new Map()
           document.addEventListener('pointerdown', onMenuPointerDown, true)
           document.addEventListener('click', onDocumentClick, true)
           document.addEventListener('keydown', onDocumentKeydown, true)
-          const onViewport = () => {
+          const onViewport = (event) => {
             scheduleRepaint()
-            positionPanel()
             closeContextMenu()
             if (popover.dataset.open === '1' && popoverRect !== null && popover.dataset.dragged !== '1') placePopover(popoverRect)
+            // 面板位置在打开时定格：滚动不动它；窗口尺寸变化只做越界兜底。
+            if (event.type === 'resize') {
+              markViewportResize()
+              clampPanelToViewport()
+            }
           }
           window.addEventListener('scroll', onViewport, true)
           window.addEventListener('resize', onViewport)
@@ -4899,7 +4956,7 @@ const rewindHandled = new Map()
             const shell = inputShell()
             if (shell !== undefined) ensureFallbackPrompt(shell)
           },
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf },
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf, openPanel, closePanel, clampPanelToViewport },
         }
     },
   }

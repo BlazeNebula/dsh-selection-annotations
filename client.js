@@ -368,7 +368,7 @@
   font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 400; letter-spacing: .08em; line-height: 1;
   color: var(--sa-tone, var(--dsw-alias-label-secondary, #8b949e));
   background: color-mix(in srgb, var(--sa-tone, var(--dsw-alias-border-l1, #888)) 16%, transparent); }
-.sa-a-next { display: flex; align-items: stretch; gap: 8px; margin-top: 2px; padding: 6px 10px; border-radius: 6px;
+.sa-a-next { display: flex; align-items: center; gap: 8px; margin-top: 2px; padding: 6px 10px; border-radius: 6px;
   border-left: 2px solid var(--sa-tone, var(--dsw-alias-border-l1, ButtonBorder));
   background: var(--dsw-alias-bg-layer-2, #ffffff08); font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;
   color: var(--dsw-alias-label-secondary, #8b949e); }
@@ -2909,7 +2909,7 @@ ${PICK_SCRIPT}<\/script>`;
   var BLANK = /\s/;
   function displayOf(payload) {
     const count = payload.count;
-    return Number.isInteger(count) && count > 0 ? `【批注 x ${count}】` : "【批注】";
+    return Number.isInteger(count) && count > 0 ? `【额外批注 x ${count}】` : "【额外批注】";
   }
   function createPayloadHidingRule() {
     return {
@@ -2938,7 +2938,7 @@ ${PICK_SCRIPT}<\/script>`;
           id: "text",
           start,
           end: text.length,
-          data: { text: text.slice(start), display: `${ownLine ? "\n" : ""}${displayOf(payload)}` }
+          data: { text: text.slice(start), display: `${ownLine ? "\n\n" : ""}${displayOf(payload)}` }
         };
       }
     };
@@ -5923,9 +5923,16 @@ ${PICK_SCRIPT}<\/script>`;
         });
         let panelRaf = 0;
         let panelObserver = null;
+        let panelWidthSeen = -1;
+        let panelHeightSeen = -1;
+        let viewportResizing = false;
+        let viewportResizeTimer = 0;
         if (typeof ResizeObserver === "function") {
           panelObserver = new ResizeObserver(() => {
-            if (!panelOpen || panelRaf !== 0) return;
+            if (!panelOpen || panelRaf !== 0 || viewportResizing) return;
+            const width = panelEl.offsetWidth;
+            const height = panelEl.offsetHeight;
+            if (width === panelWidthSeen && height === panelHeightSeen) return;
             panelRaf = window.requestAnimationFrame(() => {
               panelRaf = 0;
               positionPanel();
@@ -5935,6 +5942,7 @@ ${PICK_SCRIPT}<\/script>`;
         }
         let panelOpen = false;
         let panelAnchor = null;
+        let panelAnchorRect = null;
         let panelHideTimer = 0;
         let panelOpenedByHover = false;
         let panelHovered = false;
@@ -5982,8 +5990,12 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function positionPanel() {
           if (!panelOpen || panelAnchor === null) return;
-          const rect = safe(() => panelAnchor.getBoundingClientRect());
-          if (rect === void 0) return;
+          if (panelAnchorRect === null) {
+            const measured = safe(() => panelAnchor.getBoundingClientRect());
+            if (measured === void 0) return;
+            panelAnchorRect = { top: measured.top, bottom: measured.bottom, right: measured.right };
+          }
+          const rect = panelAnchorRect;
           const width = panelEl.offsetWidth || 360;
           const viewport = window.innerHeight;
           const spaceAbove = rect.top - 16;
@@ -5996,7 +6008,31 @@ ${PICK_SCRIPT}<\/script>`;
           const above = rect.top - height - 8;
           const top = above >= 8 ? above : Math.min(rect.bottom + 8, viewport - height - 8);
           panelRoot.style.left = `${left}px`;
-          panelRoot.style.top = `${Math.max(8, top)}px`;
+          panelRoot.style.top = `${Math.max(8, Math.min(top, viewport - height - 8))}px`;
+          panelWidthSeen = width;
+          panelHeightSeen = height;
+        }
+        function clampPanelToViewport() {
+          if (!panelOpen) return;
+          const left = Number.parseFloat(panelRoot.style.left);
+          const top = Number.parseFloat(panelRoot.style.top);
+          if (!Number.isFinite(left) || !Number.isFinite(top)) return;
+          const width = panelEl.offsetWidth || 360;
+          const height = panelEl.offsetHeight || 240;
+          const maxLeft = Math.max(8, window.innerWidth - width - 8);
+          const maxTop = Math.max(8, window.innerHeight - height - 8);
+          const nextLeft = Math.min(Math.max(left, 8), maxLeft);
+          const nextTop = Math.min(Math.max(top, 8), maxTop);
+          if (nextLeft !== left) panelRoot.style.left = `${nextLeft}px`;
+          if (nextTop !== top) panelRoot.style.top = `${nextTop}px`;
+        }
+        function markViewportResize() {
+          viewportResizing = true;
+          if (viewportResizeTimer !== 0) window.clearTimeout(viewportResizeTimer);
+          viewportResizeTimer = window.setTimeout(() => {
+            viewportResizeTimer = 0;
+            viewportResizing = false;
+          }, 160);
         }
         async function acceptWebPick(picked) {
           const anchor = picked.anchor !== void 0 && picked.anchor !== null ? picked.anchor : webAnchor(picked.rect);
@@ -6283,7 +6319,6 @@ ${PICK_SCRIPT}`;
           if (open === sideTabPaintedOpen) return;
           sideTabPaintedOpen = open;
           renderPanel();
-          if (panelOpen) positionPanel();
         }
         function subscribeSideTabSources() {
           const service = safe(() => ctx.sidebarRight);
@@ -6706,6 +6741,7 @@ ${PICK_SCRIPT}`;
         function openPanel(anchor) {
           panelOpen = true;
           panelAnchor = anchor;
+          panelAnchorRect = null;
           cancelChipTimers();
           if (panelHideTimer !== 0) {
             window.clearTimeout(panelHideTimer);
@@ -6725,6 +6761,7 @@ ${PICK_SCRIPT}`;
           if (!panelOpen) return;
           panelOpen = false;
           panelAnchor = null;
+          panelAnchorRect = null;
           stopSideTabSync();
           sideTabPaintedOpen = null;
           cancelChipTimers();
@@ -7047,11 +7084,14 @@ ${PICK_SCRIPT}`;
           document.addEventListener("pointerdown", onMenuPointerDown, true);
           document.addEventListener("click", onDocumentClick, true);
           document.addEventListener("keydown", onDocumentKeydown, true);
-          const onViewport = () => {
+          const onViewport = (event) => {
             scheduleRepaint();
-            positionPanel();
             closeContextMenu();
             if (popover.dataset.open === "1" && popoverRect !== null && popover.dataset.dragged !== "1") placePopover(popoverRect);
+            if (event.type === "resize") {
+              markViewportResize();
+              clampPanelToViewport();
+            }
           };
           window.addEventListener("scroll", onViewport, true);
           window.addEventListener("resize", onViewport);
@@ -7288,7 +7328,7 @@ ${PICK_SCRIPT}`;
             const shell = inputShell();
             if (shell !== void 0) ensureFallbackPrompt(shell);
           },
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf }
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf, openPanel, closePanel, clampPanelToViewport }
         };
       }
     };
