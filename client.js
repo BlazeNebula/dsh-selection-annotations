@@ -3518,6 +3518,11 @@ ${PICK_SCRIPT}<\/script>`;
         let syncing = false;
         let syncTimer = null;
         let repaintTimer = null;
+        let repaintPending = false;
+        let repaintDeferredAt = null;
+        const REPAINT_DEFER_MAX_MS = 1500;
+        let conversationChanges = 0;
+        let scrollGuardCapture = null;
         let settleTimer = null;
         let pendingSelection = null;
         let lastPointerUp = null;
@@ -4459,6 +4464,8 @@ ${PICK_SCRIPT}<\/script>`;
         }
         let sentRenderStats = null;
         function renderSentCards() {
+          const changesAtStart = conversationChanges;
+          const touched = () => conversationChanges !== changesAtStart;
           const sessionId = currentSessionId();
           const stats = {
             sessionId,
@@ -4473,18 +4480,21 @@ ${PICK_SCRIPT}<\/script>`;
           sentRenderStats = stats;
           if (sessionId === void 0) {
             stats.reasons.noSession += 1;
-            return;
+            return touched();
           }
           const table = loadSent(sessionId);
           stats.size = table.size;
           if (table.size === 0) {
             stats.reasons.emptyTable += 1;
-            return;
+            return touched();
           }
           for (const scope of sentSweepScopes(table)) {
             for (const stale of scope.querySelectorAll('[data-sa-ui="sent"]')) {
               const key = stale.getAttribute("data-sa-key");
-              if (key === null || !table.has(key)) stale.remove();
+              if (key === null || !table.has(key)) {
+                markConversationChanged();
+                stale.remove();
+              }
             }
           }
           let learnedTurn = false;
@@ -4515,7 +4525,10 @@ ${PICK_SCRIPT}<\/script>`;
             if (row === null) stats.anchorMiss += 1;
             if (row !== null && isPendingEchoRow(row)) {
               const queuedCard = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
-              if (queuedCard !== null) queuedCard.remove();
+              if (queuedCard !== null) {
+                markConversationChanged();
+                queuedCard.remove();
+              }
               stats.skipped += 1;
               continue;
             }
@@ -4534,6 +4547,7 @@ ${PICK_SCRIPT}<\/script>`;
               }))
             });
             if (card !== null && card.getAttribute("data-sa-sig") !== sentSignature) {
+              markConversationChanged();
               replaceCardChildren(existing, buildSentCard(record, anchorKey, cardOptions));
               if (typeof existing.removeAttribute === "function") existing.removeAttribute("data-sa-reply-sig");
               card = existing;
@@ -4548,6 +4562,7 @@ ${PICK_SCRIPT}<\/script>`;
             const onBubble = !Number.isFinite(turn) && row !== null && (bubbleKind === "user" || bubbleKind === "steering");
             if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {
               if (card.parentElement !== row.parentElement || card.previousSibling !== row) {
+                markConversationChanged();
                 row.parentElement.insertBefore(card, row.nextSibling);
               }
               continue;
@@ -4555,6 +4570,7 @@ ${PICK_SCRIPT}<\/script>`;
             const disclosure = Number.isFinite(turn) ? turnDisclosureItem(turn) : null;
             if (disclosure !== null && disclosure.parentElement !== null) {
               if (card.parentElement !== disclosure.parentElement || card.nextSibling !== disclosure) {
+                markConversationChanged();
                 disclosure.parentElement.insertBefore(card, disclosure);
               }
               continue;
@@ -4562,20 +4578,26 @@ ${PICK_SCRIPT}<\/script>`;
             const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, sessionId) : null;
             if (anchorEl !== null && anchorEl.parentElement !== null) {
               if (card.parentElement !== anchorEl.parentElement || card.nextSibling !== anchorEl) {
+                markConversationChanged();
                 anchorEl.parentElement.insertBefore(card, anchorEl);
               }
               continue;
             }
             if (footer !== null) {
               if (footer.parentElement !== null && (card.parentElement !== footer.parentElement || card.nextSibling !== footer)) {
+                markConversationChanged();
                 footer.parentElement.insertBefore(card, footer);
               }
               continue;
             }
             const target = sentCardAnchor(row);
             if (target.parent !== null) {
-              if (card.parentElement !== target.parent || card.nextSibling !== target.before) target.parent.insertBefore(card, target.before);
+              if (card.parentElement !== target.parent || card.nextSibling !== target.before) {
+                markConversationChanged();
+                target.parent.insertBefore(card, target.before);
+              }
             } else if (existing === null) {
+              markConversationChanged();
               row.appendChild(card);
             }
           }
@@ -4585,6 +4607,7 @@ ${PICK_SCRIPT}<\/script>`;
           stats.turnMin = turnsOfTable.length > 0 ? Math.min(...turnsOfTable) : null;
           stats.turnMax = turnsOfTable.length > 0 ? Math.max(...turnsOfTable) : null;
           sentRenderStats = stats;
+          return touched();
         }
         const buildReplySection = (batches, items, options) => cards.buildReplySection(batches, items, options);
         function syncReplyCollapse(origin) {
@@ -4619,8 +4642,10 @@ ${PICK_SCRIPT}<\/script>`;
         function moveSection(section, container, before) {
           if (container === null || container === void 0) return;
           if (before === section) return;
-          if (section.parentElement === container && section.nextSibling === before) return;
+          if (section.parentElement === container && section.nextSibling === before) return false;
+          markConversationChanged();
           container.insertBefore(section, before);
+          return true;
         }
         function placeReplyAfterTurnProcess(section, turn) {
           const parent = section.parentElement;
@@ -4762,12 +4787,14 @@ ${PICK_SCRIPT}<\/script>`;
           if (head !== null && wrap !== null) applyCollapsed(head, wrap, false);
         }
         function renderReplySections() {
+          const changesAtStart = conversationChanges;
+          const touched = () => conversationChanges !== changesAtStart;
           const sessionId = currentSessionId();
-          if (sessionId === void 0) return;
+          if (sessionId === void 0) return touched();
           const table = loadSent(sessionId);
-          if (table.size === 0) return;
+          if (table.size === 0) return touched();
           const batches = remoteReplyCache.get(sessionId) ?? [];
-          if (batches.length === 0) return;
+          if (batches.length === 0) return touched();
           const byAnchor = /* @__PURE__ */ new Map();
           const anchorOfCardKey = /* @__PURE__ */ new Map();
           const anchorOfUuid = /* @__PURE__ */ new Map();
@@ -4828,7 +4855,10 @@ ${PICK_SCRIPT}<\/script>`;
           }
           for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) {
             const anchorKey = stale.getAttribute("data-anchor");
-            if (anchorKey === null || !byAnchor.has(anchorKey) || !grouped.has(anchorKey)) stale.remove();
+            if (anchorKey === null || !byAnchor.has(anchorKey) || !grouped.has(anchorKey)) {
+              markConversationChanged();
+              stale.remove();
+            }
           }
           for (const [anchorKey, buckets] of grouped) {
             const list = [...buckets.entries()].map(([at, replies]) => ({ at, replies }));
@@ -4854,6 +4884,7 @@ ${PICK_SCRIPT}<\/script>`;
               });
               fresh.setAttribute("data-anchor", anchorKey);
               fresh.dataset.signature = signature;
+              markConversationChanged();
               existing.replaceWith(fresh);
               placeReplyAfterTurnProcess(fresh, turn);
               if (sentCard !== void 0) collapseSentForReplies(sentCard, signature);
@@ -4868,10 +4899,12 @@ ${PICK_SCRIPT}<\/script>`;
             });
             section.setAttribute("data-anchor", anchorKey);
             section.dataset.signature = signature;
+            markConversationChanged();
             parent.insertBefore(section, sentCard !== void 0 ? sentCard.nextSibling : host);
             placeReplyAfterTurnProcess(section, turn);
             if (sentCard !== void 0) collapseSentForReplies(sentCard, signature);
           }
+          return touched();
         }
         function sentUuidOf(source) {
           if (source?.kind !== "sent") return void 0;
@@ -5069,6 +5102,10 @@ ${PICK_SCRIPT}<\/script>`;
         const overlay = document.createElement("div");
         overlay.className = "sa-overlay";
         overlay.setAttribute("data-sa-ui", "overlay");
+        function markConversationChanged() {
+          conversationChanges += 1;
+          if (scrollGuardCapture !== null) scrollGuardCapture();
+        }
         function scheduleRepaint() {
           if (repaintTimer !== null) return;
           repaintTimer = window.setTimeout(() => {
@@ -5124,17 +5161,21 @@ ${PICK_SCRIPT}<\/script>`;
               current = current.parentElement ?? null;
             }
           };
-          const roots = [];
-          for (const scope of visibleConversationScopes()) roots.push(scope);
-          for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node);
-          for (const root of roots) remember(root);
+          let captured = false;
+          const captureAll = () => {
+            if (captured) return;
+            captured = true;
+            const roots = [];
+            for (const scope of visibleConversationScopes()) roots.push(scope);
+            for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node);
+            for (const root of roots) remember(root);
+          };
           const restore = (late) => {
             for (const entry of saved) {
               const container = entry.el;
               if (entry.sticky) {
-                if (container.scrollTop < container.scrollHeight - container.clientHeight - 1) {
-                  container.scrollTop = container.scrollHeight;
-                }
+                const bottom = container.scrollHeight - container.clientHeight;
+                if (container.scrollTop < bottom - 1) container.scrollTop = bottom;
                 continue;
               }
               if (entry.row !== void 0 && entry.row.isConnected === true) {
@@ -5151,16 +5192,20 @@ ${PICK_SCRIPT}<\/script>`;
               if (grown !== 0) container.scrollTop = entry.top + grown;
             }
           };
+          const previousCapture = scrollGuardCapture;
+          scrollGuardCapture = captureAll;
+          let changed = false;
           try {
-            mutate();
+            changed = mutate() === true;
           } finally {
-            if (saved.length > 0) {
-              restore();
-              if (typeof window.requestAnimationFrame === "function") {
-                safe(() => window.requestAnimationFrame(() => restore(true)));
-              }
-            }
+            scrollGuardCapture = previousCapture;
           }
+          if (!changed || captured !== true || saved.length === 0) return changed;
+          restore();
+          if (typeof window.requestAnimationFrame === "function") {
+            safe(() => window.requestAnimationFrame(() => restore(true)));
+          }
+          return changed;
         }
         const repaintFailures = /* @__PURE__ */ new Set();
         function reportRepaintFailure(key, step, error) {
@@ -5220,15 +5265,42 @@ ${PICK_SCRIPT}<\/script>`;
             }
           }
         }
+        function selectionAtRisk() {
+          const selection = safe(() => window.getSelection()) ?? null;
+          if (selection === null || selection.rangeCount === 0 || selection.isCollapsed !== false) return false;
+          const anchor = selection.anchorNode;
+          const element = anchor === null || anchor === void 0 ? null : anchor.nodeType === 1 ? anchor : anchor.parentElement;
+          if (element === null || element === void 0) return true;
+          return safe(() => element.closest("[data-sa-ui]") !== null) !== true;
+        }
+        function flushPendingRepaint() {
+          if (repaintPending !== true || pointerSelecting === true) return;
+          if (selectionAtRisk() === true) return;
+          repaintPending = false;
+          scheduleRepaint();
+        }
         function repaint() {
+          const blocked = pointerSelecting === true || selectionAtRisk() === true;
+          const now = Date.now();
+          if (blocked) {
+            repaintPending = true;
+            if (repaintDeferredAt === null) repaintDeferredAt = now;
+            if (now - repaintDeferredAt < REPAINT_DEFER_MAX_MS) return;
+          } else {
+            repaintPending = false;
+            repaintDeferredAt = null;
+          }
           const nodes = [];
           const hits = [];
           const step = (name, run) => safe(run, (error) => reportRepaintFailure(name, name, error));
-          keepScrollStable(() => {
-            step("scanSentMessages", scanSentMessages);
-            step("renderSentCards", renderSentCards);
-            step("renderReplySections", renderReplySections);
-          });
+          const renderConversation = () => {
+            const scanned = step("scanSentMessages", scanSentMessages) === true;
+            const sent = step("renderSentCards", renderSentCards) === true;
+            const replies = step("renderReplySections", renderReplySections) === true;
+            return scanned || sent || replies;
+          };
+          if (blocked) renderConversation();
+          else keepScrollStable(renderConversation);
           step("collectHighlightNodes", () => {
             collectHighlightNodes(nodes, hits);
             highlightHits = hits;
@@ -5763,6 +5835,7 @@ ${PICK_SCRIPT}<\/script>`;
           placeToolbar(toolbar, rect, fresh ? lastPointerUp : null);
         }
         function onSelectionChange() {
+          flushPendingRepaint();
           window.clearTimeout(settleTimer);
           settleTimer = window.setTimeout(() => {
             settleTimer = null;
@@ -5771,6 +5844,7 @@ ${PICK_SCRIPT}<\/script>`;
               return;
             }
             showSelectionToolbar();
+            flushPendingRepaint();
           }, SETTLE_MS);
         }
         let popoverMode = "create";
@@ -7525,6 +7599,7 @@ ${PICK_SCRIPT}`;
           document.addEventListener("pointerdown", onSelectPointerDown, true);
           const onPointerUp = (event) => {
             pointerSelecting = false;
+            flushPendingRepaint();
             const target = elementOf2(event.target);
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return;
             if (target !== null && target.closest('[data-sa-ui="popover"], [data-sa-ui="ghost"]') !== null) return;

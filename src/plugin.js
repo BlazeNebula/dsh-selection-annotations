@@ -143,6 +143,16 @@ export function createPlugin(React, extras = {}) {
         let syncing = false
         let syncTimer = null
         let repaintTimer = null
+        /** 上一遍重绘因为有选区或拖选被推迟；选区一收就补一次。*/
+        let repaintPending = false
+        /** 第一次因选区被挡住的时间；一直挡着超过 REPAINT_DEFER_MAX_MS 就不再等，只渲染内容不动位置。*/
+        let repaintDeferredAt = null
+        /** 允许被选区推迟多久（毫秒）：超过就放弃位置保护、照常更新内容，避免画面一直是旧的。*/
+        const REPAINT_DEFER_MAX_MS = 1500
+        /** 会话区节点被重绘改写的次数：渲染函数拿它回答「这一遍到底动没动过 DOM」。*/
+        let conversationChanges = 0
+        /** 非空表示正在受保护的这一遍重绘里：渲染函数在真要摘挂节点前调它记下滚动位置。*/
+        let scrollGuardCapture = null
         let settleTimer = null
         let pendingSelection = null
         /** 划线结束（pointerup）的位置：工具条贴着它出现，而不是跟着 range 的末尾矩形。*/
@@ -1392,6 +1402,9 @@ const rewindHandled = new Map()
 
         /** 在所属轮次的「已完成」之前补出已提交批注卡片；按轮次定位，不依赖消息行是否已加载。*/
         function renderSentCards() {
+          // 返回「这一遍有没有真的插入/删除/移动/替换过会话区节点」：只设属性不算。
+          const changesAtStart = conversationChanges
+          const touched = () => conversationChanges !== changesAtStart
           const sessionId = currentSessionId()
           // 统计对象先建好：早退也要落盘，否则面板诊断看不到「为什么一张卡都没有」。
           const stats = {
@@ -1407,20 +1420,23 @@ const rewindHandled = new Map()
           sentRenderStats = stats
           if (sessionId === undefined) {
             stats.reasons.noSession += 1
-            return
+            return touched()
           }
           const table = loadSent(sessionId)
           stats.size = table.size
           if (table.size === 0) {
             stats.reasons.emptyTable += 1
-            return
+            return touched()
           }
           // 卡片身份取台账键；锚点只用来挂答复卡。
           // 清扫按会话容器分组做：全页面扫会把另一个会话的 DOM 里渲染出的卡一起删掉。
           for (const scope of sentSweepScopes(table)) {
             for (const stale of scope.querySelectorAll('[data-sa-ui="sent"]')) {
               const key = stale.getAttribute('data-sa-key')
-              if (key === null || !table.has(key)) stale.remove()
+              if (key === null || !table.has(key)) {
+                markConversationChanged()
+                stale.remove()
+              }
             }
           }
           let learnedTurn = false
@@ -1457,7 +1473,10 @@ const rewindHandled = new Map()
             // 已经残留的旧卡也先收起来，等真正发出后的那一遍再补。
             if (row !== null && isPendingEchoRow(row)) {
               const queuedCard = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
-              if (queuedCard !== null) queuedCard.remove()
+              if (queuedCard !== null) {
+                markConversationChanged()
+                queuedCard.remove()
+              }
               stats.skipped += 1
               continue
             }
@@ -1478,6 +1497,7 @@ const rewindHandled = new Map()
             if (card !== null && card.getAttribute('data-sa-sig') !== sentSignature) {
               // 内容变了只换子节点，不 replaceWith 整卡：整卡摘挂会让浏览器重算滚动锚定，
               // 会话区在卡出现/变化时自己跳一下。
+              markConversationChanged()
               replaceCardChildren(existing, buildSentCard(record, anchorKey, cardOptions))
               // 原来换的是新节点，答复收起标记自然没了；就地更新要手动清掉才与旧行为一致。
               if (typeof existing.removeAttribute === 'function') existing.removeAttribute('data-sa-reply-sig')
@@ -1500,6 +1520,7 @@ const rewindHandled = new Map()
               (bubbleKind === 'user' || bubbleKind === 'steering')
             if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {
               if (card.parentElement !== row.parentElement || card.previousSibling !== row) {
+                markConversationChanged()
                 row.parentElement.insertBefore(card, row.nextSibling)
               }
               continue
@@ -1509,6 +1530,7 @@ const rewindHandled = new Map()
             const disclosure = Number.isFinite(turn) ? turnDisclosureItem(turn) : null
             if (disclosure !== null && disclosure.parentElement !== null) {
               if (card.parentElement !== disclosure.parentElement || card.nextSibling !== disclosure) {
+                markConversationChanged()
                 disclosure.parentElement.insertBefore(card, disclosure)
               }
               continue
@@ -1516,6 +1538,7 @@ const rewindHandled = new Map()
             const anchorEl = Number.isFinite(turn) ? findTurnAnchor(turn, sessionId) : null
             if (anchorEl !== null && anchorEl.parentElement !== null) {
               if (card.parentElement !== anchorEl.parentElement || card.nextSibling !== anchorEl) {
+                markConversationChanged()
                 anchorEl.parentElement.insertBefore(card, anchorEl)
               }
               continue
@@ -1528,14 +1551,19 @@ const rewindHandled = new Map()
                 footer.parentElement !== null &&
                 (card.parentElement !== footer.parentElement || card.nextSibling !== footer)
               ) {
+                markConversationChanged()
                 footer.parentElement.insertBefore(card, footer)
               }
               continue
             }
             const target = sentCardAnchor(row)
             if (target.parent !== null) {
-              if (card.parentElement !== target.parent || card.nextSibling !== target.before) target.parent.insertBefore(card, target.before)
+              if (card.parentElement !== target.parent || card.nextSibling !== target.before) {
+                markConversationChanged()
+                target.parent.insertBefore(card, target.before)
+              }
             } else if (existing === null) {
+              markConversationChanged()
               row.appendChild(card)
             }
           }
@@ -1545,6 +1573,7 @@ const rewindHandled = new Map()
           stats.turnMin = turnsOfTable.length > 0 ? Math.min(...turnsOfTable) : null
           stats.turnMax = turnsOfTable.length > 0 ? Math.max(...turnsOfTable) : null
           sentRenderStats = stats
+          return touched()
         }
 
         const buildReplySection = (batches, items, options) => cards.buildReplySection(batches, items, options)
@@ -1589,8 +1618,10 @@ const rewindHandled = new Map()
           if (container === null || container === undefined) return
           // before 就是自己时说明位置已经对：再 insertBefore 会把节点摘下来重插，选区会被重置。
           if (before === section) return
-          if (section.parentElement === container && section.nextSibling === before) return
+          if (section.parentElement === container && section.nextSibling === before) return false
+          markConversationChanged()
           container.insertBefore(section, before)
+          return true
         }
 
         /** 答复卡留在「已完成」之下：有轮次号时按轮次尾行定位，否则退回相邻节点查找。*/
@@ -1775,12 +1806,15 @@ const rewindHandled = new Map()
          * 把整批挂到最近的一张卡，前面几张的答复会缺；没有 cardKey 才回落到批次时间。
          */
         function renderReplySections() {
+          // 返回「这一遍有没有真的插入/删除/移动/替换过会话区节点」：只设属性不算。
+          const changesAtStart = conversationChanges
+          const touched = () => conversationChanges !== changesAtStart
           const sessionId = currentSessionId()
-          if (sessionId === undefined) return
+          if (sessionId === undefined) return touched()
           const table = loadSent(sessionId)
-          if (table.size === 0) return
+          if (table.size === 0) return touched()
           const batches = remoteReplyCache.get(sessionId) ?? []
-          if (batches.length === 0) return
+          if (batches.length === 0) return touched()
           const byAnchor = new Map()
           const anchorOfCardKey = new Map()
           const anchorOfUuid = new Map()
@@ -1856,7 +1890,10 @@ const rewindHandled = new Map()
             const anchorKey = stale.getAttribute('data-anchor')
             // 台账里认不出的锚点要清；卡还在但一条答复都没归到它，也要清 ——
             // 否则答复改挂别处后，上一版留下的内容会赖在这张卡上。
-            if (anchorKey === null || !byAnchor.has(anchorKey) || !grouped.has(anchorKey)) stale.remove()
+            if (anchorKey === null || !byAnchor.has(anchorKey) || !grouped.has(anchorKey)) {
+              markConversationChanged()
+              stale.remove()
+            }
           }
           for (const [anchorKey, buckets] of grouped) {
             const list = [...buckets.entries()].map(([at, replies]) => ({ at, replies }))
@@ -1884,6 +1921,7 @@ const rewindHandled = new Map()
               })
               fresh.setAttribute('data-anchor', anchorKey)
               fresh.dataset.signature = signature
+              markConversationChanged()
               existing.replaceWith(fresh)
               placeReplyAfterTurnProcess(fresh, turn)
               if (sentCard !== undefined) collapseSentForReplies(sentCard, signature)
@@ -1900,10 +1938,12 @@ const rewindHandled = new Map()
             })
             section.setAttribute('data-anchor', anchorKey)
             section.dataset.signature = signature
+            markConversationChanged()
             parent.insertBefore(section, sentCard !== undefined ? sentCard.nextSibling : host)
             placeReplyAfterTurnProcess(section, turn)
             if (sentCard !== undefined) collapseSentForReplies(sentCard, signature)
           }
+          return touched()
         }
 
         /* ------------------------------------------------------- 原生附件块（随消息发送） */
@@ -2172,6 +2212,15 @@ const rewindHandled = new Map()
         overlay.className = 'sa-overlay'
         overlay.setAttribute('data-sa-ui', 'overlay')
 
+        /**
+         * 渲染函数在真的要插入/删除/移动/替换会话区节点之前调用一次。
+         * 只有这一下才会记滚动位置：空闲重绘（没有新卡、没有新答复）整段跳过，不读也不写 scrollTop。
+         */
+        function markConversationChanged() {
+          conversationChanges += 1
+          if (scrollGuardCapture !== null) scrollGuardCapture()
+        }
+
         function scheduleRepaint() {
           if (repaintTimer !== null) return
           repaintTimer = window.setTimeout(() => {
@@ -2188,6 +2237,9 @@ const rewindHandled = new Map()
          * - 找不到可锚定的行时，退回按 scrollHeight 的差值补偿。
          * 回写绝对数值会把浏览器为保住可见内容所做的锚定、以及 dsh 自己滚到最新一轮的结果一并撤销，
          * 表现就是进入会话约两秒后视野从最后一轮跳回更早的位置。
+         *
+         * 位置只在真的改写了会话区节点时才记、才修：渲染函数动手前调 markConversationChanged()，
+         * 这里收到回调才量一遍。空闲重绘（没有新卡、没有新答复）不读也不写 scrollTop。
          */
         function keepScrollStable(mutate) {
           const saved = []
@@ -2248,20 +2300,25 @@ const rewindHandled = new Map()
               current = current.parentElement ?? null
             }
           }
-          const roots = []
-          // 输入框与已有卡片都在会话区里，从它们上溯就能找到承载消息的滚动层。
-          for (const scope of visibleConversationScopes()) roots.push(scope)
-          for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node)
-          for (const root of roots) remember(root)
+          let captured = false
+          /** 第一次真要动会话区节点时才量：量的是这一下改写之前的位置。*/
+          const captureAll = () => {
+            if (captured) return
+            captured = true
+            const roots = []
+            // 输入框与已有卡片都在会话区里，从它们上溯就能找到承载消息的滚动层。
+            for (const scope of visibleConversationScopes()) roots.push(scope)
+            for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node)
+            for (const root of roots) remember(root)
+          }
           const restore = (late) => {
             for (const entry of saved) {
               const container = entry.el
               if (entry.sticky) {
                 // 贴底：内容变高就跟着到底，内容变矮就自然夹回。
-                // 差 1px 以内视为已在底部，避免每次重绘都写一遍同一个值。
-                if (container.scrollTop < container.scrollHeight - container.clientHeight - 1) {
-                  container.scrollTop = container.scrollHeight
-                }
+                // 已经在底部（差 1px 以内）就不写：流式输出期间反复写同一个值会打断宿主的滚动。
+                const bottom = container.scrollHeight - container.clientHeight
+                if (container.scrollTop < bottom - 1) container.scrollTop = bottom
                 continue
               }
               if (entry.row !== undefined && entry.row.isConnected === true) {
@@ -2279,17 +2336,22 @@ const rewindHandled = new Map()
               if (grown !== 0) container.scrollTop = entry.top + grown
             }
           }
+          const previousCapture = scrollGuardCapture
+          scrollGuardCapture = captureAll
+          let changed = false
           try {
-            mutate()
+            changed = mutate() === true
           } finally {
-            if (saved.length > 0) {
-              restore()
-              // 下一帧再补一次：抵掉浏览器在同一帧里按新布局重新做的锚定。
-              if (typeof window.requestAnimationFrame === 'function') {
-                safe(() => window.requestAnimationFrame(() => restore(true)))
-              }
-            }
+            scrollGuardCapture = previousCapture
           }
+          // 三步都没动过会话区节点：整段跳过，不读也不写 scrollTop，也不排下一帧的补正。
+          if (!changed || captured !== true || saved.length === 0) return changed
+          restore()
+          // 下一帧再补一次：抵掉浏览器在同一帧里按新布局重新做的锚定。
+          if (typeof window.requestAnimationFrame === 'function') {
+            safe(() => window.requestAnimationFrame(() => restore(true)))
+          }
+          return changed
         }
 
         const repaintFailures = new Set()
@@ -2361,20 +2423,63 @@ const rewindHandled = new Map()
           }
         }
 
+        /**
+         * 当前是否有会被重绘打断的非折叠选区。
+         * 弹层/面板里的选区是我们自己的编辑区，重绘不会换掉它的端点，不算。
+         */
+        function selectionAtRisk() {
+          const selection = safe(() => window.getSelection()) ?? null
+          if (selection === null || selection.rangeCount === 0 || selection.isCollapsed !== false) return false
+          const anchor = selection.anchorNode
+          const element = anchor === null || anchor === undefined
+            ? null
+            : anchor.nodeType === 1 ? anchor : anchor.parentElement
+          if (element === null || element === undefined) return true
+          return safe(() => element.closest('[data-sa-ui]') !== null) !== true
+        }
+
+        /** 上一遍重绘被选区挡住时，选区一收就补一次。*/
+        function flushPendingRepaint() {
+          if (repaintPending !== true || pointerSelecting === true) return
+          if (selectionAtRisk() === true) return
+          repaintPending = false
+          scheduleRepaint()
+        }
+
         function repaint() {
+          // 有非折叠选区或正在拖选时先不动会话区：摘挂卡片、回写滚动位都会换掉选区端点，
+          // 用户看到的就是「选中的文字变成 0 个字符」。记下来，等选区收了再补一次。
+          const blocked = pointerSelecting === true || selectionAtRisk() === true
+          const now = Date.now()
+          if (blocked) {
+            repaintPending = true
+            if (repaintDeferredAt === null) repaintDeferredAt = now
+            // 选区一直不收（选完就不动、或一直按着键保持选中）时不能无限推迟，否则卡片与答复区
+            // 永远是旧的。超过上限就照常渲染内容，只是不进 keepScrollStable 那一层位置保护。
+            if (now - repaintDeferredAt < REPAINT_DEFER_MAX_MS) return
+          } else {
+            repaintPending = false
+            repaintDeferredAt = null
+          }
           const nodes = []
           // 命中表整份替换：中途失败时保留上一份，一次重绘失败不会让悬停整片失效。
           const hits = []
           // 每一步单独兜住异常并留日志：任何一步失败都不能挡住后面的高亮重建。
           const step = (name, run) => safe(run, (error) => reportRepaintFailure(name, name, error))
-          // 只包住会动会话区 DOM 的几步；overlay 是 fixed 层，不在滚动流里，不必包。
-          keepScrollStable(() => {
+          // 三步渲染：这一步只动内容，位置保护由外面决定要不要套。
+          const renderConversation = () => {
             // 历史回看先于高亮：新消息行刚出现时在这里完成配对，卡片随即补上。
-            step('scanSentMessages', scanSentMessages)
-            step('renderSentCards', renderSentCards)
-            step('renderReplySections', renderReplySections)
-          })
-          // 高亮最后量：量在滚动位置回正之前，记下的是回正前的视口坐标，划线与命中会跟着错开。
+            const scanned = step('scanSentMessages', scanSentMessages) === true
+            const sent = step('renderSentCards', renderSentCards) === true
+            const replies = step('renderReplySections', renderReplySections) === true
+            // 三步都没插入/删除/移动/替换会话区节点时，keepScrollStable 不读也不写 scrollTop。
+            return scanned || sent || replies
+          }
+          // 被选区挡住且已经超时：直接渲染，跳过 keepScrollStable——不加位置锚点、不读不写 scrollTop。
+          // 只包住会动会话区 DOM 的几步；overlay 是 fixed 层，不在滚动流里，不必包。
+          if (blocked) renderConversation()
+          else keepScrollStable(renderConversation)
+          // 高亮最后量：放在位置保护之后，量到的视口坐标才与最终的滚动位置一致。
           step('collectHighlightNodes', () => {
             collectHighlightNodes(nodes, hits)
             highlightHits = hits
@@ -3005,6 +3110,8 @@ const rewindHandled = new Map()
         }
 
         function onSelectionChange() {
+          // 选区收了就把刚才被挡住的重绘补上（拖选期间 pointerSelecting 还为真，这里不会放行）。
+          flushPendingRepaint()
           window.clearTimeout(settleTimer)
           settleTimer = window.setTimeout(() => {
             settleTimer = null
@@ -3013,6 +3120,7 @@ const rewindHandled = new Map()
               return
             }
             showSelectionToolbar()
+            flushPendingRepaint()
           }, SETTLE_MS)
         }
 
@@ -5104,6 +5212,8 @@ const rewindHandled = new Map()
           const onPointerUp = (event) => {
             // 松手就结束拖选：即使落在工具条/弹层上或窗口外没有后续事件，也不能让标记一直为真。
             pointerSelecting = false
+            // 拖选挡住的重绘：这一下松手如果选区已收（单击、或点掉了选区），立刻补上。
+            flushPendingRepaint()
             const target = elementOf(event.target)
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return
             // 在弹层里松手（包括拖标题）不算划线结束，不重算工具条。
