@@ -490,7 +490,7 @@
     "- Use the body only for an overall summary or clarifying questions."
   ].join("");
   var LOCALE_NS = "selection-annotations";
-  var PLUGIN_BUILD = "1.3.1";
+  var PLUGIN_BUILD = "2.0.0";
   var DRAFT_STORAGE_PREFIX = "dsh-selection-annotations:draft:";
   var DRAFT_MAX_SESSIONS = 24;
   var DRAFT_MAX_ITEMS = 200;
