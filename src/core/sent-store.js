@@ -8,8 +8,9 @@ export function isSentItem(value) {
 
 /**
  * 已提交批注的本地台账（内存 + localStorage），按会话分表，键是消息锚点键。
- * 记录形如 { savedAt, items, turn?, anchorKey? }；turn 用来把卡片固定在所属轮次的「已完成」前后，
+ * 记录形如 { savedAt, items, turn?, anchorKey?, batchUuid?, batchSeq? }；turn 用来把卡片固定在所属轮次的「已完成」前后，
  * anchorKey 在没有轮次号（旧记录、跨端合并）时用来回到消息行。
+ * batchUuid / batchSeq 与条目上的 uuid 只在宿主新接口可用时才有，随记录一起持久化。
  */
 export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxBytes, maxItems, onChanged }) {
 
@@ -28,11 +29,16 @@ export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxB
           if (items.length === 0) continue
           const turn = Number.isFinite(value.turn) ? Number(value.turn) : undefined
           const anchorKey = typeof value.anchorKey === 'string' && value.anchorKey !== '' ? value.anchorKey : undefined
+          const batchUuid =
+            typeof value.batchUuid === 'string' && value.batchUuid !== '' ? value.batchUuid : undefined
+          const batchSeq = Number.isSafeInteger(value.batchSeq) ? value.batchSeq : undefined
           table.set(key, {
             savedAt: Number(value.savedAt) || 0,
             items,
             ...(turn !== undefined ? { turn } : {}),
             ...(anchorKey !== undefined ? { anchorKey } : {}),
+            ...(batchUuid !== undefined ? { batchUuid } : {}),
+            ...(batchSeq !== undefined ? { batchSeq } : {}),
           })
         }
       }
@@ -74,17 +80,57 @@ export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxB
     }
   }
 
-  function recordSent(sessionId, anchorKey, items, turn) {
+  /** 宿主返回的条目 uuid 与 items 按序对应；个数对不上或有空项就整批不记，宁缺勿错。 */
+  function withItemUuids(items, uuids) {
+    if (!Array.isArray(uuids) || uuids.length !== items.length) return items
+    if (!uuids.every((uuid) => typeof uuid === 'string' && uuid !== '')) return items
+    return items.map((item, index) => ({ ...item, uuid: uuids[index] }))
+  }
+
+  function batchFields(value) {
+    return {
+      batchUuid: typeof value?.batchUuid === 'string' && value.batchUuid !== '' ? value.batchUuid : undefined,
+      batchSeq: Number.isSafeInteger(value?.batchSeq) ? value.batchSeq : undefined,
+    }
+  }
+
+  function recordSent(sessionId, anchorKey, items, turn, options) {
+    const extra = options ?? {}
+    const batch = batchFields(extra)
     const table = loadSent(sessionId)
     table.set(anchorKey, {
       savedAt: Date.now(),
-      items,
+      items: withItemUuids(items, extra.uuids),
       ...(Number.isFinite(turn) ? { turn } : {}),
       // 键本身就是锚点；值里再存一份，跨端合并或旧键（time:/turn-process）时才有地方取。
       anchorKey,
+      ...(batch.batchUuid !== undefined ? { batchUuid: batch.batchUuid } : {}),
+      ...(batch.batchSeq !== undefined ? { batchSeq: batch.batchSeq } : {}),
     })
     saveSent(sessionId, table)
   }
 
-  return { loadSent, saveSent, recordSent }
+  /**
+   * 异步补登宿主返回的批次信息：只补字段、不动 savedAt，
+   * 免得台账排序和已经在页面上的卡片位置跳一下。记录已被覆盖或删掉时返回 false。
+   */
+  function updateSentBatch(sessionId, anchorKey, options) {
+    const extra = options ?? {}
+    const table = loadSent(sessionId)
+    const record = table.get(anchorKey)
+    if (record === undefined) return false
+    const batch = batchFields(extra)
+    const items = Array.isArray(extra.uuids) ? withItemUuids(record.items, extra.uuids) : record.items
+    if (batch.batchUuid === undefined && batch.batchSeq === undefined && items === record.items) return false
+    table.set(anchorKey, {
+      ...record,
+      items,
+      ...(batch.batchUuid !== undefined ? { batchUuid: batch.batchUuid } : {}),
+      ...(batch.batchSeq !== undefined ? { batchSeq: batch.batchSeq } : {}),
+    })
+    saveSent(sessionId, table)
+    return true
+  }
+
+  return { loadSent, saveSent, recordSent, updateSentBatch }
 }

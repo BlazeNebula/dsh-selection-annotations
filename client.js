@@ -462,6 +462,7 @@
     "- 处理完必须调用 `annotation_replies` 工具，不要在正文里逐条重复。\n",
     "- 每条批注对应 replies 里的一项，`index` 与批注编号一致。\n",
     "- 同一轮里有多张已发送卡时，答复某张卡上的批注必须给每条 reply 带 `cardKey`：取 payload 里该卡的 `anchorKey`；不带时整批归到这一轮最后一张卡，前面那张就显示没有答复。\n",
+    "- 已发送批注条目可能自带 `uuid`：答复这一条时把该 `uuid` 一并写进这条 reply，可精确定位那一条；没有 `uuid` 时按上面的 `cardKey` 与 `index` 规则。\n",
     "- `verdict` 取 `accepted` / `partial` / `rejected` / `needs_info`；`reason` 写理由，`next` 写下一步。\n",
     "- 答复正文按 Markdown 渲染，优先用要点列表；加粗、行内代码、代码块与表格都可用。\n",
     "- 正文只写整体说明或需要澄清的问题。"
@@ -481,6 +482,7 @@
     "- When done, you must call the `annotation_replies` tool instead of repeating replies in the body.\n",
     "- Each annotation maps to one entry in replies; `index` matches the annotation number.\n",
     "- When a turn has more than one sent-annotation card, a reply about a card must carry `cardKey`: the `anchorKey` of that card in the payload. Without it the whole batch goes to the last card in the turn, and earlier cards show no answers.\n",
+    "- A sent-annotation entry may carry its own `uuid`: when replying to that entry, include the `uuid` in the reply so it targets that exact entry. Without a `uuid`, follow the `cardKey` and `index` rules above.\n",
     "- `verdict` is `accepted` / `partial` / `rejected` / `needs_info`; `reason` explains it, `next` states the next step.\n",
     "- Reply bodies render as Markdown: prefer bullet lists; bold, inline code, code fences and tables are supported.\n",
     "- Use the body only for an overall summary or clarifying questions."
@@ -1035,7 +1037,16 @@
   }
 
   // src/core/payload.js
-  function createPayload({ t, instructionOf }) {
+  function createPayload({ t, instructionOf, uuidOfSent }) {
+    function sentUuidOf(source) {
+      if (typeof uuidOfSent !== "function") return void 0;
+      try {
+        const uuid = uuidOfSent(source);
+        return typeof uuid === "string" && uuid !== "" ? uuid : void 0;
+      } catch {
+        return void 0;
+      }
+    }
     function describeSource(source) {
       if (source === null || source === void 0) return t("source.unknown");
       if (source.kind === "message") {
@@ -1098,6 +1109,8 @@
         if (typeof source.anchorKey === "string" && source.anchorKey !== "") out.anchorKey = source.anchorKey;
         if (Number.isFinite(source.index)) out.index = source.index;
         if (typeof source.field === "string" && source.field !== "") out.field = source.field;
+        const uuid = typeof source.uuid === "string" && source.uuid !== "" ? source.uuid : sentUuidOf(source);
+        if (typeof uuid === "string" && uuid !== "") out.uuid = uuid;
       } else if (source?.kind === "web") {
         if (typeof source.anchorKey === "string" && source.anchorKey !== "") out.anchorKey = source.anchorKey;
         if (typeof source.path === "string" && source.path !== "") out.path = source.path;
@@ -2848,11 +2861,15 @@ ${PICK_SCRIPT}<\/script>`;
             if (items.length === 0) continue;
             const turn = Number.isFinite(value.turn) ? Number(value.turn) : void 0;
             const anchorKey = typeof value.anchorKey === "string" && value.anchorKey !== "" ? value.anchorKey : void 0;
+            const batchUuid = typeof value.batchUuid === "string" && value.batchUuid !== "" ? value.batchUuid : void 0;
+            const batchSeq = Number.isSafeInteger(value.batchSeq) ? value.batchSeq : void 0;
             table.set(key, {
               savedAt: Number(value.savedAt) || 0,
               items,
               ...turn !== void 0 ? { turn } : {},
-              ...anchorKey !== void 0 ? { anchorKey } : {}
+              ...anchorKey !== void 0 ? { anchorKey } : {},
+              ...batchUuid !== void 0 ? { batchUuid } : {},
+              ...batchSeq !== void 0 ? { batchSeq } : {}
             });
           }
         }
@@ -2890,18 +2907,50 @@ ${PICK_SCRIPT}<\/script>`;
       } catch {
       }
     }
-    function recordSent(sessionId, anchorKey, items, turn) {
+    function withItemUuids(items, uuids) {
+      if (!Array.isArray(uuids) || uuids.length !== items.length) return items;
+      if (!uuids.every((uuid) => typeof uuid === "string" && uuid !== "")) return items;
+      return items.map((item, index) => ({ ...item, uuid: uuids[index] }));
+    }
+    function batchFields(value) {
+      return {
+        batchUuid: typeof value?.batchUuid === "string" && value.batchUuid !== "" ? value.batchUuid : void 0,
+        batchSeq: Number.isSafeInteger(value?.batchSeq) ? value.batchSeq : void 0
+      };
+    }
+    function recordSent(sessionId, anchorKey, items, turn, options) {
+      const extra = options ?? {};
+      const batch = batchFields(extra);
       const table = loadSent(sessionId);
       table.set(anchorKey, {
         savedAt: Date.now(),
-        items,
+        items: withItemUuids(items, extra.uuids),
         ...Number.isFinite(turn) ? { turn } : {},
         // 键本身就是锚点；值里再存一份，跨端合并或旧键（time:/turn-process）时才有地方取。
-        anchorKey
+        anchorKey,
+        ...batch.batchUuid !== void 0 ? { batchUuid: batch.batchUuid } : {},
+        ...batch.batchSeq !== void 0 ? { batchSeq: batch.batchSeq } : {}
       });
       saveSent(sessionId, table);
     }
-    return { loadSent, saveSent, recordSent };
+    function updateSentBatch(sessionId, anchorKey, options) {
+      const extra = options ?? {};
+      const table = loadSent(sessionId);
+      const record = table.get(anchorKey);
+      if (record === void 0) return false;
+      const batch = batchFields(extra);
+      const items = Array.isArray(extra.uuids) ? withItemUuids(record.items, extra.uuids) : record.items;
+      if (batch.batchUuid === void 0 && batch.batchSeq === void 0 && items === record.items) return false;
+      table.set(anchorKey, {
+        ...record,
+        items,
+        ...batch.batchUuid !== void 0 ? { batchUuid: batch.batchUuid } : {},
+        ...batch.batchSeq !== void 0 ? { batchSeq: batch.batchSeq } : {}
+      });
+      saveSent(sessionId, table);
+      return true;
+    }
+    return { loadSent, saveSent, recordSent, updateSentBatch };
   }
 
   // src/core/hidden-payload.js
@@ -2953,6 +3002,9 @@ ${PICK_SCRIPT}<\/script>`;
     const queue = /* @__PURE__ */ new Set();
     let timer = null;
     const storeUrl = (sessionId) => `/selection-annotations/session/${encodeURIComponent(sessionId)}`;
+    const entryUrl = (uuid) => `/selection-annotations/entry/${encodeURIComponent(uuid)}`;
+    let batchSupported;
+    const batchInflight = /* @__PURE__ */ new Map();
     async function pull(sessionId) {
       if (typeof fetch !== "function") {
         state = false;
@@ -2980,6 +3032,13 @@ ${PICK_SCRIPT}<\/script>`;
     const inflight = /* @__PURE__ */ new Map();
     async function pushOnce(sessionId) {
       if (typeof fetch !== "function") return;
+      const hold = batchInflight.get(sessionId);
+      if (hold !== void 0) {
+        try {
+          await hold;
+        } catch {
+        }
+      }
       try {
         const response = await fetch(storeUrl(sessionId), {
           method: "PUT",
@@ -3018,7 +3077,69 @@ ${PICK_SCRIPT}<\/script>`;
         for (const id of ids) enqueue(id);
       }, 600);
     }
-    return { pull, push: pushOnce, schedule, storeUrl };
+    async function readObject(response) {
+      const data = await response.json();
+      return data !== null && typeof data === "object" && !Array.isArray(data) ? data : void 0;
+    }
+    async function createBatch(sessionId, body) {
+      if (typeof sessionId !== "string" || sessionId === "" || batchSupported === false) return void 0;
+      if (typeof fetch !== "function") {
+        batchSupported = false;
+        return void 0;
+      }
+      const previous = batchInflight.get(sessionId);
+      const task = (previous ?? Promise.resolve()).then(async () => {
+        try {
+          const response = await fetch(`${storeUrl(sessionId)}/batch`, {
+            method: "POST",
+            headers: { "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify(body)
+          });
+          if (response.status === 404 || response.status === 405) {
+            batchSupported = false;
+            return void 0;
+          }
+          if (!response.ok) return void 0;
+          const data = await readObject(response);
+          if (data !== void 0) batchSupported = true;
+          return data;
+        } catch {
+          return void 0;
+        }
+      });
+      batchInflight.set(sessionId, task);
+      void task.finally(() => {
+        if (batchInflight.get(sessionId) === task) batchInflight.delete(sessionId);
+      });
+      return task;
+    }
+    async function patchEntry(uuid, reply) {
+      if (typeof uuid !== "string" || uuid === "") return void 0;
+      if (typeof fetch !== "function") return void 0;
+      try {
+        const response = await fetch(entryUrl(uuid), {
+          method: "PATCH",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify(reply)
+        });
+        if (!response.ok) return void 0;
+        return await readObject(response);
+      } catch {
+        return void 0;
+      }
+    }
+    async function deleteEntry(uuid) {
+      if (typeof uuid !== "string" || uuid === "") return void 0;
+      if (typeof fetch !== "function") return void 0;
+      try {
+        const response = await fetch(entryUrl(uuid), { method: "DELETE", headers: { accept: "application/json" } });
+        if (!response.ok) return void 0;
+        return await readObject(response);
+      } catch {
+        return void 0;
+      }
+    }
+    return { pull, push: pushOnce, schedule, storeUrl, createBatch, patchEntry, deleteEntry };
   }
 
   // src/core/image-codec.js
@@ -3596,11 +3717,15 @@ ${PICK_SCRIPT}<\/script>`;
               if (items.length === 0) continue;
               const turn = Number.isFinite(value.turn) ? Number(value.turn) : void 0;
               const anchorKey = typeof value.anchorKey === "string" && value.anchorKey !== "" ? value.anchorKey : void 0;
+              const batchUuid = typeof value.batchUuid === "string" && value.batchUuid !== "" ? value.batchUuid : void 0;
+              const batchSeq = Number.isSafeInteger(value.batchSeq) ? value.batchSeq : void 0;
               table.set(key, {
                 savedAt: Number(value.savedAt) || 0,
                 items,
                 ...turn !== void 0 ? { turn } : {},
-                ...anchorKey !== void 0 ? { anchorKey } : {}
+                ...anchorKey !== void 0 ? { anchorKey } : {},
+                ...batchUuid !== void 0 ? { batchUuid } : {},
+                ...batchSeq !== void 0 ? { batchSeq } : {}
               });
             }
             if (table.size > 0) {
@@ -3887,10 +4012,47 @@ ${PICK_SCRIPT}<\/script>`;
         });
         const loadSent = (sessionId) => sentStore.loadSent(sessionId);
         const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table);
-        const recordSent = (sessionId, anchorKey, items, turn) => {
-          sentStore.recordSent(sessionId, anchorKey, items, turn);
+        const recordSent = (sessionId, anchorKey, items, turn, options) => {
+          sentStore.recordSent(sessionId, anchorKey, items, turn, options);
           consumedSnapshot = null;
         };
+        const updateSentBatch = (sessionId, anchorKey, options) => sentStore.updateSentBatch(sessionId, anchorKey, options);
+        function batchItemUuids(result, count) {
+          const list = Array.isArray(result?.items) ? result.items : Array.isArray(result?.entries) ? result.entries : Array.isArray(result?.uuids) ? result.uuids : void 0;
+          if (list === void 0 || list.length !== count) return void 0;
+          const uuids = list.map(
+            (entry) => typeof entry === "string" ? entry : typeof entry?.uuid === "string" ? entry.uuid : ""
+          );
+          return uuids.every((uuid) => uuid !== "") ? uuids : void 0;
+        }
+        function syncSentBatch(sessionId, anchorKey, items, turn, batchAt) {
+          if (typeof sessionId !== "string" || sessionId === "" || !Array.isArray(items) || items.length === 0) return;
+          const wireItems = items.map((item) => ({
+            index: item.index,
+            quote: item.quote,
+            note: item.note,
+            source: item.source,
+            ...Array.isArray(item.images) ? { images: item.images } : {}
+          }));
+          const body = {
+            ...Number.isFinite(turn) ? { turn } : {},
+            anchor_key: anchorKey,
+            ...Number.isFinite(batchAt) ? { batch_at: batchAt } : {},
+            items: wireItems
+          };
+          void remoteSync.createBatch(sessionId, body).then((result) => {
+            if (result === void 0) return;
+            const batchUuid = typeof result.batch_uuid === "string" && result.batch_uuid !== "" ? result.batch_uuid : void 0;
+            const batchSeq = Number.isSafeInteger(result.batch_seq) ? result.batch_seq : void 0;
+            if (batchUuid === void 0 && batchSeq === void 0) return;
+            updateSentBatch(sessionId, anchorKey, {
+              batchUuid,
+              batchSeq,
+              uuids: batchItemUuids(result, items.length)
+            });
+          }).catch(() => {
+          });
+        }
         function collectAnchorRows() {
           const rows = [];
           const seen = /* @__PURE__ */ new Set();
@@ -4018,6 +4180,7 @@ ${PICK_SCRIPT}<\/script>`;
             if (!Number.isFinite(hint)) return false;
             pendingSent.shift();
             recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint);
+            syncSentBatch(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint, pending.at);
             scheduleRepaint();
             return true;
           };
@@ -4069,6 +4232,7 @@ ${PICK_SCRIPT}<\/script>`;
           pendingSent.shift();
           const turn = turnOfRow(target.row);
           recordSent(sessionId, target.anchorKey, pending.items, turn);
+          syncSentBatch(sessionId, target.anchorKey, pending.items, turn, pending.at);
           scheduleRepaint();
         }
         const markdown = createMarkdown({
@@ -4613,7 +4777,23 @@ ${PICK_SCRIPT}<\/script>`;
             if (sentCard !== void 0) collapseSentForReplies(sentCard, signature);
           }
         }
-        const payloadApi = createPayload({ t, instructionOf });
+        function sentUuidOf(source) {
+          if (source?.kind !== "sent") return void 0;
+          const sessionId = annotationsSession ?? currentSessionId();
+          if (sessionId === void 0) return void 0;
+          if (typeof source.anchorKey !== "string" || source.anchorKey === "") return void 0;
+          if (!Number.isFinite(source.index)) return void 0;
+          let found;
+          for (const [storedKey, record] of loadSent(sessionId)) {
+            const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
+            if (anchorKey !== source.anchorKey) continue;
+            if (found !== void 0 && found.savedAt >= record.savedAt) continue;
+            const item = record.items.find((entry) => Number(entry.index) === source.index);
+            if (typeof item?.uuid === "string" && item.uuid !== "") found = { savedAt: record.savedAt, uuid: item.uuid };
+          }
+          return found?.uuid;
+        }
+        const payloadApi = createPayload({ t, instructionOf, uuidOfSent: sentUuidOf });
         const describeSource = (source) => payloadApi.describeSource(source);
         const payloadSource = (source) => payloadApi.payloadSource(source);
         const buildPayload = (items) => payloadApi.buildPayload(items);

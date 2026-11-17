@@ -507,11 +507,16 @@ const rewindHandled = new Map()
               // 宿主里的旧记录可能用 time:/turn-process 当键；值里的 anchorKey 才是消息行锚点，必须留住。
               const anchorKey =
                 typeof value.anchorKey === 'string' && value.anchorKey !== '' ? value.anchorKey : undefined
+              const batchUuid =
+                typeof value.batchUuid === 'string' && value.batchUuid !== '' ? value.batchUuid : undefined
+              const batchSeq = Number.isSafeInteger(value.batchSeq) ? value.batchSeq : undefined
               table.set(key, {
                 savedAt: Number(value.savedAt) || 0,
                 items,
                 ...(turn !== undefined ? { turn } : {}),
                 ...(anchorKey !== undefined ? { anchorKey } : {}),
+                ...(batchUuid !== undefined ? { batchUuid } : {}),
+                ...(batchSeq !== undefined ? { batchSeq } : {}),
               })
             }
             if (table.size > 0) {
@@ -867,9 +872,64 @@ const rewindHandled = new Map()
         })
         const loadSent = (sessionId) => sentStore.loadSent(sessionId)
         const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table)
-        const recordSent = (sessionId, anchorKey, items, turn) => {
-          sentStore.recordSent(sessionId, anchorKey, items, turn)
+        const recordSent = (sessionId, anchorKey, items, turn, options) => {
+          sentStore.recordSent(sessionId, anchorKey, items, turn, options)
           consumedSnapshot = null
+        }
+        const updateSentBatch = (sessionId, anchorKey, options) =>
+          sentStore.updateSentBatch(sessionId, anchorKey, options)
+
+        /** 宿主返回的条目 uuid 与请求里的 items 按序对应；缺列表或长度对不上就整批不记。 */
+        function batchItemUuids(result, count) {
+          const list = Array.isArray(result?.items)
+            ? result.items
+            : Array.isArray(result?.entries)
+              ? result.entries
+              : Array.isArray(result?.uuids)
+                ? result.uuids
+                : undefined
+          if (list === undefined || list.length !== count) return undefined
+          const uuids = list.map((entry) =>
+            typeof entry === 'string' ? entry : typeof entry?.uuid === 'string' ? entry.uuid : '',
+          )
+          return uuids.every((uuid) => uuid !== '') ? uuids : undefined
+        }
+
+        /**
+         * 新宿主落账：本地卡片已经出来，这里只补批号与条目 uuid。
+         * 旧宿主、离线、报错都什么都不改，整份快照推送照旧兜底。
+         */
+        function syncSentBatch(sessionId, anchorKey, items, turn, batchAt) {
+          if (typeof sessionId !== 'string' || sessionId === '' || !Array.isArray(items) || items.length === 0) return
+          // thumbs 是本地缩略图，不进宿主请求：宿主只认 index/quote/note/source/images。
+          const wireItems = items.map((item) => ({
+            index: item.index,
+            quote: item.quote,
+            note: item.note,
+            source: item.source,
+            ...(Array.isArray(item.images) ? { images: item.images } : {}),
+          }))
+          const body = {
+            ...(Number.isFinite(turn) ? { turn } : {}),
+            anchor_key: anchorKey,
+            ...(Number.isFinite(batchAt) ? { batch_at: batchAt } : {}),
+            items: wireItems,
+          }
+          void remoteSync
+            .createBatch(sessionId, body)
+            .then((result) => {
+              if (result === undefined) return
+              const batchUuid =
+                typeof result.batch_uuid === 'string' && result.batch_uuid !== '' ? result.batch_uuid : undefined
+              const batchSeq = Number.isSafeInteger(result.batch_seq) ? result.batch_seq : undefined
+              if (batchUuid === undefined && batchSeq === undefined) return
+              updateSentBatch(sessionId, anchorKey, {
+                batchUuid,
+                batchSeq,
+                uuids: batchItemUuids(result, items.length),
+              })
+            })
+            .catch(() => {})
         }
 
         /**
@@ -1047,6 +1107,7 @@ const rewindHandled = new Map()
             if (!Number.isFinite(hint)) return false
             pendingSent.shift()
             recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint)
+            syncSentBatch(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint, pending.at)
             scheduleRepaint()
             return true
           }
@@ -1111,6 +1172,7 @@ const rewindHandled = new Map()
           pendingSent.shift()
           const turn = turnOfRow(target.row)
           recordSent(sessionId, target.anchorKey, pending.items, turn)
+          syncSentBatch(sessionId, target.anchorKey, pending.items, turn, pending.at)
           scheduleRepaint()
         }
 
@@ -1795,7 +1857,31 @@ const rewindHandled = new Map()
 
         /* ------------------------------------------------------- 原生附件块（随消息发送） */
 
-        const payloadApi = createPayload({ t, instructionOf })
+        /**
+         * 已发送卡片上条目的 uuid：按卡片锚点与条目编号，在台账里找最近一条有 uuid 的记录。
+         * 老宿主、还没回填 uuid 时返回 undefined，payload 就不写这个字段。
+         */
+        function sentUuidOf(source) {
+          if (source?.kind !== 'sent') return undefined
+          const sessionId = annotationsSession ?? currentSessionId()
+          if (sessionId === undefined) return undefined
+          if (typeof source.anchorKey !== 'string' || source.anchorKey === '') return undefined
+          if (!Number.isFinite(source.index)) return undefined
+          let found
+          for (const [storedKey, record] of loadSent(sessionId)) {
+            const anchorKey =
+              typeof record.anchorKey === 'string' && record.anchorKey !== ''
+                ? record.anchorKey
+                : resolveLegacyAnchor(storedKey)
+            if (anchorKey !== source.anchorKey) continue
+            if (found !== undefined && found.savedAt >= record.savedAt) continue
+            const item = record.items.find((entry) => Number(entry.index) === source.index)
+            if (typeof item?.uuid === 'string' && item.uuid !== '') found = { savedAt: record.savedAt, uuid: item.uuid }
+          }
+          return found?.uuid
+        }
+
+        const payloadApi = createPayload({ t, instructionOf, uuidOfSent: sentUuidOf })
         const describeSource = (source) => payloadApi.describeSource(source)
         const payloadSource = (source) => payloadApi.payloadSource(source)
         const buildPayload = (items) => payloadApi.buildPayload(items)

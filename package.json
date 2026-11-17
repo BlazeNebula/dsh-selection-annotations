@@ -16,7 +16,7 @@
     "web"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "main": "lib/index.js",
   "exports": {

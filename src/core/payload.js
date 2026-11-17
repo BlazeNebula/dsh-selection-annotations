@@ -4,7 +4,18 @@ import { PAYLOAD_KIND } from './config.js'
  * 批注负载与出处文案。
  * 负载是一个自描述的 JSON 数据块：位置要能被程序化使用，所以用字段而不是自然语言描述。
  */
-export function createPayload({ t, instructionOf }) {
+export function createPayload({ t, instructionOf, uuidOfSent }) {
+  /** 已发送条目的 uuid 由调用方按台账解析；没解析到或解析出错都不写这个字段。 */
+  function sentUuidOf(source) {
+    if (typeof uuidOfSent !== 'function') return undefined
+    try {
+      const uuid = uuidOfSent(source)
+      return typeof uuid === 'string' && uuid !== '' ? uuid : undefined
+    } catch {
+      return undefined
+    }
+  }
+
   function describeSource(source) {
     if (source === null || source === undefined) return t('source.unknown')
     if (source.kind === 'message') {
@@ -85,6 +96,9 @@ export function createPayload({ t, instructionOf }) {
       if (typeof source.anchorKey === 'string' && source.anchorKey !== '') out.anchorKey = source.anchorKey
       if (Number.isFinite(source.index)) out.index = source.index
       if (typeof source.field === 'string' && source.field !== '') out.field = source.field
+      // 条目 uuid 只在知道时带上，让模型能定向答复那一条；不知道就不出现这个字段。
+      const uuid = typeof source.uuid === 'string' && source.uuid !== '' ? source.uuid : sentUuidOf(source)
+      if (typeof uuid === 'string' && uuid !== '') out.uuid = uuid
     } else if (source?.kind === 'web') {
       if (typeof source.anchorKey === 'string' && source.anchorKey !== '') out.anchorKey = source.anchorKey
       if (typeof source.path === 'string' && source.path !== '') out.path = source.path
