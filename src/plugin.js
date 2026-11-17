@@ -5200,11 +5200,16 @@ const rewindHandled = new Map()
         ctx.effect(() => {
           document.addEventListener('selectionchange', onSelectionChange)
           // 拖动选区的过程中只记录指针，不渲染工具条；松手后再出现，避免频闪。
+          /** 指针按下时是否落在插件自己的 UI 里：从自己 UI 里按下再松手不算划线结束。*/
+          let pointerDownInUi = false
           const onSelectPointerDown = (event) => {
             const target = elementOf(event.target)
-            if (target !== null && target.closest('[data-sa-ui]') !== null) return
-            if (popover.dataset.open === '1' && target !== null && target.closest('[data-sa-ui="popover"]') !== null) return
+            // 不管按在正文还是插件自己的卡片、答复区上，按下就进入拖选态：拖选期间不能重建卡片，
+            // 否则选区起点会被夹到容器开头，松手后选区也会消失。
             pointerSelecting = true
+            pointerDownInUi = target !== null && target.closest('[data-sa-ui]') !== null
+            // 点自己的 UI（卡片、答复区、弹层）：只是交互，不动工具条。
+            if (pointerDownInUi) return
             hideToolbar()
           }
           document.addEventListener('pointerdown', onSelectPointerDown, true)
@@ -5215,6 +5220,10 @@ const rewindHandled = new Map()
             // 拖选挡住的重绘：这一下松手如果选区已收（单击、或点掉了选区），立刻补上。
             flushPendingRepaint()
             const target = elementOf(event.target)
+            const fromUi = pointerDownInUi
+            pointerDownInUi = false
+            // 从自己的 UI 里按下又松手（点卡片、点答复区、拖弹层）不算划线结束：不重算工具条。
+            if (fromUi && target !== null && target.closest('[data-sa-ui]') !== null) return
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return
             // 在弹层里松手（包括拖标题）不算划线结束，不重算工具条。
             if (target !== null && target.closest('[data-sa-ui="popover"], [data-sa-ui="ghost"]') !== null) return

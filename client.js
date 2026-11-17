@@ -7589,11 +7589,12 @@ ${PICK_SCRIPT}`;
         });
         ctx.effect(() => {
           document.addEventListener("selectionchange", onSelectionChange);
+          let pointerDownInUi = false;
           const onSelectPointerDown = (event) => {
             const target = elementOf2(event.target);
-            if (target !== null && target.closest("[data-sa-ui]") !== null) return;
-            if (popover.dataset.open === "1" && target !== null && target.closest('[data-sa-ui="popover"]') !== null) return;
             pointerSelecting = true;
+            pointerDownInUi = target !== null && target.closest("[data-sa-ui]") !== null;
+            if (pointerDownInUi) return;
             hideToolbar();
           };
           document.addEventListener("pointerdown", onSelectPointerDown, true);
@@ -7601,6 +7602,9 @@ ${PICK_SCRIPT}`;
             pointerSelecting = false;
             flushPendingRepaint();
             const target = elementOf2(event.target);
+            const fromUi = pointerDownInUi;
+            pointerDownInUi = false;
+            if (fromUi && target !== null && target.closest("[data-sa-ui]") !== null) return;
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return;
             if (target !== null && target.closest('[data-sa-ui="popover"], [data-sa-ui="ghost"]') !== null) return;
             lastPointerUp = { x: event.clientX, y: event.clientY, at: Date.now() };
