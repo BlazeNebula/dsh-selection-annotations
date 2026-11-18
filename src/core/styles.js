@@ -240,6 +240,10 @@ export const CSS = `
   color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-item-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 120ms ease; }
 .sa-item:hover .sa-item-actions, .sa-item:focus-within .sa-item-actions { opacity: 1; }
+/* 总览的「查看出处」跟随条目悬停出现：与同条目的拷贝/编辑/删除同一时机、同一按钮样式。*/
+.sa-item-jump { opacity: 0; transition: opacity 120ms ease; }
+.sa-item:hover .sa-item-jump, .sa-item:focus-within .sa-item-jump { opacity: 1; }
+.sa-item:hover .sa-item-jump[data-disabled="1"], .sa-item:focus-within .sa-item-jump[data-disabled="1"] { opacity: 0.45; }
 .sa-item-action { font: inherit; font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); padding: 2px 6px; border-radius: 5px; cursor: pointer;
   border: none; background: none; color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-item-action:hover { background: var(--dsw-alias-bg-layer-2, ButtonFace); color: var(--dsw-alias-label-primary, CanvasText); }

@@ -15,7 +15,6 @@ export function createPanelRenderer({
   moveAnnotation,
   openEditPopover,
   jumpToQuote = () => {},
-  jumpButton = null, // 与已发送卡/答复共用的「查看出处」按钮工厂；放在「引用原文」标题行末尾
   removeAnnotation,
   sourceSummary,
   openImageViewer,
@@ -193,9 +192,15 @@ export function createPanelRenderer({
         const q = el('div', 'sa-item-q')
         const qHead = el('div', 'sa-item-q-head')
         qHead.appendChild(el('div', 'sa-item-label', t('panel.quote')))
-        if (typeof jumpButton === 'function') {
-          qHead.appendChild(jumpButton(item, (it, root) => jumpToQuote(it, root)))
-        }
+        // 与拷贝/编辑/删除同一套按钮样式，同样随条目悬停才出现（规则在 .sa-item-jump）。
+        const jump = button('sa-item-action sa-item-jump', t('jump.label'), (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          jumpToQuote(item, jump)
+        })
+        jump.title = t('jump.hint')
+        if (item.source?.kind === 'file') jump.setAttribute('data-disabled', '1')
+        qHead.appendChild(jump)
         q.appendChild(qHead)
         const quote = el('div', 'sa-item-quote', item.quote)
         quote.title = t('expand')

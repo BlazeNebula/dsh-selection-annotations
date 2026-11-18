@@ -242,6 +242,10 @@
   color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-item-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 120ms ease; }
 .sa-item:hover .sa-item-actions, .sa-item:focus-within .sa-item-actions { opacity: 1; }
+/* 总览的「查看出处」跟随条目悬停出现：与同条目的拷贝/编辑/删除同一时机、同一按钮样式。*/
+.sa-item-jump { opacity: 0; transition: opacity 120ms ease; }
+.sa-item:hover .sa-item-jump, .sa-item:focus-within .sa-item-jump { opacity: 1; }
+.sa-item:hover .sa-item-jump[data-disabled="1"], .sa-item:focus-within .sa-item-jump[data-disabled="1"] { opacity: 0.45; }
 .sa-item-action { font: inherit; font-size: calc(11.5px + var(--dsh-content-font-delta, 0px) * 0.4); padding: 2px 6px; border-radius: 5px; cursor: pointer;
   border: none; background: none; color: var(--dsw-alias-label-secondary, GrayText); }
 .sa-item-action:hover { background: var(--dsw-alias-bg-layer-2, ButtonFace); color: var(--dsw-alias-label-primary, CanvasText); }
@@ -1814,9 +1818,6 @@
           });
         }
         quoteRow.appendChild(quote);
-        if (typeof options.onJumpQuote === "function") {
-          quoteRow.appendChild(jumpButton(item, options.onJumpQuote));
-        }
         text.appendChild(quoteRow);
         if (typeof item.note === "string" && item.note.trim() !== "") {
           const note = document.createElement("div");
@@ -2026,7 +2027,7 @@
       card.append(wrap);
       return card;
     }
-    return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection, jumpButton };
+    return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection };
   }
 
   // src/core/markdown.js
@@ -2102,8 +2103,6 @@
     openEditPopover,
     jumpToQuote = () => {
     },
-    jumpButton = null,
-    // 与已发送卡/答复共用的「查看出处」按钮工厂；放在「引用原文」标题行末尾
     removeAnnotation,
     sourceSummary,
     openImageViewer,
@@ -2258,9 +2257,14 @@
           const q = el("div", "sa-item-q");
           const qHead = el("div", "sa-item-q-head");
           qHead.appendChild(el("div", "sa-item-label", t("panel.quote")));
-          if (typeof jumpButton === "function") {
-            qHead.appendChild(jumpButton(item, (it, root) => jumpToQuote(it, root)));
-          }
+          const jump = button("sa-item-action sa-item-jump", t("jump.label"), (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            jumpToQuote(item, jump);
+          });
+          jump.title = t("jump.hint");
+          if (item.source?.kind === "file") jump.setAttribute("data-disabled", "1");
+          qHead.appendChild(jump);
           q.appendChild(qHead);
           const quote = el("div", "sa-item-quote", item.quote);
           quote.title = t("expand");
@@ -4368,7 +4372,15 @@ ${PICK_SCRIPT}<\/script>`;
         const loadSent = (sessionId) => sentStore.loadSent(sessionId);
         const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table);
         const recordSent = (sessionId, anchorKey, items, turn, options) => {
-          sentStore.recordSent(sessionId, anchorKey, items, turn, options);
+          const extra = options ?? {};
+          const existing = sentStore.loadSent(sessionId).get(anchorKey);
+          const storedUuid = typeof existing?.batchUuid === "string" && existing.batchUuid !== "" ? existing.batchUuid : void 0;
+          const givenUuid = typeof extra.batchUuid === "string" && extra.batchUuid !== "" ? extra.batchUuid : void 0;
+          const batchUuid = givenUuid ?? storedUuid ?? (existing === void 0 ? uuidV4() : void 0);
+          sentStore.recordSent(sessionId, anchorKey, items, turn, {
+            ...extra,
+            ...batchUuid !== void 0 ? { batchUuid } : {}
+          });
           consumedSnapshot = null;
           markConversationDirty();
         };
@@ -4394,26 +4406,29 @@ ${PICK_SCRIPT}<\/script>`;
             source: item.source,
             ...Array.isArray(item.images) ? { images: item.images } : {}
           }));
+          const storedRecord = sentStore.loadSent(sessionId).get(anchorKey);
+          const batchUuid = typeof storedRecord?.batchUuid === "string" && storedRecord.batchUuid !== "" ? storedRecord.batchUuid : void 0;
           const body = {
             ...Number.isFinite(turn) ? { turn } : {},
             anchor_key: anchorKey,
             ...Number.isFinite(batchAt) ? { batch_at: batchAt } : {},
+            ...batchUuid !== void 0 ? { batch_uuid: batchUuid } : {},
             items: wireItems
           };
           void remoteSync.createBatch(sessionId, body).then((result) => {
             if (result === void 0) return;
-            const batchUuid = typeof result.batch_uuid === "string" && result.batch_uuid !== "" ? result.batch_uuid : void 0;
+            const batchUuid2 = typeof result.batch_uuid === "string" && result.batch_uuid !== "" ? result.batch_uuid : void 0;
             const batchSeq = Number.isSafeInteger(result.batch_seq) ? result.batch_seq : void 0;
-            if (batchUuid === void 0 && batchSeq === void 0) return;
-            if (batchUuid !== void 0) {
-              void remoteSync.patchBatch(batchUuid, {
+            if (batchUuid2 === void 0 && batchSeq === void 0) return;
+            if (batchUuid2 !== void 0) {
+              void remoteSync.patchBatch(batchUuid2, {
                 ...Number.isFinite(turn) ? { turn } : {},
                 ...typeof anchorKey === "string" && anchorKey !== "" ? { anchor_key: anchorKey } : {}
               }).catch(() => {
               });
             }
             updateSentBatch(sessionId, anchorKey, {
-              batchUuid,
+              batchUuid: batchUuid2,
               batchSeq,
               uuids: batchItemUuids(result, items.length)
             });
@@ -7889,7 +7904,6 @@ ${PICK_SCRIPT}`;
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
           jumpToQuote: (item, root) => jumpToQuote(item, void 0, root),
-          jumpButton: (item, onClick, hint) => cards.jumpButton(item, onClick, hint),
           removeAnnotation: (id) => removeAnnotation(id),
           sourceSummary: (item) => sourceSummary(item),
           openImageViewer: (url, name) => openImageViewer(url, name),

@@ -177,7 +177,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       quote.setAttribute('data-sa-field', 'quote')
       quote.textContent = truncateQuote(item.quote)
       if (typeof options.onJumpQuote === 'function') {
-        // 引文块整块可点：与右侧按钮跳同一个出处。悬停变正文色由 .sa-quote-jump 负责。
+        // 引文块整块可点：跳转入口只保留这一处。悬停变正文色由 .sa-quote-jump 负责。
         quote.classList.add('sa-quote-jump')
         quote.setAttribute('role', 'button')
         quote.setAttribute('tabindex', '0')
@@ -193,10 +193,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
         })
       }
       quoteRow.appendChild(quote)
-      // 按钮是这一行的普通子元素，靠 .sa-reuse 的 margin-left:auto 贴右。
-      if (typeof options.onJumpQuote === 'function') {
-        quoteRow.appendChild(jumpButton(item, options.onJumpQuote))
-      }
+      // 引文块整块可点后不再重复放按钮，这一行只保留引文本身。
       text.appendChild(quoteRow)
       if (typeof item.note === 'string' && item.note.trim() !== '') {
         const note = document.createElement('div')
@@ -429,5 +426,5 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return card
   }
 
-  return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection, jumpButton }
+  return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection }
 }

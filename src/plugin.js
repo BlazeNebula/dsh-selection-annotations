@@ -925,7 +925,19 @@ const rewindHandled = new Map()
         const loadSent = (sessionId) => sentStore.loadSent(sessionId)
         const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table)
         const recordSent = (sessionId, anchorKey, items, turn, options) => {
-          sentStore.recordSent(sessionId, anchorKey, items, turn, options)
+          const extra = options ?? {}
+          // 批次编号在这一批第一次进台账时生成，之后重发/刷新都从台账读回同一个值；
+          // 老记录（刷新时从宿主并进来、当初没有编号）保持没有，首次提交先走旧路径，等宿主返回再回填。
+          const existing = sentStore.loadSent(sessionId).get(anchorKey)
+          const storedUuid =
+            typeof existing?.batchUuid === 'string' && existing.batchUuid !== '' ? existing.batchUuid : undefined
+          const givenUuid =
+            typeof extra.batchUuid === 'string' && extra.batchUuid !== '' ? extra.batchUuid : undefined
+          const batchUuid = givenUuid ?? storedUuid ?? (existing === undefined ? uuidV4() : undefined)
+          sentStore.recordSent(sessionId, anchorKey, items, turn, {
+            ...extra,
+            ...(batchUuid !== undefined ? { batchUuid } : {}),
+          })
           consumedSnapshot = null
           // 台账多了一条：会话区必须重建一次，否则新卡要等下一次无关的变化才肯出现。
           markConversationDirty()
@@ -967,10 +979,18 @@ const rewindHandled = new Map()
             source: item.source,
             ...(Array.isArray(item.images) ? { images: item.images } : {}),
           }))
+          // 批号随台账走：同批重发时重复发送同一个值，宿主才能认成同一批而不是新批次。
+          // 老记录没有编号时不发该字段，等宿主返回后再由 updateSentBatch 回填。
+          const storedRecord = sentStore.loadSent(sessionId).get(anchorKey)
+          const batchUuid =
+            typeof storedRecord?.batchUuid === 'string' && storedRecord.batchUuid !== ''
+              ? storedRecord.batchUuid
+              : undefined
           const body = {
             ...(Number.isFinite(turn) ? { turn } : {}),
             anchor_key: anchorKey,
             ...(Number.isFinite(batchAt) ? { batch_at: batchAt } : {}),
+            ...(batchUuid !== undefined ? { batch_uuid: batchUuid } : {}),
             items: wireItems,
           }
           void remoteSync
@@ -5349,7 +5369,6 @@ const rewindHandled = new Map()
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
           jumpToQuote: (item, root) => jumpToQuote(item, undefined, root),
-          jumpButton: (item, onClick, hint) => cards.jumpButton(item, onClick, hint),
           removeAnnotation: (id) => removeAnnotation(id),
           sourceSummary: (item) => sourceSummary(item),
           openImageViewer: (url, name) => openImageViewer(url, name),
