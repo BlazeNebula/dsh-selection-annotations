@@ -29,6 +29,7 @@ import {
   DRAFT_MAX_BYTES,
   HOVER_OPEN_DELAY_MS,
   ORPHAN_SWEEP_MS,
+  POP_AUTO_SAVE_MS,
   REFINE_WAIT_MS,
   REPAINT_MS,
   SETTLE_MS,
@@ -58,6 +59,7 @@ import { createPreviewBridge } from './core/preview-bridge.js'
 import { createSentStore, isSentItem } from './core/sent-store.js'
 import { createPayloadHidingRule } from './core/hidden-payload.js'
 import { createRemoteSync } from './core/remote-sync.js'
+import { createScrollTrace } from './core/scroll-trace.js'
 import { createDraftCodec } from './core/draft-codec.js'
 import { createDraftStore } from './core/draft-store.js'
 import { compressImage, downscaleDataUrl, fileToDataUrl } from './core/image-codec.js'
@@ -369,7 +371,7 @@ const rewindHandled = new Map()
           consumedSnapshot = { items: annotations.slice(), at: Date.now() }
           annotations = []
           emit()
-          scheduleRepaint()
+          scheduleRepaint('emit')
           // 草稿存储也要跟着清掉：否则刷新后这批已发出的批注会「复活」。
           saveDraft(annotationsSession)
           log(`[selection-annotations] 批注已随消息发出（${reason}）`)
@@ -481,6 +483,8 @@ const rewindHandled = new Map()
         const remoteSync = createRemoteSync(sessionSnapshot)
         const storeUrl = (sessionId) => remoteSync.storeUrl(sessionId)
         const pullRemoteSession = (sessionId) => remoteSync.pull(sessionId)
+        // 滚动追踪：谁改了会话区 scrollTop、谁触发了重绘，落盘给人事后看。
+        const scrollTrace = createScrollTrace()
 
         /** 当前会话的可落盘快照：草稿与已提交台账（落盘不做体积裁剪）。*/
         function sessionSnapshot(sessionId) {
@@ -517,7 +521,7 @@ const rewindHandled = new Map()
             if (annotationsSession === sessionId && annotations.length === 0 && items.length > 0) {
               annotations = items
               emit()
-              scheduleRepaint()
+              scheduleRepaint('emit')
               scheduleSync()
             }
             if ((draftSessions.get(sessionId) ?? []).length === 0) draftSessions.set(sessionId, remote.drafts)
@@ -567,7 +571,7 @@ const rewindHandled = new Map()
           if (touched) {
             // 远端带回来的草稿/台账/答复都算数据变化：会话区要按新的表重建一次。
             markConversationDirty()
-            scheduleRepaint()
+            scheduleRepaint('session')
           }
           hydratedSessions.add(sessionId)
           flushPendingRemotePush(sessionId)
@@ -604,14 +608,18 @@ const rewindHandled = new Map()
           if (typeof sessionId !== 'string' || sessionId === '') return
           const first = annotationsSession === undefined
           if (!first && annotationsSession === sessionId) return
-          if (!first) saveDraft(annotationsSession)
+          if (!first) {
+            // 切会话算「保存」侧：先把还在去抖窗口里的编辑写进旧会话的条目，再存旧草稿。
+            flushPopAutoSave()
+            saveDraft(annotationsSession)
+          }
           annotationsSession = sessionId
           // 首次挂载时内存里可能已有批注（测试台或热换前注入的），直接归到这个会话。
           if (first && annotations.length > 0) {
             saveDraft(sessionId)
             // 这条支路也要让会话区重建一次：本地台账里的卡片还没画过。
             markConversationDirty()
-            scheduleRepaint()
+            scheduleRepaint('session')
             return
           }
           annotations = loadDraft(sessionId)
@@ -622,7 +630,7 @@ const rewindHandled = new Map()
           emit()
           // 换会话就是换了整套数据：会话区必须重建，不能等宿主下一次 DOM 变化。
           markConversationDirty()
-          scheduleRepaint()
+          scheduleRepaint('session')
           if (annotations.length > 0) scheduleSync()
           // 本地是空的就当远端有数据：跨端切换会话时靠这一步把记录带回来。
           // 合并失败只影响远端补齐，不能变成未处理的拒绝把后续重绘一起带走。
@@ -699,7 +707,7 @@ const rewindHandled = new Map()
           annotations = [...annotations, item]
           emit()
           scheduleSync()
-          scheduleRepaint()
+          scheduleRepaint('emit')
           saveDraft(annotationsSession)
           return item
         }
@@ -817,7 +825,7 @@ const rewindHandled = new Map()
             return 0
           }
           flashPanelHint(t('panel.pasteDone', { n: added }), root)
-          scheduleRepaint()
+          scheduleRepaint('emit')
           return added
         }
 
@@ -861,7 +869,7 @@ const rewindHandled = new Map()
           renumber()
           emit()
           scheduleSync()
-          scheduleRepaint()
+          scheduleRepaint('emit')
           saveDraft(annotationsSession)
         }
 
@@ -877,7 +885,7 @@ const rewindHandled = new Map()
           renumber()
           emit()
           scheduleSync()
-          scheduleRepaint()
+          scheduleRepaint('emit')
           saveDraft(annotationsSession)
           refreshPanel()
         }
@@ -887,7 +895,7 @@ const rewindHandled = new Map()
           // 注意：不要在这里清 draftIds —— 交给 syncAttachment 才能把已挂上的附件摘掉。
           emit()
           scheduleSync()
-          scheduleRepaint()
+          scheduleRepaint('emit')
           saveDraft(annotationsSession)
         }
 
@@ -984,7 +992,7 @@ const rewindHandled = new Map()
                 uuids: batchItemUuids(result, items.length),
               })
               // 回填只发生一次：这时才需要重建一遍会话区，让答复按 uuid 归到这张卡上。
-              scheduleRepaint()
+              scheduleRepaint('emit')
             })
             .catch(() => {})
         }
@@ -1110,7 +1118,7 @@ const rewindHandled = new Map()
           if (restored.length === 0) return
           annotations = [...restored, ...annotations]
           emit()
-          scheduleRepaint()
+          scheduleRepaint('emit')
           saveDraft(annotationsSession)
           warn('[selection-annotations] 这批批注没能记进已发送台账，已放回界面。')
         }
@@ -1147,7 +1155,7 @@ const rewindHandled = new Map()
             recordSent(entrySession, `turn:${hint}:${entry.at}`, entry.items, hint)
             expiredRecorded = true
           }
-          if (expiredRecorded) scheduleRepaint()
+          if (expiredRecorded) scheduleRepaint('mutation')
           if (expired.length > 0 && !expiredRecorded && pendingSent.length === 0) restoreConsumedSnapshot()
           if (pendingSent.length === 0) return
           const pending = pendingSent[0]
@@ -1165,7 +1173,7 @@ const rewindHandled = new Map()
             pendingSent.shift()
             recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint)
             syncSentBatch(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint, pending.at)
-            scheduleRepaint()
+            scheduleRepaint('emit')
             return true
           }
           const rows = collectAnchorRows()
@@ -1230,7 +1238,7 @@ const rewindHandled = new Map()
           const turn = turnOfRow(target.row)
           recordSent(sessionId, target.anchorKey, pending.items, turn)
           syncSentBatch(sessionId, target.anchorKey, pending.items, turn, pending.at)
-          scheduleRepaint()
+          scheduleRepaint('emit')
         }
 
         const markdown = createMarkdown({
@@ -2281,12 +2289,48 @@ const rewindHandled = new Map()
           return conversationDirty === true || placementPending === true
         }
 
-        function scheduleRepaint() {
+        function scheduleRepaint(source = 'timer') {
           if (repaintTimer !== null) return
+          // 记下这次重绘是谁排进来的：mutation / viewport / poll / emit / session / timer。
+          scrollTrace.repaint(source)
           repaintTimer = window.setTimeout(() => {
             repaintTimer = null
             repaint()
           }, REPAINT_MS)
+        }
+
+        /**
+         * 从节点上溯找会话区的滚动祖先：内容高度超出、且 overflowY 为 auto/scroll 的容器。
+         * 位置保护与滚动追踪共用这一套查找，避免两边各写一份选择器。
+         */
+        function scrollAncestorsOf(start) {
+          const found = []
+          let current = start
+          for (let i = 0; i < 32 && current !== null && current !== undefined; i += 1) {
+            if (current === document.body || current === document.documentElement) break
+            const scrollable =
+              typeof current.scrollHeight === 'number' &&
+              typeof current.clientHeight === 'number' &&
+              current.scrollHeight > current.clientHeight + 1
+            if (scrollable) {
+              const overflowY =
+                typeof window.getComputedStyle === 'function'
+                  ? safe(() => window.getComputedStyle(current).overflowY) ?? ''
+                  : ''
+              if (overflowY === 'auto' || overflowY === 'scroll') found.push(current)
+            }
+            current = current.parentElement ?? null
+          }
+          return found
+        }
+
+        /** 给当前会话的滚动容器挂追踪监听；容器没变时重复调用是空操作。 */
+        function watchConversationScroll() {
+          const roots = [...visibleConversationScopes()]
+          for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node)
+          for (const root of roots) {
+            for (const container of scrollAncestorsOf(root)) scrollTrace.watch(container)
+          }
         }
 
         /**
@@ -2328,6 +2372,8 @@ const rewindHandled = new Map()
             return undefined
           }
           const capture = (container) => {
+            // 追踪监听与位置保护同时挂上：滚动事件里靠写前标记区分是谁改的。
+            scrollTrace.watch(container)
             const top = container.scrollTop
             const sticky = top + container.clientHeight >= container.scrollHeight - 2
             const entry = { el: container, top, scrollHeight: container.scrollHeight, sticky }
@@ -2340,24 +2386,12 @@ const rewindHandled = new Map()
             }
             saved.push(entry)
           }
+          /** 走与滚动追踪共用的祖先查找：顺序、停止条件、overflow 判据都保持一致。 */
           const remember = (start) => {
-            let current = start
-            for (let i = 0; i < 32 && current !== null && current !== undefined; i += 1) {
-              if (current === document.body || current === document.documentElement) break
-              const scrollable =
-                typeof current.scrollHeight === 'number' &&
-                typeof current.clientHeight === 'number' &&
-                current.scrollHeight > current.clientHeight + 1
-              if (scrollable && !seen.has(current)) {
-                const overflowY = typeof window.getComputedStyle === 'function'
-                  ? safe(() => window.getComputedStyle(current).overflowY) ?? ''
-                  : ''
-                if (overflowY === 'auto' || overflowY === 'scroll') {
-                  seen.add(current)
-                  capture(current)
-                }
-              }
-              current = current.parentElement ?? null
+            for (const current of scrollAncestorsOf(start)) {
+              if (seen.has(current)) continue
+              seen.add(current)
+              capture(current)
             }
           }
           let captured = false
@@ -2378,7 +2412,10 @@ const rewindHandled = new Map()
                 // 贴底：内容变高就跟着到底，内容变矮就自然夹回。
                 // 已经在底部（差 1px 以内）就不写：流式输出期间反复写同一个值会打断宿主的滚动。
                 const bottom = container.scrollHeight - container.clientHeight
-                if (container.scrollTop < bottom - 1) container.scrollTop = bottom
+                if (container.scrollTop < bottom - 1) {
+                  scrollTrace.markWrite(container, late === true ? 'rAF' : 'restore', bottom)
+                  container.scrollTop = bottom
+                }
                 continue
               }
               if (entry.row !== undefined && entry.row.isConnected === true) {
@@ -2386,14 +2423,20 @@ const rewindHandled = new Map()
                 const rect = safe(() => entry.row.getBoundingClientRect())
                 if (box !== undefined && rect !== undefined) {
                   const delta = rect.top - box.top - entry.offset
-                  if (delta !== 0) container.scrollTop += delta
+                  if (delta !== 0) {
+                    scrollTrace.markWrite(container, 'repaint-anchor', container.scrollTop + delta)
+                    container.scrollTop += delta
+                  }
                   continue
                 }
               }
               // 拿不到锚点行：按内容高度的差值补偿。下一帧不再做这一步，避免两遍补偿叠加。
               if (late === true) continue
               const grown = container.scrollHeight - entry.scrollHeight
-              if (grown !== 0) container.scrollTop = entry.top + grown
+              if (grown !== 0) {
+                scrollTrace.markWrite(container, 'restore', entry.top + grown)
+                container.scrollTop = entry.top + grown
+              }
             }
           }
           const previousCapture = scrollGuardCapture
@@ -2510,7 +2553,7 @@ const rewindHandled = new Map()
           repaintPending = false
           // 松手补绘：这一遍本来就该把挡住期间错开的高亮重新量一次。
           highlightDirty = true
-          scheduleRepaint()
+          scheduleRepaint('timer')
         }
 
         function repaint() {
@@ -2550,6 +2593,8 @@ const rewindHandled = new Map()
           const rebuildHighlights = rebuild === true || highlightDirty === true
           // 两样都不需要：这一遍什么都不做，不读也不写滚动位置，不碰 overlay。
           if (!rebuild && !rebuildHighlights) return
+          // 真要动手之前先把这一屏的滚动容器挂上追踪监听，下面自己写 scrollTop 时才分得清来源。
+          step('watchConversationScroll', watchConversationScroll)
           // 先清标记再跑：这一遍渲染过程中新落账的记录会把标记重新置上，留到下一遍再补。
           conversationDirty = false
           placementPending = false
@@ -2660,9 +2705,6 @@ const rewindHandled = new Map()
         popover.setAttribute('data-sa-ui', 'popover')
         const popHead = document.createElement('div')
         popHead.className = 'sa-pop-head'
-        // 固定区（来源、引用原文）与滚动正文区分开：外层不再整块滚动，输入框长高时滚的是正文区。
-        const popFixed = document.createElement('div')
-        popFixed.className = 'sa-pop-fixed'
         const popBody = document.createElement('div')
         popBody.className = 'sa-pop-body'
         const popTitle = document.createElement('div')
@@ -2765,9 +2807,6 @@ const rewindHandled = new Map()
         popInput.setAttribute('aria-label', t('pop.placeholder'))
         popInput.dataset.placeholder = t('pop.placeholder')
         popInput.dataset.empty = '1'
-        /** 输入框默认跟随内容长高；用户一旦手动拖过高度，就不再覆盖他的选择。*/
-        let popInputAutoHeight = true
-        let popInputAutoValue = 0
         /** 已批注原文的高亮矩形缓存，供鼠标悬停命中检测。*/
         let highlightHits = []
         /** 悬停打开编辑框的定时器与目标。*/
@@ -2800,6 +2839,8 @@ const rewindHandled = new Map()
         function refreshNoteState() {
           popInput.dataset.empty = noteValue() === '' ? '1' : '0'
           syncAdoptTone()
+          // 文字变了：编辑态按去抖自动存写；新建态由 schedulePopAutoSave 自己跳过。
+          schedulePopAutoSave()
         }
 
         function appendNoteText(text) {
@@ -2974,15 +3015,16 @@ const rewindHandled = new Map()
         popSave.className = 'sa-btn sa-pop-primary'
         popSave.textContent = t('pop.save')
         popActions.append(popDelete, popSpacer, popCancel, popSave)
-        // 标题与引用原文固定在顶部；备注编辑器、图片、按钮行放进滚动区，输入框长高时外层跟着滚。
-        popFixed.append(popSource, popQuoteLabel, popQuote)
-        popBody.append(popDivider, popNoteLabel, popInput, popImages, popActions)
-        popover.append(popHead, popFixed, popBody)
+        // 只有标题固定在顶部；来源、引用原文、备注、图片、按钮行同住正文区一起滚。
+        popBody.append(popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions)
+        popover.append(popHead, popBody)
 
         /* ------------------------------------------------------------------ 弹层尺寸调整*/
         const POPOVER_MIN_WIDTH = 260
         const POPOVER_MIN_HEIGHT = 160
         const POPOVER_MARGIN = 8
+        /** CSS 里 `.sa-popover` 的宽度；实测拿不到 offsetWidth 时用它兜底。 */
+        const POPOVER_DEFAULT_WIDTH = 340
         /** 用户定过尺寸后，宽高由 inline style 固定，不再随内容或锚点空间自适应。*/
         let popoverSized = false
         /** 正在拖拽的边缘与起始几何。*/
@@ -3031,16 +3073,32 @@ const rewindHandled = new Map()
           safe(() => storage.setItem(POPOVER_SIZE_KEY, JSON.stringify(next)))
         }
 
-        /** 打开时沿用上次的尺寸；没有记录就回到 CSS 的默认宽度与自动高度。*/
+        /**
+         * 打开时沿用上次尺寸：只有存下的那一维比默认大才采用，否则该维回落默认。
+         * 宽高各自判断——宽度够大不代表高度也该套上。
+         * 默认宽度取 `.sa-popover` 的 CSS 宽度（量 offsetWidth，拿不到时用常量 340）；
+         * 默认高度是「不设尺寸」时面板的自然高度，先清掉 inline 宽高再量一次
+         * getBoundingClientRect().height。调用点在 dataset.open='1' 之后、placePopover 之前。
+         */
         function restorePopoverSize() {
           const saved = readPopoverSize()
-          if (saved === null) {
-            popoverSized = false
-            popover.style.width = ''
-            popover.style.height = ''
-            return
-          }
-          applyPopoverSize(saved.width, saved.height)
+          // 量默认尺寸前先回到未定尺寸状态：清 inline 宽高，以及上一轮留下的 maxHeight。
+          const previousMaxHeight = popover.style.maxHeight
+          popoverSized = false
+          popover.style.width = ''
+          popover.style.height = ''
+          popover.style.maxHeight = ''
+          const defaultWidth = popover.offsetWidth || POPOVER_DEFAULT_WIDTH
+          const defaultHeight = popover.getBoundingClientRect().height
+          popover.style.maxHeight = previousMaxHeight
+          if (saved === null) return
+          const width = saved.width > defaultWidth ? saved.width : undefined
+          const height = saved.height > defaultHeight ? saved.height : undefined
+          if (width === undefined && height === undefined) return
+          const bounds = popoverSizeBounds()
+          if (width !== undefined) popover.style.width = `${Math.round(Math.max(POPOVER_MIN_WIDTH, Math.min(width, bounds.maxWidth)))}px`
+          if (height !== undefined) popover.style.height = `${Math.round(Math.max(POPOVER_MIN_HEIGHT, Math.min(height, bounds.maxHeight)))}px`
+          popoverSized = true
         }
 
         /** 窗口缩小时把已定尺寸的浮层夹回视口；夹取结果不写回存储，放大窗口后还能恢复原尺寸。*/
@@ -3428,6 +3486,60 @@ const rewindHandled = new Map()
         let popoverMode = 'create'
         let popoverAnchor = null
         let popoverTargetId = null
+        /** 打开编辑弹层那一刻的条目内容；「取消」用它把自动存写的改动回滚掉。*/
+        let popoverSnapshot = null
+        /** 编辑中自动存写的去抖计时器：停手一小段再落盘，崩溃时最多丢这一段。*/
+        let popAutoSaveTimer = null
+
+        /** 编辑态才需要自动存写：新建弹层在点保存前还不是一条批注。*/
+        function schedulePopAutoSave() {
+          if (popoverMode !== 'edit' || popoverTargetId === null) return
+          if (popover.dataset.open !== '1') return
+          if (popAutoSaveTimer !== null) window.clearTimeout(popAutoSaveTimer)
+          popAutoSaveTimer = window.setTimeout(() => {
+            popAutoSaveTimer = null
+            autoSavePopover()
+          }, POP_AUTO_SAVE_MS)
+        }
+
+        /**
+         * 把编辑框当前内容写进条目，让本地草稿与宿主都跟上。
+         *
+         * 清空文字只是存成空字符串，**不删条目**；删除只有两条既有路径：显式点删除，
+         * 或关闭网页来源弹层时正文仍为空。
+         *
+         * 稳定性：这里只调 updateAnnotation（emit + 排同步 + 写草稿），不排重绘。
+         * emit 的通知只重渲染盘点面板与高亮，弹层是挂在 body 上的常驻节点、不参与重建，
+         * 所以去抖保存期间输入框不会失焦、光标不会回到开头，弹层也不会移动。
+         */
+        function autoSavePopover() {
+          if (popoverMode !== 'edit' || popoverTargetId === null) return
+          if (popover.dataset.open !== '1') return
+          const target = popoverTargetId
+          const item = annotations.find((candidate) => candidate.id === target)
+          if (item === undefined) return
+          const note = noteValue()
+          const images = popInputImages
+          // 按 updateAnnotation 的归一化结果比较：内容没变就不重复 emit、不重复写盘。
+          const nextNote = note.trim().slice(0, MAX_NOTE)
+          if (item.note === nextNote && JSON.stringify(item.images ?? []) === JSON.stringify(images)) return
+          updateAnnotation(target, note, images)
+        }
+
+        /** 丢掉等在去抖窗口里的自动存写（取消、切会话前由调用方决定先 flush 还是丢弃）。*/
+        function cancelPopAutoSave() {
+          if (popAutoSaveTimer === null) return
+          window.clearTimeout(popAutoSaveTimer)
+          popAutoSaveTimer = null
+        }
+
+        /** 关闭前补一次：最后几百毫秒的键入也算「保存」这一侧，不能随计时器一起丢。*/
+        function flushPopAutoSave() {
+          if (popAutoSaveTimer === null) return
+          window.clearTimeout(popAutoSaveTimer)
+          popAutoSaveTimer = null
+          autoSavePopover()
+        }
 
         /** 把当前图片列表画出来：缩略图 + 删除按钮，空列表时只留一行提示。 */
         function renderPopImages() {
@@ -3478,6 +3590,8 @@ const rewindHandled = new Map()
             popImages.appendChild(box)
           }
           popImages.appendChild(popImagesHint)
+          // 图片区也能改（删除/粘贴/拖入）：同样按去抖把最新图片列表写进条目。
+          schedulePopAutoSave()
         }
 
         function removePopImage(id) {
@@ -3523,25 +3637,30 @@ const rewindHandled = new Map()
           renderPopImages()
         }
 
-        /** 每次打开弹层都从「跟随内容」开始，并清掉上一次拖拽留下的固定高度。*/
+        /** 每次打开弹层都清掉上一次按内容量出来的最小高度。*/
         function resetPopInputHeight() {
-          popInputAutoHeight = true
-          popInputAutoValue = 0
-          popInput.style.height = ''
+          popInput.style.minHeight = ''
         }
 
-        /** 按内容长高，不再设自己的高度上限：放不下时滚的是外层正文区，避免两层滚动条。*/
+        /**
+         * 按内容给输入框定最小高度：先临时拿掉 flex 与 min-height 量自然高度，再写回 min-height。
+         * 面板多出来的高度由输入框按 flex 吃掉；内容超出时滚的是正文区，输入框自己不出滚动条。
+         */
         function syncPopInputHeight() {
-          if (!popInputAutoHeight) return
-          const min = 62
-          const keepTop = popInput.scrollTop
+          const keepTop = popBody.scrollTop
+          const previousFlex = popInput.style.flex
+          const previousHeight = popInput.style.height
+          const previousMin = popInput.style.minHeight
+          popInput.style.flex = '0 0 auto'
           popInput.style.height = 'auto'
+          popInput.style.minHeight = '0'
           const measured = Number(popInput.scrollHeight)
+          popInput.style.flex = previousFlex
+          popInput.style.height = previousHeight
+          popInput.style.minHeight = previousMin
           if (!Number.isFinite(measured) || measured <= 0) return
-          const next = Math.max(min, Math.round(measured))
-          popInput.style.height = `${next}px`
-          popInputAutoValue = next
-          popInput.scrollTop = keepTop
+          popInput.style.minHeight = `${Math.max(62, Math.round(measured))}px`
+          popBody.scrollTop = keepTop
         }
 
         /** 键入后让插入点留在可视区：滚的是正文区，输入框自己通常不再滚。*/
@@ -3573,6 +3692,15 @@ const rewindHandled = new Map()
           resetPopImages(options.images)
           popoverMode = options.mode
           popoverTargetId = options.targetId ?? null
+          // 编辑态先留一份快照：之后每敲一下都即时写进条目，只有「取消」才回到这一份。
+          popoverSnapshot =
+            options.mode === 'edit' && popoverTargetId !== null
+              ? {
+                  id: popoverTargetId,
+                  note: typeof options.note === 'string' ? options.note : '',
+                  images: Array.isArray(options.images) ? options.images.slice() : [],
+                }
+              : null
           popDelete.style.display = options.mode === 'edit' ? '' : 'none'
           hideToolbar()
           resetPopInputHeight()
@@ -3660,6 +3788,10 @@ const rewindHandled = new Map()
         }
 
         function closePopover(options = {}) {
+          // 关闭（关闭按钮、Esc、点遮罩、切目标、卸载）都算「保存」这一侧：把还在去抖窗口里的
+          // 最后一段键入补写进条目。只有「取消」传 autoSave:false —— 它会先把内容回滚成快照。
+          if (options.autoSave === false) cancelPopAutoSave()
+          else flushPopAutoSave()
           popover.dataset.open = '0'
           // 关掉时顺手结束可能还挂着的尺寸拖拽，避免下一次打开带着旧的起始几何。
           popResize = null
@@ -3687,6 +3819,7 @@ const rewindHandled = new Map()
           }
           popoverAnchor = null
           popoverTargetId = null
+          popoverSnapshot = null
           popoverMode = 'create'
           hideSuggestion()
         }
@@ -3712,7 +3845,7 @@ const rewindHandled = new Map()
           if (!hit) return
           emit()
           // 原因只显示在面板里、不进载荷，所以不需要为此重传附件。
-          scheduleRepaint()
+          scheduleRepaint('emit')
         }
 
         function refineSourcePosition(id, source, quote) {
@@ -3737,7 +3870,7 @@ const rewindHandled = new Map()
             emit()
             // 上传正在等我们时不必再排一次（它会拿到最新结果）；否则补一次。
             if (!syncing) scheduleSync()
-            scheduleRepaint()
+            scheduleRepaint('emit')
           })()
           const guarded = task.catch((err) => {
             warn('[selection-annotations] 位置精修失败（不影响这条批注）：', err)
@@ -3756,18 +3889,9 @@ const rewindHandled = new Map()
          */
         function commitPopover(discardEmpty = false) {
           if (popoverMode === 'edit') {
-            const target = popoverTargetId
-            const images = popInputImages
-            const note = noteValue()
-            const before = target === null ? undefined : annotations.find((item) => item.id === target)
-            // 内容一个字都没改时不要改写：updateAnnotation 会换掉条目对象并 emit、排同步、写草稿，
-            // 关闭弹层这种 no-op 不该惊动面板、存储与远端。
-            const unchanged =
-              before !== undefined &&
-              before.note === note &&
-              JSON.stringify(before.images) === JSON.stringify(images)
-            // 保存路径先写内容再关弹层：closePopover 里「空正文就删除网页条目」只适用于取消。
-            if (!unchanged && target !== null) updateAnnotation(target, note, images)
+            // 编辑中的改动已在输入/改图时按去抖写进条目，写入逻辑只保留在 autoSavePopover 一处：
+            // 这里不再比较内容、也不再调 updateAnnotation，只借 closePopover 补上最后一段
+            // 还在去抖窗口里的改动，然后照原路关闭（不触发「空正文即删除」）。
             closePopover({ discardWebEmpty: false })
             return
           }
@@ -3795,6 +3919,25 @@ const rewindHandled = new Map()
               warn('[selection-annotations] 位置精修失败（不影响这条批注）：', err)
             })
           }
+        }
+
+        /**
+         * 取消编辑：把条目内容回滚成打开弹层时的快照（正文与图片一起），再按原有取消路径关闭。
+         * 自动存写会把每次键入立刻写进条目，所以回滚必须显式做；快照缺失时不动条目。
+         */
+        function cancelPopoverEdit() {
+          cancelPopAutoSave()
+          const snapshot = popoverSnapshot
+          if (popoverMode === 'edit' && popoverTargetId !== null && snapshot !== null && snapshot.id === popoverTargetId) {
+            const current = annotations.find((item) => item.id === popoverTargetId)
+            const changed =
+              current !== undefined &&
+              (current.note !== snapshot.note ||
+                JSON.stringify(current.images ?? []) !== JSON.stringify(snapshot.images))
+            // 没改动就不用再写一次：避免取消一个没动过的编辑惊动面板、存储与远端。
+            if (changed) updateAnnotation(snapshot.id, snapshot.note, snapshot.images)
+          }
+          closePopover({ autoSave: false })
         }
 
         /** 采纳不走弹层：直接按当前选区落一条带「采纳」字样的批注。*/
@@ -3912,7 +4055,7 @@ const rewindHandled = new Map()
           closeContextMenu()
           if (selection !== null) copyPlainText(selection.quote)
         })
-        popCancel.addEventListener('click', () => closePopover())
+        popCancel.addEventListener('click', () => cancelPopoverEdit())
         popSave.addEventListener('click', () => {
           commitPopover()
         })
@@ -3969,11 +4112,6 @@ const rewindHandled = new Map()
         popSuggest.addEventListener('click', (event) => {
           event.preventDefault()
           acceptSuggestion()
-        })
-        // 原生 resize 手柄拖过之后，实际高度会与自动值不同 —— 从此不再覆盖用户的选择。
-        popInput.addEventListener('pointerup', () => {
-          if (!popInputAutoHeight) return
-          if (Math.abs(popInput.offsetHeight - popInputAutoValue) > 2) popInputAutoHeight = false
         })
         // 粘贴图片：截图直接进批注，不用先存成文件再拖进来。
         popInput.addEventListener('paste', (event) => {
@@ -5362,10 +5500,15 @@ const rewindHandled = new Map()
             if (shell !== undefined) sweepOrphans(shell)
           }, ORPHAN_SWEEP_MS)
           // 页面刷新、关闭或插件卸载前再存一次：只靠状态变更时保存会丢掉最后几秒的编辑。
-          const onUnload = () => saveDraft(annotationsSession)
+          const onUnload = () => {
+            // 卸载算「保存」侧：先去抖窗口里的键入补进条目与草稿，再整体存一次。
+            flushPopAutoSave()
+            saveDraft(annotationsSession)
+          }
           window.addEventListener('beforeunload', onUnload)
           window.addEventListener('pagehide', onUnload)
           return () => {
+            flushPopAutoSave()
             saveDraft(annotationsSession)
             window.removeEventListener('beforeunload', onUnload)
             window.removeEventListener('pagehide', onUnload)
@@ -5444,7 +5587,7 @@ const rewindHandled = new Map()
           if (items.length > 0) reuseSentItems(items)
           // 这里直接摘掉了卡片与答复区，正文位置变了：高亮必须重新量。
           if (removed.length > 0) markHighlightsDirty()
-          scheduleRepaint()
+          scheduleRepaint('poll')
         }
 
         // 输入区里整段粘贴我们的导出数据时，拦下这次输入，转成导入批注。
@@ -5489,7 +5632,7 @@ const rewindHandled = new Map()
                   }
                   if (remote !== null && remote !== undefined && absorbRemoteReplies(sessionId, remote)) {
                     markConversationDirty()
-                    scheduleRepaint()
+                    scheduleRepaint('poll')
                   }
                 }
               }
@@ -5641,7 +5784,7 @@ const rewindHandled = new Map()
           const onViewport = (event) => {
             // 滚动与窗口尺寸变化会移动正文：高亮要重新量，但会话区不必重建。
             highlightDirty = true
-            scheduleRepaint()
+            scheduleRepaint('viewport')
             closeContextMenu()
             if (popover.dataset.open === '1' && popoverRect !== null && popover.dataset.dragged !== '1') placePopover(popoverRect)
             // 面板位置在打开时定格：滚动不动它；窗口尺寸变化只做越界兜底。
@@ -5663,14 +5806,17 @@ const rewindHandled = new Map()
               if (pendingSent.length > 0) safe(() => scanSentMessages())
               // 宿主自己的重排、流式增量、时间刷新都不再排重绘：会话区只在数据真的变了、
               // 或有卡片/答复等着落位时才重建。滚动与窗口尺寸变化走 onViewport，只更新高亮。
-              if (conversationNeedsRender()) scheduleRepaint()
+              if (conversationNeedsRender()) scheduleRepaint('mutation')
               return
             }
           })
           observer.observe(document.body, { childList: true, subtree: true, characterData: true })
           // 挂载时先建一遍：会话数据可能已经在本地台账里，而页面上没有任何变化会触发观察器。
-          scheduleRepaint()
+          scheduleRepaint('mount')
+          // 追踪监听早一步挂上：挂载后即便没有重建，用户滚动也能记到是谁动的。
+          safe(() => watchConversationScroll())
           return () => {
+            scrollTrace.dispose()
             markdown.dispose()
             document.removeEventListener('selectionchange', onSelectionChange)
           document.removeEventListener('pointerdown', onSelectPointerDown, true)
@@ -5905,6 +6051,8 @@ const rewindHandled = new Map()
             const shell = inputShell()
             if (shell !== undefined) ensureFallbackPrompt(shell)
           },
+          /** 控制台开关：`__dshSelectionAnnotations.traceScroll(false)` 停掉滚动追踪。*/
+          traceScroll: (on) => scrollTrace.setEnabled(on),
           _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf, openPanel, closePanel, clampPanelToViewport },
         }
     },

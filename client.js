@@ -66,12 +66,12 @@
 .sa-viewer-img { max-width: 92vw; max-height: 88vh; box-sizing: border-box; border-radius: 6px;
   background: #fff; box-shadow: 0 12px 48px rgb(0 0 0 / 0.5); }
 .sa-pop-title { font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); font-weight: 600; margin: 0 0 6px; }
-.sa-pop-quote { max-height: 120px; overflow: auto; margin: 0 0 8px; padding: 6px 8px; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
+.sa-pop-quote { flex: none; max-height: 120px; overflow: auto; margin: 0 0 8px; padding: 6px 8px; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
   white-space: pre-wrap; word-break: break-word; color: var(--dsw-alias-label-secondary, GrayText);
   background: var(--dsw-alias-bg-layer-2, ButtonFace); border-left: 2px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 4px; }
 .sa-pop-src { margin: 0 0 6px; font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.45;
   color: var(--dsw-alias-label-tertiary, GrayText); }
-.sa-pop-input { width: 100%; box-sizing: border-box; min-height: 62px; padding: 6px 8px;
+.sa-pop-input { flex: 1 1 auto; width: 100%; box-sizing: border-box; min-height: 62px; padding: 6px 8px;
   font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-layer-1, Canvas);
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
 .sa-pop-input { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; }
@@ -84,10 +84,13 @@
   cursor: move; user-select: none; touch-action: none; }
 .sa-pop-dragging, .sa-pop-dragging * { cursor: grabbing !important; user-select: none; }
 .sa-pop-head .sa-pop-title { margin: 0; }
-/* 弹层内部布局：标题与引用原文固定，中间正文区自己滚动，底部动作行常驻。
-   这样输入框随内容长高时，滚动条出现在正文区，而不是输入框里再套一层。*/
-.sa-pop-fixed { flex: none; }
-.sa-pop-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* 弹层内部布局：只有标题固定，来源、引用原文、备注、图片、动作行同住正文区一起滚。
+   正文区纵排，输入框按 flex 吃掉面板多出来的高度；内容超出时由正文区滚，输入框自己不再出滚动条。*/
+.sa-pop-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* 正文区改成 flex 纵排后相邻外边距不再合并，这几处还原原来的折叠间距。*/
+.sa-pop-body > .sa-pop-src { margin-bottom: 0; }
+.sa-pop-body > .sa-pop-quote { margin-bottom: 0; }
+.sa-pop-body > .sa-pop-divider { margin-bottom: 0; }
 /* 尺寸调整：四边各一条 5px 宽的命中区，右下角 12×12 的斜纹把手。*/
 .sa-pop-resizer { position: absolute; z-index: 2; touch-action: none; }
 .sa-pop-resizer[data-edge="left"] { top: 6px; bottom: 6px; left: 0; width: 5px; cursor: ew-resize; }
@@ -523,6 +526,7 @@
   var HOVER_OPEN_DELAY_MS = 500;
   var SETTLE_MS = 220;
   var UPLOAD_DEBOUNCE_MS = 450;
+  var POP_AUTO_SAVE_MS = 300;
   var UPLOAD_READY_TIMEOUT_MS = 1e4;
   var REPAINT_MS = 120;
   var CONSUME_POLL_MS = 1e3;
@@ -3199,6 +3203,129 @@ ${PICK_SCRIPT}<\/script>`;
     return { pull, push: pushOnce, schedule, storeUrl, createBatch, patchBatch, patchEntry, deleteEntry };
   }
 
+  // src/core/scroll-trace.js
+  var SCROLL_TRACE_ROUTE = "/selection-annotations/debug/trace";
+  var FLUSH_MS = 1e3;
+  var MAX_QUEUE = 500;
+  var WRITE_MARK_TTL_MS = 1e3;
+  function createScrollTrace() {
+    let enabled = true;
+    let queue = [];
+    let timer = null;
+    let stopped = false;
+    let bound = false;
+    const marks = /* @__PURE__ */ new WeakMap();
+    const watched = /* @__PURE__ */ new WeakSet();
+    const lastTops = /* @__PURE__ */ new WeakMap();
+    function clearTimer() {
+      if (timer === null) return;
+      try {
+        window.clearTimeout(timer);
+      } catch {
+      }
+      timer = null;
+    }
+    function push(entry) {
+      if (stopped || !enabled) return;
+      queue.push(entry);
+      if (queue.length > MAX_QUEUE) queue.splice(0, queue.length - MAX_QUEUE);
+      if (timer === null) {
+        timer = window.setTimeout(() => {
+          timer = null;
+          flush();
+        }, FLUSH_MS);
+      }
+    }
+    function flush() {
+      clearTimer();
+      if (stopped || !enabled || queue.length === 0) return;
+      const lines = queue.map((entry) => JSON.stringify(entry));
+      queue = [];
+      if (typeof fetch !== "function") return;
+      try {
+        const task = fetch(SCROLL_TRACE_ROUTE, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ lines }),
+          keepalive: true
+        });
+        if (task !== void 0 && task !== null && typeof task.catch === "function") task.catch(() => {
+        });
+      } catch {
+      }
+    }
+    function repaint(source) {
+      push({ t: Date.now(), kind: "repaint", src: String(source ?? "timer") });
+    }
+    function markWrite(container, source, expectedTop) {
+      if (stopped || container === null || container === void 0) return;
+      marks.set(container, {
+        src: String(source),
+        top: Math.round(Number(expectedTop) || 0),
+        at: Date.now()
+      });
+    }
+    function watch(container) {
+      if (container === null || container === void 0) return;
+      if (typeof container.addEventListener !== "function") return;
+      stopped = false;
+      bindPageListeners();
+      if (watched.has(container)) return;
+      watched.add(container);
+      container.addEventListener(
+        "scroll",
+        () => {
+          if (stopped || !enabled) return;
+          const now = Date.now();
+          const top = Math.round(Number(container.scrollTop) || 0);
+          const previous = lastTops.get(container);
+          lastTops.set(container, top);
+          let src = "other";
+          const mark = marks.get(container);
+          if (mark !== void 0) {
+            if (now - mark.at <= WRITE_MARK_TTL_MS && Math.abs(top - mark.top) <= 2) src = mark.src;
+            marks.delete(container);
+          }
+          push({ t: now, kind: "scroll", top, d: previous === void 0 ? 0 : top - previous, src });
+        },
+        { passive: true }
+      );
+    }
+    function setEnabled(on) {
+      enabled = Boolean(on);
+      if (!enabled) {
+        queue = [];
+        clearTimer();
+      }
+    }
+    function dispose() {
+      stopped = true;
+      queue = [];
+      clearTimer();
+      try {
+        window.removeEventListener("visibilitychange", onVisibilityChange);
+        window.removeEventListener("pagehide", onPageHide);
+      } catch {
+      }
+      bound = false;
+    }
+    function bindPageListeners() {
+      if (bound) return;
+      if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+      window.addEventListener("visibilitychange", onVisibilityChange);
+      window.addEventListener("pagehide", onPageHide);
+      bound = true;
+    }
+    function onVisibilityChange() {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") flush();
+    }
+    function onPageHide() {
+      flush();
+    }
+    bindPageListeners();
+    return { setEnabled, flush, repaint, markWrite, watch, dispose };
+  }
+
   // src/core/image-codec.js
   function jpegName(name) {
     const base = typeof name === "string" && name !== "" ? name : "image";
@@ -3684,7 +3811,7 @@ ${PICK_SCRIPT}<\/script>`;
           consumedSnapshot = { items: annotations.slice(), at: Date.now() };
           annotations = [];
           emit();
-          scheduleRepaint();
+          scheduleRepaint("emit");
           saveDraft(annotationsSession);
           log(`[selection-annotations] 批注已随消息发出（${reason}）`);
           safe(() => scanSentMessages());
@@ -3763,6 +3890,7 @@ ${PICK_SCRIPT}<\/script>`;
         const remoteSync = createRemoteSync(sessionSnapshot);
         const storeUrl = (sessionId) => remoteSync.storeUrl(sessionId);
         const pullRemoteSession = (sessionId) => remoteSync.pull(sessionId);
+        const scrollTrace = createScrollTrace();
         function sessionSnapshot(sessionId) {
           const drafts = annotationsSession === sessionId ? draftItems(annotations) : draftSessions.get(sessionId) ?? [];
           const sent = {};
@@ -3791,7 +3919,7 @@ ${PICK_SCRIPT}<\/script>`;
             if (annotationsSession === sessionId && annotations.length === 0 && items.length > 0) {
               annotations = items;
               emit();
-              scheduleRepaint();
+              scheduleRepaint("emit");
               scheduleSync();
             }
             if ((draftSessions.get(sessionId) ?? []).length === 0) draftSessions.set(sessionId, remote.drafts);
@@ -3836,7 +3964,7 @@ ${PICK_SCRIPT}<\/script>`;
           }
           if (touched) {
             markConversationDirty();
-            scheduleRepaint();
+            scheduleRepaint("session");
           }
           hydratedSessions.add(sessionId);
           flushPendingRemotePush(sessionId);
@@ -3866,12 +3994,15 @@ ${PICK_SCRIPT}<\/script>`;
           if (typeof sessionId !== "string" || sessionId === "") return;
           const first = annotationsSession === void 0;
           if (!first && annotationsSession === sessionId) return;
-          if (!first) saveDraft(annotationsSession);
+          if (!first) {
+            flushPopAutoSave();
+            saveDraft(annotationsSession);
+          }
           annotationsSession = sessionId;
           if (first && annotations.length > 0) {
             saveDraft(sessionId);
             markConversationDirty();
-            scheduleRepaint();
+            scheduleRepaint("session");
             return;
           }
           annotations = loadDraft(sessionId);
@@ -3880,7 +4011,7 @@ ${PICK_SCRIPT}<\/script>`;
           for (const stale of document.querySelectorAll('[data-sa-ui="replies"]')) stale.remove();
           emit();
           markConversationDirty();
-          scheduleRepaint();
+          scheduleRepaint("session");
           if (annotations.length > 0) scheduleSync();
           void hydrateRemoteSession(sessionId).catch((error) => {
             warn("[selection-annotations] 远端台账合并失败:", sessionId, error);
@@ -3937,7 +4068,7 @@ ${PICK_SCRIPT}<\/script>`;
           annotations = [...annotations, item];
           emit();
           scheduleSync();
-          scheduleRepaint();
+          scheduleRepaint("emit");
           saveDraft(annotationsSession);
           return item;
         }
@@ -4031,7 +4162,7 @@ ${PICK_SCRIPT}<\/script>`;
             return 0;
           }
           flashPanelHint(t("panel.pasteDone", { n: added }), root);
-          scheduleRepaint();
+          scheduleRepaint("emit");
           return added;
         }
         function pasteAnnotationsFromClipboard(root) {
@@ -4068,7 +4199,7 @@ ${PICK_SCRIPT}<\/script>`;
           renumber();
           emit();
           scheduleSync();
-          scheduleRepaint();
+          scheduleRepaint("emit");
           saveDraft(annotationsSession);
         }
         function moveAnnotation(id, beforeId) {
@@ -4082,7 +4213,7 @@ ${PICK_SCRIPT}<\/script>`;
           renumber();
           emit();
           scheduleSync();
-          scheduleRepaint();
+          scheduleRepaint("emit");
           saveDraft(annotationsSession);
           refreshPanel();
         }
@@ -4090,7 +4221,7 @@ ${PICK_SCRIPT}<\/script>`;
           annotations = [];
           emit();
           scheduleSync();
-          scheduleRepaint();
+          scheduleRepaint("emit");
           saveDraft(annotationsSession);
         }
         const sentStore = createSentStore({
@@ -4160,7 +4291,7 @@ ${PICK_SCRIPT}<\/script>`;
               batchSeq,
               uuids: batchItemUuids(result, items.length)
             });
-            scheduleRepaint();
+            scheduleRepaint("emit");
           }).catch(() => {
           });
         }
@@ -4244,7 +4375,7 @@ ${PICK_SCRIPT}<\/script>`;
           if (restored.length === 0) return;
           annotations = [...restored, ...annotations];
           emit();
-          scheduleRepaint();
+          scheduleRepaint("emit");
           saveDraft(annotationsSession);
           warn("[selection-annotations] 这批批注没能记进已发送台账，已放回界面。");
         }
@@ -4277,7 +4408,7 @@ ${PICK_SCRIPT}<\/script>`;
             recordSent(entrySession, `turn:${hint}:${entry.at}`, entry.items, hint);
             expiredRecorded = true;
           }
-          if (expiredRecorded) scheduleRepaint();
+          if (expiredRecorded) scheduleRepaint("mutation");
           if (expired.length > 0 && !expiredRecorded && pendingSent.length === 0) restoreConsumedSnapshot();
           if (pendingSent.length === 0) return;
           const pending = pendingSent[0];
@@ -4292,7 +4423,7 @@ ${PICK_SCRIPT}<\/script>`;
             pendingSent.shift();
             recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint);
             syncSentBatch(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint, pending.at);
-            scheduleRepaint();
+            scheduleRepaint("emit");
             return true;
           };
           const rows = collectAnchorRows();
@@ -4344,7 +4475,7 @@ ${PICK_SCRIPT}<\/script>`;
           const turn = turnOfRow(target.row);
           recordSent(sessionId, target.anchorKey, pending.items, turn);
           syncSentBatch(sessionId, target.anchorKey, pending.items, turn, pending.at);
-          scheduleRepaint();
+          scheduleRepaint("emit");
         }
         const markdown = createMarkdown({
           h,
@@ -5155,12 +5286,34 @@ ${PICK_SCRIPT}<\/script>`;
         function conversationNeedsRender() {
           return conversationDirty === true || placementPending === true;
         }
-        function scheduleRepaint() {
+        function scheduleRepaint(source = "timer") {
           if (repaintTimer !== null) return;
+          scrollTrace.repaint(source);
           repaintTimer = window.setTimeout(() => {
             repaintTimer = null;
             repaint();
           }, REPAINT_MS);
+        }
+        function scrollAncestorsOf(start) {
+          const found = [];
+          let current = start;
+          for (let i = 0; i < 32 && current !== null && current !== void 0; i += 1) {
+            if (current === document.body || current === document.documentElement) break;
+            const scrollable = typeof current.scrollHeight === "number" && typeof current.clientHeight === "number" && current.scrollHeight > current.clientHeight + 1;
+            if (scrollable) {
+              const overflowY = typeof window.getComputedStyle === "function" ? safe(() => window.getComputedStyle(current).overflowY) ?? "" : "";
+              if (overflowY === "auto" || overflowY === "scroll") found.push(current);
+            }
+            current = current.parentElement ?? null;
+          }
+          return found;
+        }
+        function watchConversationScroll() {
+          const roots = [...visibleConversationScopes()];
+          for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node);
+          for (const root of roots) {
+            for (const container of scrollAncestorsOf(root)) scrollTrace.watch(container);
+          }
         }
         function keepScrollStable(mutate) {
           const saved = [];
@@ -5183,6 +5336,7 @@ ${PICK_SCRIPT}<\/script>`;
             return void 0;
           };
           const capture = (container) => {
+            scrollTrace.watch(container);
             const top = container.scrollTop;
             const sticky = top + container.clientHeight >= container.scrollHeight - 2;
             const entry = { el: container, top, scrollHeight: container.scrollHeight, sticky };
@@ -5196,18 +5350,10 @@ ${PICK_SCRIPT}<\/script>`;
             saved.push(entry);
           };
           const remember = (start) => {
-            let current = start;
-            for (let i = 0; i < 32 && current !== null && current !== void 0; i += 1) {
-              if (current === document.body || current === document.documentElement) break;
-              const scrollable = typeof current.scrollHeight === "number" && typeof current.clientHeight === "number" && current.scrollHeight > current.clientHeight + 1;
-              if (scrollable && !seen.has(current)) {
-                const overflowY = typeof window.getComputedStyle === "function" ? safe(() => window.getComputedStyle(current).overflowY) ?? "" : "";
-                if (overflowY === "auto" || overflowY === "scroll") {
-                  seen.add(current);
-                  capture(current);
-                }
-              }
-              current = current.parentElement ?? null;
+            for (const current of scrollAncestorsOf(start)) {
+              if (seen.has(current)) continue;
+              seen.add(current);
+              capture(current);
             }
           };
           let captured = false;
@@ -5224,7 +5370,10 @@ ${PICK_SCRIPT}<\/script>`;
               const container = entry.el;
               if (entry.sticky) {
                 const bottom = container.scrollHeight - container.clientHeight;
-                if (container.scrollTop < bottom - 1) container.scrollTop = bottom;
+                if (container.scrollTop < bottom - 1) {
+                  scrollTrace.markWrite(container, late === true ? "rAF" : "restore", bottom);
+                  container.scrollTop = bottom;
+                }
                 continue;
               }
               if (entry.row !== void 0 && entry.row.isConnected === true) {
@@ -5232,13 +5381,19 @@ ${PICK_SCRIPT}<\/script>`;
                 const rect = safe(() => entry.row.getBoundingClientRect());
                 if (box !== void 0 && rect !== void 0) {
                   const delta = rect.top - box.top - entry.offset;
-                  if (delta !== 0) container.scrollTop += delta;
+                  if (delta !== 0) {
+                    scrollTrace.markWrite(container, "repaint-anchor", container.scrollTop + delta);
+                    container.scrollTop += delta;
+                  }
                   continue;
                 }
               }
               if (late === true) continue;
               const grown = container.scrollHeight - entry.scrollHeight;
-              if (grown !== 0) container.scrollTop = entry.top + grown;
+              if (grown !== 0) {
+                scrollTrace.markWrite(container, "restore", entry.top + grown);
+                container.scrollTop = entry.top + grown;
+              }
             }
           };
           const previousCapture = scrollGuardCapture;
@@ -5330,7 +5485,7 @@ ${PICK_SCRIPT}<\/script>`;
           if (selectionAtRisk() === true) return;
           repaintPending = false;
           highlightDirty = true;
-          scheduleRepaint();
+          scheduleRepaint("timer");
         }
         function repaint() {
           const blocked = pointerSelecting === true || selectionAtRisk() === true;
@@ -5355,6 +5510,7 @@ ${PICK_SCRIPT}<\/script>`;
           const rebuild = conversationNeedsRender();
           const rebuildHighlights = rebuild === true || highlightDirty === true;
           if (!rebuild && !rebuildHighlights) return;
+          step("watchConversationScroll", watchConversationScroll);
           conversationDirty = false;
           placementPending = false;
           highlightDirty = false;
@@ -5445,8 +5601,6 @@ ${PICK_SCRIPT}<\/script>`;
         popover.setAttribute("data-sa-ui", "popover");
         const popHead = document.createElement("div");
         popHead.className = "sa-pop-head";
-        const popFixed = document.createElement("div");
-        popFixed.className = "sa-pop-fixed";
         const popBody = document.createElement("div");
         popBody.className = "sa-pop-body";
         const popTitle = document.createElement("div");
@@ -5544,8 +5698,6 @@ ${PICK_SCRIPT}<\/script>`;
         popInput.setAttribute("aria-label", t("pop.placeholder"));
         popInput.dataset.placeholder = t("pop.placeholder");
         popInput.dataset.empty = "1";
-        let popInputAutoHeight = true;
-        let popInputAutoValue = 0;
         let highlightHits = [];
         let hoverOpenTimer = null;
         let hoverTargetId = null;
@@ -5569,6 +5721,7 @@ ${PICK_SCRIPT}<\/script>`;
         function refreshNoteState() {
           popInput.dataset.empty = noteValue() === "" ? "1" : "0";
           syncAdoptTone();
+          schedulePopAutoSave();
         }
         function appendNoteText(text) {
           if (text === "") return;
@@ -5728,12 +5881,12 @@ ${PICK_SCRIPT}<\/script>`;
         popSave.className = "sa-btn sa-pop-primary";
         popSave.textContent = t("pop.save");
         popActions.append(popDelete, popSpacer, popCancel, popSave);
-        popFixed.append(popSource, popQuoteLabel, popQuote);
-        popBody.append(popDivider, popNoteLabel, popInput, popImages, popActions);
-        popover.append(popHead, popFixed, popBody);
+        popBody.append(popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions);
+        popover.append(popHead, popBody);
         const POPOVER_MIN_WIDTH = 260;
         const POPOVER_MIN_HEIGHT = 160;
         const POPOVER_MARGIN = 8;
+        const POPOVER_DEFAULT_WIDTH = 340;
         let popoverSized = false;
         let popResize = null;
         const popoverSizeBounds = () => ({
@@ -5776,13 +5929,22 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function restorePopoverSize() {
           const saved = readPopoverSize();
-          if (saved === null) {
-            popoverSized = false;
-            popover.style.width = "";
-            popover.style.height = "";
-            return;
-          }
-          applyPopoverSize(saved.width, saved.height);
+          const previousMaxHeight = popover.style.maxHeight;
+          popoverSized = false;
+          popover.style.width = "";
+          popover.style.height = "";
+          popover.style.maxHeight = "";
+          const defaultWidth = popover.offsetWidth || POPOVER_DEFAULT_WIDTH;
+          const defaultHeight = popover.getBoundingClientRect().height;
+          popover.style.maxHeight = previousMaxHeight;
+          if (saved === null) return;
+          const width = saved.width > defaultWidth ? saved.width : void 0;
+          const height = saved.height > defaultHeight ? saved.height : void 0;
+          if (width === void 0 && height === void 0) return;
+          const bounds = popoverSizeBounds();
+          if (width !== void 0) popover.style.width = `${Math.round(Math.max(POPOVER_MIN_WIDTH, Math.min(width, bounds.maxWidth)))}px`;
+          if (height !== void 0) popover.style.height = `${Math.round(Math.max(POPOVER_MIN_HEIGHT, Math.min(height, bounds.maxHeight)))}px`;
+          popoverSized = true;
         }
         function clampSizedPopoverToViewport() {
           if (!popoverSized || popover.dataset.open !== "1") return;
@@ -6099,6 +6261,40 @@ ${PICK_SCRIPT}<\/script>`;
         let popoverMode = "create";
         let popoverAnchor = null;
         let popoverTargetId = null;
+        let popoverSnapshot = null;
+        let popAutoSaveTimer = null;
+        function schedulePopAutoSave() {
+          if (popoverMode !== "edit" || popoverTargetId === null) return;
+          if (popover.dataset.open !== "1") return;
+          if (popAutoSaveTimer !== null) window.clearTimeout(popAutoSaveTimer);
+          popAutoSaveTimer = window.setTimeout(() => {
+            popAutoSaveTimer = null;
+            autoSavePopover();
+          }, POP_AUTO_SAVE_MS);
+        }
+        function autoSavePopover() {
+          if (popoverMode !== "edit" || popoverTargetId === null) return;
+          if (popover.dataset.open !== "1") return;
+          const target = popoverTargetId;
+          const item = annotations.find((candidate) => candidate.id === target);
+          if (item === void 0) return;
+          const note = noteValue();
+          const images = popInputImages;
+          const nextNote = note.trim().slice(0, MAX_NOTE);
+          if (item.note === nextNote && JSON.stringify(item.images ?? []) === JSON.stringify(images)) return;
+          updateAnnotation(target, note, images);
+        }
+        function cancelPopAutoSave() {
+          if (popAutoSaveTimer === null) return;
+          window.clearTimeout(popAutoSaveTimer);
+          popAutoSaveTimer = null;
+        }
+        function flushPopAutoSave() {
+          if (popAutoSaveTimer === null) return;
+          window.clearTimeout(popAutoSaveTimer);
+          popAutoSaveTimer = null;
+          autoSavePopover();
+        }
         function renderPopImages() {
           popImages.textContent = "";
           for (const image of popInputImages) {
@@ -6138,6 +6334,7 @@ ${PICK_SCRIPT}<\/script>`;
             popImages.appendChild(box);
           }
           popImages.appendChild(popImagesHint);
+          schedulePopAutoSave();
         }
         function removePopImage(id) {
           popInputImages = popInputImages.filter((image) => image.id !== id);
@@ -6177,21 +6374,23 @@ ${PICK_SCRIPT}<\/script>`;
           renderPopImages();
         }
         function resetPopInputHeight() {
-          popInputAutoHeight = true;
-          popInputAutoValue = 0;
-          popInput.style.height = "";
+          popInput.style.minHeight = "";
         }
         function syncPopInputHeight() {
-          if (!popInputAutoHeight) return;
-          const min = 62;
-          const keepTop = popInput.scrollTop;
+          const keepTop = popBody.scrollTop;
+          const previousFlex = popInput.style.flex;
+          const previousHeight = popInput.style.height;
+          const previousMin = popInput.style.minHeight;
+          popInput.style.flex = "0 0 auto";
           popInput.style.height = "auto";
+          popInput.style.minHeight = "0";
           const measured = Number(popInput.scrollHeight);
+          popInput.style.flex = previousFlex;
+          popInput.style.height = previousHeight;
+          popInput.style.minHeight = previousMin;
           if (!Number.isFinite(measured) || measured <= 0) return;
-          const next = Math.max(min, Math.round(measured));
-          popInput.style.height = `${next}px`;
-          popInputAutoValue = next;
-          popInput.scrollTop = keepTop;
+          popInput.style.minHeight = `${Math.max(62, Math.round(measured))}px`;
+          popBody.scrollTop = keepTop;
         }
         function ensureCaretVisible() {
           const selection = window.getSelection();
@@ -6219,6 +6418,11 @@ ${PICK_SCRIPT}<\/script>`;
           resetPopImages(options.images);
           popoverMode = options.mode;
           popoverTargetId = options.targetId ?? null;
+          popoverSnapshot = options.mode === "edit" && popoverTargetId !== null ? {
+            id: popoverTargetId,
+            note: typeof options.note === "string" ? options.note : "",
+            images: Array.isArray(options.images) ? options.images.slice() : []
+          } : null;
           popDelete.style.display = options.mode === "edit" ? "" : "none";
           hideToolbar();
           resetPopInputHeight();
@@ -6287,6 +6491,8 @@ ${PICK_SCRIPT}<\/script>`;
           });
         }
         function closePopover(options = {}) {
+          if (options.autoSave === false) cancelPopAutoSave();
+          else flushPopAutoSave();
           popover.dataset.open = "0";
           popResize = null;
           popover.classList.remove("sa-pop-resizing");
@@ -6301,6 +6507,7 @@ ${PICK_SCRIPT}<\/script>`;
           }
           popoverAnchor = null;
           popoverTargetId = null;
+          popoverSnapshot = null;
           popoverMode = "create";
           hideSuggestion();
         }
@@ -6313,7 +6520,7 @@ ${PICK_SCRIPT}<\/script>`;
           });
           if (!hit) return;
           emit();
-          scheduleRepaint();
+          scheduleRepaint("emit");
         }
         function refineSourcePosition(id, source, quote) {
           const task = (async () => {
@@ -6331,7 +6538,7 @@ ${PICK_SCRIPT}<\/script>`;
             if (!hit) return;
             emit();
             if (!syncing) scheduleSync();
-            scheduleRepaint();
+            scheduleRepaint("emit");
           })();
           const guarded = task.catch((err) => {
             warn("[selection-annotations] 位置精修失败（不影响这条批注）：", err);
@@ -6344,12 +6551,6 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function commitPopover(discardEmpty = false) {
           if (popoverMode === "edit") {
-            const target = popoverTargetId;
-            const images2 = popInputImages;
-            const note2 = noteValue();
-            const before = target === null ? void 0 : annotations.find((item) => item.id === target);
-            const unchanged = before !== void 0 && before.note === note2 && JSON.stringify(before.images) === JSON.stringify(images2);
-            if (!unchanged && target !== null) updateAnnotation(target, note2, images2);
             closePopover({ discardWebEmpty: false });
             return;
           }
@@ -6375,6 +6576,16 @@ ${PICK_SCRIPT}<\/script>`;
               warn("[selection-annotations] 位置精修失败（不影响这条批注）：", err);
             });
           }
+        }
+        function cancelPopoverEdit() {
+          cancelPopAutoSave();
+          const snapshot2 = popoverSnapshot;
+          if (popoverMode === "edit" && popoverTargetId !== null && snapshot2 !== null && snapshot2.id === popoverTargetId) {
+            const current = annotations.find((item) => item.id === popoverTargetId);
+            const changed = current !== void 0 && (current.note !== snapshot2.note || JSON.stringify(current.images ?? []) !== JSON.stringify(snapshot2.images));
+            if (changed) updateAnnotation(snapshot2.id, snapshot2.note, snapshot2.images);
+          }
+          closePopover({ autoSave: false });
         }
         function adoptSelectionDirectly() {
           const selection = pendingSelection;
@@ -6481,7 +6692,7 @@ ${PICK_SCRIPT}<\/script>`;
           closeContextMenu();
           if (selection !== null) copyPlainText(selection.quote);
         });
-        popCancel.addEventListener("click", () => closePopover());
+        popCancel.addEventListener("click", () => cancelPopoverEdit());
         popSave.addEventListener("click", () => {
           commitPopover();
         });
@@ -6534,10 +6745,6 @@ ${PICK_SCRIPT}<\/script>`;
         popSuggest.addEventListener("click", (event) => {
           event.preventDefault();
           acceptSuggestion();
-        });
-        popInput.addEventListener("pointerup", () => {
-          if (!popInputAutoHeight) return;
-          if (Math.abs(popInput.offsetHeight - popInputAutoValue) > 2) popInputAutoHeight = false;
         });
         popInput.addEventListener("paste", (event) => {
           const data = event.clipboardData;
@@ -7708,10 +7915,14 @@ ${PICK_SCRIPT}`;
             const shell = inputShell();
             if (shell !== void 0) sweepOrphans(shell);
           }, ORPHAN_SWEEP_MS);
-          const onUnload = () => saveDraft(annotationsSession);
+          const onUnload = () => {
+            flushPopAutoSave();
+            saveDraft(annotationsSession);
+          };
           window.addEventListener("beforeunload", onUnload);
           window.addEventListener("pagehide", onUnload);
           return () => {
+            flushPopAutoSave();
             saveDraft(annotationsSession);
             window.removeEventListener("beforeunload", onUnload);
             window.removeEventListener("pagehide", onUnload);
@@ -7779,7 +7990,7 @@ ${PICK_SCRIPT}`;
           const items = removed.sort((left, right) => left.record.savedAt - right.record.savedAt).flatMap(({ record }) => Array.isArray(record.items) ? record.items : []);
           if (items.length > 0) reuseSentItems(items);
           if (removed.length > 0) markHighlightsDirty();
-          scheduleRepaint();
+          scheduleRepaint("poll");
         }
         ctx.effect(() => {
           const onPaste = (event) => {
@@ -7820,7 +8031,7 @@ ${PICK_SCRIPT}`;
                   }
                   if (remote !== null && remote !== void 0 && absorbRemoteReplies(sessionId, remote)) {
                     markConversationDirty();
-                    scheduleRepaint();
+                    scheduleRepaint("poll");
                   }
                 }
               }
@@ -7948,7 +8159,7 @@ ${PICK_SCRIPT}`;
           document.addEventListener("keydown", onDocumentKeydown, true);
           const onViewport = (event) => {
             highlightDirty = true;
-            scheduleRepaint();
+            scheduleRepaint("viewport");
             closeContextMenu();
             if (popover.dataset.open === "1" && popoverRect !== null && popover.dataset.dragged !== "1") placePopover(popoverRect);
             if (event.type === "resize") {
@@ -7964,13 +8175,15 @@ ${PICK_SCRIPT}`;
               const target = elementOf2(record.target);
               if (target !== null && target.closest("[data-sa-ui]") !== null) continue;
               if (pendingSent.length > 0) safe(() => scanSentMessages());
-              if (conversationNeedsRender()) scheduleRepaint();
+              if (conversationNeedsRender()) scheduleRepaint("mutation");
               return;
             }
           });
           observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-          scheduleRepaint();
+          scheduleRepaint("mount");
+          safe(() => watchConversationScroll());
           return () => {
+            scrollTrace.dispose();
             markdown.dispose();
             document.removeEventListener("selectionchange", onSelectionChange);
             document.removeEventListener("pointerdown", onSelectPointerDown, true);
@@ -8193,6 +8406,8 @@ ${PICK_SCRIPT}`;
             const shell = inputShell();
             if (shell !== void 0) ensureFallbackPrompt(shell);
           },
+          /** 控制台开关：`__dshSelectionAnnotations.traceScroll(false)` 停掉滚动追踪。*/
+          traceScroll: (on) => scrollTrace.setEnabled(on),
           _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf, openPanel, closePanel, clampPanelToViewport }
         };
       }

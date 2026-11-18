@@ -5,6 +5,8 @@ export const HOVER_OPEN_DELAY_MS = 500
 export const SETTLE_MS = 220
     /** 批注集合变化后合并上传，避免每敲一个字都发一次请求。*/
 export const UPLOAD_DEBOUNCE_MS = 450
+    /** 编辑弹层里改一个字就写盘会太频繁：停手 300ms 再存，崩溃时最多丢这一段。*/
+export const POP_AUTO_SAVE_MS = 300
     /** 等草稿附件上传就绪的上限；超时就本次不挂，绝不制造发送失败。*/
 export const UPLOAD_READY_TIMEOUT_MS = 10000
     /** 装饰重绘合并窗口。*/
