@@ -6,8 +6,8 @@ export const CSS = `
 .sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
 /* 跳转闪现：同一个覆盖层矩形，加重底色加一圈描边；2 秒后条目被撤掉，自然消失。*/
-.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 55%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 90%, transparent);
+.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 45%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 90%, transparent);
   animation: sa-flash-fade 2000ms ease-out forwards; }
 @keyframes sa-flash-fade {
   0% { opacity: 1; }
@@ -15,12 +15,15 @@ export const CSS = `
   100% { opacity: 0; }
 }
 /* 引用标题旁的跳转小按钮：不占正文位置，和卡内其他小按钮同一套观感。*/
-.sa-jump { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: 6px;
-  padding: 0 4px; border: 0; border-radius: 4px; background: transparent; cursor: pointer;
-  font: inherit; font-size: 11px; line-height: 18px; color: var(--dsw-alias-label-secondary, #8b949e);
-  opacity: 0.75; }
-.sa-jump:hover { opacity: 1; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,0.12)); }
-.sa-jump[data-disabled="1"] { opacity: 0.45; cursor: default; }
+/* 引文块只加这一句定位上下文，不参与排布。*/
+.sa-jump-host { position: relative; }
+/* 绝对定位贴在引文块右上角：不占文字排布位，只有图标，说明走 title。*/
+.sa-jump { position: absolute; top: 2px; right: 2px; z-index: 2; display: inline-flex;
+  align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: 4px; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-label-secondary, #8b949e); opacity: 0.55; }
+.sa-jump:hover, .sa-jump:focus-visible { opacity: 1; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,0.12)); }
+.sa-jump[data-disabled="1"] { opacity: 0.3; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }
 /* 跳转失败提示：会话区没有面板提示位，短暂浮一条，不挡操作。*/
 .sa-toast { position: fixed; left: 50%; bottom: 48px; z-index: 960; transform: translateX(-50%);
@@ -103,7 +106,7 @@ export const CSS = `
 /* 「引用原文」标题行：左标题、右跳转按钮，失败提示接在按钮后面。*/
 .sa-pop-quote-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-quote-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
-.sa-pop-jump-hint { flex: 0 1 auto; max-width: 60%; text-align: right; font-size: 11px; line-height: 16px;
+.sa-pop-jump-hint { position: absolute; top: 0; right: 24px; max-width: 60%; text-align: right; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }
 .sa-pop-jump-hint[data-on="1"] { opacity: 1; }
 .sa-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;

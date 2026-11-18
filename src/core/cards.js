@@ -1,5 +1,6 @@
 import { truncateQuote } from './util.js'
 import { mergeReplyBatches } from './annotation-utils.js'
+import { jumpIcon } from './jump-icon.js'
 
 export const VERDICT_LABELS = {
   accepted: ['verdict.accepted', 'accepted'],
@@ -87,16 +88,19 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return button
   }
 
-  /** 「跳到出处」小按钮：挂在引文标题右侧，不占正文位置。*/
+  /**
+   * 「查看出处」小按钮：绝对定位贴在引文块右上角，只放 13×13 图标，
+   * 文字说明走 title / aria-label，不参与排布，也不改变引文块尺寸。
+   */
   function jumpButton(item, onClick, hint) {
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'sa-jump'
-    button.textContent = t('jump.label')
     button.setAttribute('aria-label', t('jump.label'))
     button.title = typeof hint === 'string' && hint !== '' ? hint : t('jump.hint')
     // 工作区文件这版不打开，置灰；点了仍走一次提示，避免静默。
     if (item?.source?.kind === 'file') button.setAttribute('data-disabled', '1')
+    button.appendChild(jumpIcon())
     button.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
@@ -159,11 +163,12 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       const quoteRow = document.createElement('div')
       quoteRow.className = 'sa-sent-quote-row'
       const quote = document.createElement('div')
-      quote.className = 'sa-sent-quote'
+      quote.className = 'sa-sent-quote sa-jump-host'
       quote.setAttribute('data-sa-field', 'quote')
       quote.textContent = truncateQuote(item.quote)
+      // 按钮绝对定位在引文块内部右上角，引文块自身只多了 position: relative。
+      if (typeof options.onJumpQuote === 'function') quote.appendChild(jumpButton(item, options.onJumpQuote))
       quoteRow.appendChild(quote)
-      if (typeof options.onJumpQuote === 'function') quoteRow.appendChild(jumpButton(item, options.onJumpQuote))
       text.appendChild(quoteRow)
       if (typeof item.note === 'string' && item.note.trim() !== '') {
         const note = document.createElement('div')
@@ -288,21 +293,21 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           const qLabel = document.createElement('div')
           qLabel.className = 'sa-q-label'
           qLabel.textContent = t('label.quote')
-          // 标题与跳转按钮同一行：按钮靠右，失败提示贴着它出现。
+          // 标题行保持原样（只有标签），跳转按钮放进引文块内部绝对定位。
           const qHead = document.createElement('div')
           qHead.className = 'sa-q-head'
           qHead.appendChild(qLabel)
-          if (typeof options.onJumpQuote === 'function') qHead.appendChild(jumpButton(displayItem, options.onJumpQuote))
           q.appendChild(qHead)
           const quote = document.createElement('div')
-          quote.className = 'sa-q-quote'
+          quote.className = 'sa-q-quote sa-jump-host'
           if (isAdopt(displayItem.note)) quote.dataset.adopt = '1'
           quote.setAttribute('data-sa-field', 'quote')
           quote.textContent = quoteText
           quote.title = t('expand')
+          if (typeof options.onJumpQuote === 'function') quote.appendChild(jumpButton(displayItem, options.onJumpQuote))
           // 超过三行时折叠；点一下展开，再点收回。
           quote.addEventListener('click', () => {
-            quote.className = quote.className.includes('sa-q-open') ? 'sa-q-quote' : 'sa-q-quote sa-q-open'
+            quote.classList.toggle('sa-q-open')
           })
           q.appendChild(quote)
         }

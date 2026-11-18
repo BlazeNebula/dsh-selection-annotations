@@ -8,8 +8,8 @@
 .sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
 /* 跳转闪现：同一个覆盖层矩形，加重底色加一圈描边；2 秒后条目被撤掉，自然消失。*/
-.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 55%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 90%, transparent);
+.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 45%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 90%, transparent);
   animation: sa-flash-fade 2000ms ease-out forwards; }
 @keyframes sa-flash-fade {
   0% { opacity: 1; }
@@ -17,12 +17,15 @@
   100% { opacity: 0; }
 }
 /* 引用标题旁的跳转小按钮：不占正文位置，和卡内其他小按钮同一套观感。*/
-.sa-jump { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: 6px;
-  padding: 0 4px; border: 0; border-radius: 4px; background: transparent; cursor: pointer;
-  font: inherit; font-size: 11px; line-height: 18px; color: var(--dsw-alias-label-secondary, #8b949e);
-  opacity: 0.75; }
-.sa-jump:hover { opacity: 1; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,0.12)); }
-.sa-jump[data-disabled="1"] { opacity: 0.45; cursor: default; }
+/* 引文块只加这一句定位上下文，不参与排布。*/
+.sa-jump-host { position: relative; }
+/* 绝对定位贴在引文块右上角：不占文字排布位，只有图标，说明走 title。*/
+.sa-jump { position: absolute; top: 2px; right: 2px; z-index: 2; display: inline-flex;
+  align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: 4px; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-label-secondary, #8b949e); opacity: 0.55; }
+.sa-jump:hover, .sa-jump:focus-visible { opacity: 1; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,0.12)); }
+.sa-jump[data-disabled="1"] { opacity: 0.3; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }
 /* 跳转失败提示：会话区没有面板提示位，短暂浮一条，不挡操作。*/
 .sa-toast { position: fixed; left: 50%; bottom: 48px; z-index: 960; transform: translateX(-50%);
@@ -105,7 +108,7 @@
 /* 「引用原文」标题行：左标题、右跳转按钮，失败提示接在按钮后面。*/
 .sa-pop-quote-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-quote-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
-.sa-pop-jump-hint { flex: 0 1 auto; max-width: 60%; text-align: right; font-size: 11px; line-height: 16px;
+.sa-pop-jump-hint { position: absolute; top: 0; right: 24px; max-width: 60%; text-align: right; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }
 .sa-pop-jump-hint[data-on="1"] { opacity: 1; }
 .sa-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -695,7 +698,7 @@
       "label.answer": "答复",
       "label.reason": "答复理由",
       "label.next": "下一步",
-      "jump.label": "跳到出处",
+      "jump.label": "查看出处",
       "jump.hint": "跳回这段引用的正文位置",
       "jump.file": "这条出自工作区文件",
       "jump.noAnchor": "这条找不到可定位的正文",
@@ -831,7 +834,7 @@
       "label.answer": "Reply",
       "label.reason": "Reason",
       "label.next": "Next step",
-      "jump.label": "Jump to source",
+      "jump.label": "View source",
       "jump.hint": "Jump back to where this quote came from",
       "jump.file": "This one comes from a workspace file",
       "jump.noAnchor": "No locatable text for this one",
@@ -1636,6 +1639,25 @@
     return { resolve };
   }
 
+  // src/core/jump-icon.js
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  function jumpIcon() {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("width", "13");
+    svg.setAttribute("height", "13");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("aria-hidden", "true");
+    for (const d of ["M11.6 4.4 5.6 10.4", "M5.6 6.8v3.6h3.6"]) {
+      const path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("d", d);
+      path.setAttribute("stroke", "currentColor");
+      path.setAttribute("stroke-width", "1.2");
+      svg.appendChild(path);
+    }
+    return svg;
+  }
+
   // src/core/cards.js
   var VERDICT_LABELS = {
     accepted: ["verdict.accepted", "accepted"],
@@ -1717,10 +1739,10 @@
       const button2 = document.createElement("button");
       button2.type = "button";
       button2.className = "sa-jump";
-      button2.textContent = t("jump.label");
       button2.setAttribute("aria-label", t("jump.label"));
       button2.title = typeof hint === "string" && hint !== "" ? hint : t("jump.hint");
       if (item?.source?.kind === "file") button2.setAttribute("data-disabled", "1");
+      button2.appendChild(jumpIcon());
       button2.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1772,11 +1794,11 @@
         const quoteRow = document.createElement("div");
         quoteRow.className = "sa-sent-quote-row";
         const quote = document.createElement("div");
-        quote.className = "sa-sent-quote";
+        quote.className = "sa-sent-quote sa-jump-host";
         quote.setAttribute("data-sa-field", "quote");
         quote.textContent = truncateQuote(item.quote);
+        if (typeof options.onJumpQuote === "function") quote.appendChild(jumpButton(item, options.onJumpQuote));
         quoteRow.appendChild(quote);
-        if (typeof options.onJumpQuote === "function") quoteRow.appendChild(jumpButton(item, options.onJumpQuote));
         text.appendChild(quoteRow);
         if (typeof item.note === "string" && item.note.trim() !== "") {
           const note = document.createElement("div");
@@ -1886,16 +1908,16 @@
             const qHead = document.createElement("div");
             qHead.className = "sa-q-head";
             qHead.appendChild(qLabel);
-            if (typeof options.onJumpQuote === "function") qHead.appendChild(jumpButton(displayItem, options.onJumpQuote));
             q.appendChild(qHead);
             const quote = document.createElement("div");
-            quote.className = "sa-q-quote";
+            quote.className = "sa-q-quote sa-jump-host";
             if (isAdopt(displayItem.note)) quote.dataset.adopt = "1";
             quote.setAttribute("data-sa-field", "quote");
             quote.textContent = quoteText;
             quote.title = t("expand");
+            if (typeof options.onJumpQuote === "function") quote.appendChild(jumpButton(displayItem, options.onJumpQuote));
             quote.addEventListener("click", () => {
-              quote.className = quote.className.includes("sa-q-open") ? "sa-q-quote" : "sa-q-quote sa-q-open";
+              quote.classList.toggle("sa-q-open");
             });
             q.appendChild(quote);
           }
@@ -2214,15 +2236,24 @@
           const q = el("div", "sa-item-q");
           const qHead = el("div", "sa-item-q-head");
           qHead.appendChild(el("div", "sa-item-label", t("panel.quote")));
-          const jump = button("sa-jump", t("jump.label"), () => jumpToQuote(item, jump));
+          q.appendChild(qHead);
+          const quote = el("div", "sa-item-quote sa-jump-host", item.quote);
+          quote.title = t("expand");
+          const jump = document.createElement("button");
+          jump.type = "button";
+          jump.className = "sa-jump";
+          jump.setAttribute("aria-label", t("jump.label"));
           jump.title = t("jump.hint");
           if (item.source?.kind === "file") jump.setAttribute("data-disabled", "1");
-          qHead.appendChild(jump);
-          q.appendChild(qHead);
-          const quote = el("div", "sa-item-quote", item.quote);
-          quote.title = t("expand");
+          jump.appendChild(jumpIcon());
+          jump.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            jumpToQuote(item, jump);
+          });
+          quote.appendChild(jump);
           quote.addEventListener("click", () => {
-            quote.className = quote.className.includes("sa-q-open") ? "sa-item-quote" : "sa-item-quote sa-q-open";
+            quote.classList.toggle("sa-q-open");
           });
           q.appendChild(quote);
           row.appendChild(q);
@@ -5015,7 +5046,6 @@ ${PICK_SCRIPT}<\/script>`;
           safe(() => {
             popQuoteLabel.textContent = t("label.quote");
             popNoteLabel.textContent = t("pop.noteLabel");
-            popJump.textContent = t("jump.label");
             popJump.setAttribute("aria-label", t("jump.label"));
             popJump.title = t("jump.hint");
           });
@@ -5771,10 +5801,10 @@ ${PICK_SCRIPT}<\/script>`;
         const popJump = document.createElement("button");
         popJump.type = "button";
         popJump.className = "sa-jump";
-        popJump.textContent = t("jump.label");
         popJump.setAttribute("aria-label", t("jump.label"));
         popJump.title = t("jump.hint");
         popJump.style.display = "none";
+        popJump.appendChild(jumpIcon());
         popJump.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -5782,7 +5812,7 @@ ${PICK_SCRIPT}<\/script>`;
           jumpToQuote(popoverItem, void 0, popJump);
         });
         const popQuoteHead = document.createElement("div");
-        popQuoteHead.className = "sa-pop-quote-head";
+        popQuoteHead.className = "sa-pop-quote-head sa-jump-host";
         popQuoteHead.append(popQuoteLabel, popJumpHint, popJump);
         const popQuote = document.createElement("div");
         popQuote.className = "sa-pop-quote";
@@ -6381,7 +6411,7 @@ ${PICK_SCRIPT}<\/script>`;
         let popoverItem = null;
         let popAutoSaveTimer = null;
         function schedulePopAutoSave() {
-          if (popoverMode !== "edit" || popoverTargetId === null) return;
+          if (popoverMode !== "edit" && popoverMode !== "create") return;
           if (popover.dataset.open !== "1") return;
           if (popAutoSaveTimer !== null) window.clearTimeout(popAutoSaveTimer);
           popAutoSaveTimer = window.setTimeout(() => {
@@ -6389,14 +6419,41 @@ ${PICK_SCRIPT}<\/script>`;
             autoSavePopover();
           }, POP_AUTO_SAVE_MS);
         }
+        function createAnnotationFromPopover() {
+          const anchor = popoverAnchor;
+          if (anchor === null) return;
+          const created = addAnnotation({
+            quote: anchor.quote,
+            note: noteValue(),
+            images: popInputImages,
+            source: anchor.source,
+            liveRange: anchor.range
+          });
+          if (created === void 0) return;
+          popoverTargetId = created.id;
+          popoverItem = created;
+          popoverAnchor = null;
+          popDelete.style.display = "";
+          popTitle.textContent = t("pop.editTitle", { n: created.number });
+          if (anchor.quote !== "") popJump.style.display = "";
+          popJump.dataset.disabled = created.source?.kind === "file" ? "1" : "0";
+          refineSourcePosition(created.id, anchor.source, anchor.quote).catch((err) => {
+            warn("[selection-annotations] 位置精修失败（不影响这条批注）：", err);
+          });
+        }
         function autoSavePopover() {
-          if (popoverMode !== "edit" || popoverTargetId === null) return;
           if (popover.dataset.open !== "1") return;
+          const note = noteValue();
+          const images = popInputImages;
+          if (popoverMode === "create" && popoverTargetId === null) {
+            if (note.trim() === "" && images.length === 0) return;
+            createAnnotationFromPopover();
+            return;
+          }
+          if (popoverTargetId === null) return;
           const target = popoverTargetId;
           const item = annotations.find((candidate) => candidate.id === target);
           if (item === void 0) return;
-          const note = noteValue();
-          const images = popInputImages;
           const nextNote = note.trim().slice(0, MAX_NOTE);
           if (item.note === nextNote && JSON.stringify(item.images ?? []) === JSON.stringify(images)) return;
           updateAnnotation(target, note, images);
@@ -6805,13 +6862,19 @@ ${PICK_SCRIPT}<\/script>`;
             return;
           }
           const anchor = popoverAnchor;
+          if (popoverTargetId !== null) {
+            closePopover({ discardWebEmpty: false });
+            return;
+          }
           if (anchor === null) return;
           const note = noteValue();
           const images = popInputImages;
           if (discardEmpty && shouldDiscardEmpty(popoverMode, note, images)) {
+            cancelPopAutoSave();
             closePopover();
             return;
           }
+          cancelPopAutoSave();
           closePopover();
           const created = addAnnotation({
             quote: anchor.quote,
@@ -6829,6 +6892,11 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function cancelPopoverEdit() {
           cancelPopAutoSave();
+          if (popoverMode === "create") {
+            if (popoverTargetId !== null) removeAnnotation(popoverTargetId);
+            closePopover({ autoSave: false });
+            return;
+          }
           const snapshot2 = popoverSnapshot;
           if (popoverMode === "edit" && popoverTargetId !== null && snapshot2 !== null && snapshot2.id === popoverTargetId) {
             const current = annotations.find((item) => item.id === popoverTargetId);

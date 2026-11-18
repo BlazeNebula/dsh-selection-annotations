@@ -50,6 +50,7 @@ import { createPayload } from './core/payload.js'
 import { createSourceCapture } from './core/source-capture.js'
 import { createSourceResolver } from './core/source-resolve.js'
 import { createCards, VERDICT_LABELS } from './core/cards.js'
+import { jumpIcon } from './core/jump-icon.js'
 import { createMarkdown } from './core/markdown.js'
 import { createPanelRenderer } from './core/panel-render.js'
 import {
@@ -1819,7 +1820,6 @@ const rewindHandled = new Map()
           safe(() => {
             popQuoteLabel.textContent = t('label.quote')
             popNoteLabel.textContent = t('pop.noteLabel')
-            popJump.textContent = t('jump.label')
             popJump.setAttribute('aria-label', t('jump.label'))
             popJump.title = t('jump.hint')
           })
@@ -2801,10 +2801,10 @@ const rewindHandled = new Map()
         const popJump = document.createElement('button')
         popJump.type = 'button'
         popJump.className = 'sa-jump'
-        popJump.textContent = t('jump.label')
         popJump.setAttribute('aria-label', t('jump.label'))
         popJump.title = t('jump.hint')
         popJump.style.display = 'none'
+        popJump.appendChild(jumpIcon())
         popJump.addEventListener('click', (event) => {
           event.preventDefault()
           event.stopPropagation()
@@ -2812,7 +2812,7 @@ const rewindHandled = new Map()
           jumpToQuote(popoverItem, undefined, popJump)
         })
         const popQuoteHead = document.createElement('div')
-        popQuoteHead.className = 'sa-pop-quote-head'
+        popQuoteHead.className = 'sa-pop-quote-head sa-jump-host'
         popQuoteHead.append(popQuoteLabel, popJumpHint, popJump)
         const popQuote = document.createElement('div')
         popQuote.className = 'sa-pop-quote'
@@ -3533,9 +3533,9 @@ const rewindHandled = new Map()
         /** 编辑中自动存写的去抖计时器：停手一小段再落盘，崩溃时最多丢这一段。*/
         let popAutoSaveTimer = null
 
-        /** 编辑态才需要自动存写：新建弹层在点保存前还不是一条批注。*/
+        /** 编辑与新建都自动存写：新建在第一次有内容前还不是一条批注。*/
         function schedulePopAutoSave() {
-          if (popoverMode !== 'edit' || popoverTargetId === null) return
+          if (popoverMode !== 'edit' && popoverMode !== 'create') return
           if (popover.dataset.open !== '1') return
           if (popAutoSaveTimer !== null) window.clearTimeout(popAutoSaveTimer)
           popAutoSaveTimer = window.setTimeout(() => {
@@ -3544,24 +3544,55 @@ const rewindHandled = new Map()
           }, POP_AUTO_SAVE_MS)
         }
 
+        /** 新建态第一次有内容：把选区里的引文与来源一起落成条目，之后都写同一条。*/
+        function createAnnotationFromPopover() {
+          const anchor = popoverAnchor
+          if (anchor === null) return
+          const created = addAnnotation({
+            quote: anchor.quote,
+            note: noteValue(),
+            images: popInputImages,
+            source: anchor.source,
+            liveRange: anchor.range,
+          })
+          if (created === undefined) return
+          popoverTargetId = created.id
+          popoverItem = created
+          // 条目已经建出来：后续保存与取消都按「这一条」处理，不再重复创建。
+          popoverAnchor = null
+          popDelete.style.display = ''
+          popTitle.textContent = t('pop.editTitle', { n: created.number })
+          if (anchor.quote !== '') popJump.style.display = ''
+          popJump.dataset.disabled = created.source?.kind === 'file' ? '1' : '0'
+          // 位置精修失败只记日志，不影响这条批注（与保存路径一致）。
+          refineSourcePosition(created.id, anchor.source, anchor.quote).catch((err) => {
+            warn('[selection-annotations] 位置精修失败（不影响这条批注）：', err)
+          })
+        }
+
         /**
-         * 把编辑框当前内容写进条目，让本地草稿与宿主都跟上。
+         * 把弹层当前内容写进条目，让本地草稿与宿主都跟上。
          *
-         * 清空文字只是存成空字符串，**不删条目**；删除只有两条既有路径：显式点删除，
-         * 或关闭网页来源弹层时正文仍为空。
+         * 新建态：空输入什么都不做；第一次有文字或图片才创建条目，之后继续写同一条。
+         * 编辑态：清空文字只是存成空字符串，**不删条目**；删除只有显式点删除与网页来源空正文两条路径。
          *
-         * 稳定性：这里只调 updateAnnotation（emit + 排同步 + 写草稿），不排重绘。
+         * 稳定性：这里只调 addAnnotation/updateAnnotation（emit + 排同步 + 写草稿），不排重绘。
          * emit 的通知只重渲染盘点面板与高亮，弹层是挂在 body 上的常驻节点、不参与重建，
          * 所以去抖保存期间输入框不会失焦、光标不会回到开头，弹层也不会移动。
          */
         function autoSavePopover() {
-          if (popoverMode !== 'edit' || popoverTargetId === null) return
           if (popover.dataset.open !== '1') return
+          const note = noteValue()
+          const images = popInputImages
+          if (popoverMode === 'create' && popoverTargetId === null) {
+            if (note.trim() === '' && images.length === 0) return
+            createAnnotationFromPopover()
+            return
+          }
+          if (popoverTargetId === null) return
           const target = popoverTargetId
           const item = annotations.find((candidate) => candidate.id === target)
           if (item === undefined) return
-          const note = noteValue()
-          const images = popInputImages
           // 按 updateAnnotation 的归一化结果比较：内容没变就不重复 emit、不重复写盘。
           const nextNote = note.trim().slice(0, MAX_NOTE)
           if (item.note === nextNote && JSON.stringify(item.images ?? []) === JSON.stringify(images)) return
@@ -4098,13 +4129,22 @@ const rewindHandled = new Map()
             return
           }
           const anchor = popoverAnchor
+          // 自动存写可能已经替这次新建建好了条目：内容此时就是最新的，直接关。
+          if (popoverTargetId !== null) {
+            closePopover({ discardWebEmpty: false })
+            return
+          }
           if (anchor === null) return
           const note = noteValue()
           const images = popInputImages
           if (discardEmpty && shouldDiscardEmpty(popoverMode, note, images)) {
+            cancelPopAutoSave()
             closePopover()
             return
           }
+          // 下面自己创建这一条：先取消去抖窗口里那次「自动新建」，
+          // 避免 closePopover 的 flush 先建一条、这里再建一条。
+          cancelPopAutoSave()
           closePopover()
           // 先创建：这一段绝不能依赖任何可能失败的东西。
           const created = addAnnotation({
@@ -4129,6 +4169,12 @@ const rewindHandled = new Map()
          */
         function cancelPopoverEdit() {
           cancelPopAutoSave()
+          if (popoverMode === 'create') {
+            // 新建期间自动存下的草稿，在「取消」时整体丢弃：等同于从未创建过。
+            if (popoverTargetId !== null) removeAnnotation(popoverTargetId)
+            closePopover({ autoSave: false })
+            return
+          }
           const snapshot = popoverSnapshot
           if (popoverMode === 'edit' && popoverTargetId !== null && snapshot !== null && snapshot.id === popoverTargetId) {
             const current = annotations.find((item) => item.id === popoverTargetId)
