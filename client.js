@@ -16,17 +16,14 @@
   65% { opacity: 1; }
   100% { opacity: 0; }
 }
-/* 引用标题旁的跳转小按钮：不占正文位置，和卡内其他小按钮同一套观感。*/
-/* 引文块只加这一句定位上下文，不参与排布。*/
-.sa-jump-host { position: relative; }
-/* 绝对定位贴在引文块右上角：不占文字排布位，只有图标，说明走 title。*/
-.sa-jump { position: absolute; top: 2px; right: 2px; z-index: 2; display: inline-flex;
-  align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0;
-  border: 0; border-radius: 4px; background: transparent; cursor: pointer;
-  color: var(--dsw-alias-label-secondary, #8b949e); opacity: 0.55; }
-.sa-jump:hover, .sa-jump:focus-visible { opacity: 1; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,0.12)); }
-.sa-jump[data-disabled="1"] { opacity: 0.3; cursor: default; }
+/* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
+.sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }
+/* 已发送卡的引文块整块可点：悬停/键盘聚焦时从灰字回到正文色，并给出可点的指针。*/
+.sa-quote-jump { cursor: pointer; transition: color 140ms ease; }
+.sa-quote-jump:hover, .sa-quote-jump:focus-visible {
+  color: var(--sa-dim-primary, var(--dsw-alias-label-primary, #e8e8ea)); }
+.sa-quote-jump:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 2px; border-radius: 3px; }
 /* 跳转失败提示：会话区没有面板提示位，短暂浮一条，不挡操作。*/
 .sa-toast { position: fixed; left: 50%; bottom: 48px; z-index: 960; transform: translateX(-50%);
   padding: 6px 12px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2, #2b2b2b);
@@ -108,9 +105,11 @@
 /* 「引用原文」标题行：左标题、右跳转按钮，失败提示接在按钮后面。*/
 .sa-pop-quote-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-quote-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
-.sa-pop-jump-hint { position: absolute; top: 0; right: 24px; max-width: 60%; text-align: right; font-size: 11px; line-height: 16px;
+.sa-pop-jump-hint { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }
 .sa-pop-jump-hint[data-on="1"] { opacity: 1; }
+.sa-pop-jump-hint[data-on="0"] { display: none; }
 .sa-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   margin: 0 0 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder);
   cursor: move; user-select: none; touch-action: none; }
@@ -1700,13 +1699,7 @@
       if (action !== void 0 && action !== null) head.appendChild(action);
       return head;
     }
-    function reuseButton(label, onClick, hint) {
-      const button2 = document.createElement("span");
-      button2.className = "sa-reuse";
-      button2.setAttribute("role", "button");
-      button2.setAttribute("tabindex", "0");
-      button2.setAttribute("aria-label", label);
-      if (typeof hint === "string" && hint !== "") button2.title = hint;
+    function replayIcon() {
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.setAttribute("viewBox", "0 0 16 16");
       svg.setAttribute("width", "13");
@@ -1720,10 +1713,19 @@
         path.setAttribute("stroke-width", "1.2");
         svg.appendChild(path);
       }
+      return svg;
+    }
+    function hoverTextButton(label, onClick, hint, icon) {
+      const button2 = document.createElement("span");
+      button2.className = "sa-reuse";
+      button2.setAttribute("role", "button");
+      button2.setAttribute("tabindex", "0");
+      button2.setAttribute("aria-label", label);
+      if (typeof hint === "string" && hint !== "") button2.title = hint;
       const text = document.createElement("span");
       text.className = "sa-reuse-text";
       text.textContent = label;
-      button2.append(text, svg);
+      button2.append(text, icon);
       const run = (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1735,19 +1737,18 @@
       });
       return button2;
     }
+    function reuseButton(label, onClick, hint) {
+      return hoverTextButton(label, onClick, hint, replayIcon());
+    }
     function jumpButton(item, onClick, hint) {
-      const button2 = document.createElement("button");
-      button2.type = "button";
-      button2.className = "sa-jump";
-      button2.setAttribute("aria-label", t("jump.label"));
-      button2.title = typeof hint === "string" && hint !== "" ? hint : t("jump.hint");
+      const button2 = hoverTextButton(
+        t("jump.label"),
+        () => onClick(item, button2),
+        typeof hint === "string" && hint !== "" ? hint : t("jump.hint"),
+        jumpIcon()
+      );
+      button2.classList.add("sa-jump");
       if (item?.source?.kind === "file") button2.setAttribute("data-disabled", "1");
-      button2.appendChild(jumpIcon());
-      button2.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onClick(item, button2);
-      });
       return button2;
     }
     function collapsible(body, open) {
@@ -1794,11 +1795,28 @@
         const quoteRow = document.createElement("div");
         quoteRow.className = "sa-sent-quote-row";
         const quote = document.createElement("div");
-        quote.className = "sa-sent-quote sa-jump-host";
+        quote.className = "sa-sent-quote";
         quote.setAttribute("data-sa-field", "quote");
         quote.textContent = truncateQuote(item.quote);
-        if (typeof options.onJumpQuote === "function") quote.appendChild(jumpButton(item, options.onJumpQuote));
+        if (typeof options.onJumpQuote === "function") {
+          quote.classList.add("sa-quote-jump");
+          quote.setAttribute("role", "button");
+          quote.setAttribute("tabindex", "0");
+          quote.title = t("jump.hint");
+          const runJump = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            options.onJumpQuote(item, quote);
+          };
+          quote.addEventListener("click", runJump);
+          quote.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") runJump(event);
+          });
+        }
         quoteRow.appendChild(quote);
+        if (typeof options.onJumpQuote === "function") {
+          quoteRow.appendChild(jumpButton(item, options.onJumpQuote));
+        }
         text.appendChild(quoteRow);
         if (typeof item.note === "string" && item.note.trim() !== "") {
           const note = document.createElement("div");
@@ -1908,14 +1926,16 @@
             const qHead = document.createElement("div");
             qHead.className = "sa-q-head";
             qHead.appendChild(qLabel);
+            if (typeof options.onJumpQuote === "function") {
+              qHead.appendChild(jumpButton(displayItem, options.onJumpQuote));
+            }
             q.appendChild(qHead);
             const quote = document.createElement("div");
-            quote.className = "sa-q-quote sa-jump-host";
+            quote.className = "sa-q-quote";
             if (isAdopt(displayItem.note)) quote.dataset.adopt = "1";
             quote.setAttribute("data-sa-field", "quote");
             quote.textContent = quoteText;
             quote.title = t("expand");
-            if (typeof options.onJumpQuote === "function") quote.appendChild(jumpButton(displayItem, options.onJumpQuote));
             quote.addEventListener("click", () => {
               quote.classList.toggle("sa-q-open");
             });
@@ -2006,7 +2026,7 @@
       card.append(wrap);
       return card;
     }
-    return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection };
+    return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection, jumpButton };
   }
 
   // src/core/markdown.js
@@ -2082,6 +2102,8 @@
     openEditPopover,
     jumpToQuote = () => {
     },
+    jumpButton = null,
+    // 与已发送卡/答复共用的「查看出处」按钮工厂；放在「引用原文」标题行末尾
     removeAnnotation,
     sourceSummary,
     openImageViewer,
@@ -2236,22 +2258,12 @@
           const q = el("div", "sa-item-q");
           const qHead = el("div", "sa-item-q-head");
           qHead.appendChild(el("div", "sa-item-label", t("panel.quote")));
+          if (typeof jumpButton === "function") {
+            qHead.appendChild(jumpButton(item, (it, root) => jumpToQuote(it, root)));
+          }
           q.appendChild(qHead);
-          const quote = el("div", "sa-item-quote sa-jump-host", item.quote);
+          const quote = el("div", "sa-item-quote", item.quote);
           quote.title = t("expand");
-          const jump = document.createElement("button");
-          jump.type = "button";
-          jump.className = "sa-jump";
-          jump.setAttribute("aria-label", t("jump.label"));
-          jump.title = t("jump.hint");
-          if (item.source?.kind === "file") jump.setAttribute("data-disabled", "1");
-          jump.appendChild(jumpIcon());
-          jump.addEventListener("click", (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            jumpToQuote(item, jump);
-          });
-          quote.appendChild(jump);
           quote.addEventListener("click", () => {
             quote.classList.toggle("sa-q-open");
           });
@@ -5046,6 +5058,7 @@ ${PICK_SCRIPT}<\/script>`;
           safe(() => {
             popQuoteLabel.textContent = t("label.quote");
             popNoteLabel.textContent = t("pop.noteLabel");
+            popJumpText.textContent = t("jump.label");
             popJump.setAttribute("aria-label", t("jump.label"));
             popJump.title = t("jump.hint");
           });
@@ -5798,21 +5811,29 @@ ${PICK_SCRIPT}<\/script>`;
         const popJumpHint = document.createElement("span");
         popJumpHint.className = "sa-pop-jump-hint";
         popJumpHint.dataset.on = "0";
-        const popJump = document.createElement("button");
-        popJump.type = "button";
-        popJump.className = "sa-jump";
+        const popJump = document.createElement("span");
+        popJump.className = "sa-reuse sa-jump";
+        popJump.setAttribute("role", "button");
+        popJump.setAttribute("tabindex", "0");
         popJump.setAttribute("aria-label", t("jump.label"));
         popJump.title = t("jump.hint");
         popJump.style.display = "none";
-        popJump.appendChild(jumpIcon());
-        popJump.addEventListener("click", (event) => {
+        const popJumpText = document.createElement("span");
+        popJumpText.className = "sa-reuse-text";
+        popJumpText.textContent = t("jump.label");
+        popJump.append(popJumpText, jumpIcon());
+        const popJumpRun = (event) => {
           event.preventDefault();
           event.stopPropagation();
           if (popoverItem === null) return;
           jumpToQuote(popoverItem, void 0, popJump);
+        };
+        popJump.addEventListener("click", popJumpRun);
+        popJump.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") popJumpRun(event);
         });
         const popQuoteHead = document.createElement("div");
-        popQuoteHead.className = "sa-pop-quote-head sa-jump-host";
+        popQuoteHead.className = "sa-pop-quote-head";
         popQuoteHead.append(popQuoteLabel, popJumpHint, popJump);
         const popQuote = document.createElement("div");
         popQuote.className = "sa-pop-quote";
@@ -7868,6 +7889,7 @@ ${PICK_SCRIPT}`;
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
           jumpToQuote: (item, root) => jumpToQuote(item, void 0, root),
+          jumpButton: (item, onClick, hint) => cards.jumpButton(item, onClick, hint),
           removeAnnotation: (id) => removeAnnotation(id),
           sourceSummary: (item) => sourceSummary(item),
           openImageViewer: (url, name) => openImageViewer(url, name),

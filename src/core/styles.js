@@ -14,17 +14,14 @@ export const CSS = `
   65% { opacity: 1; }
   100% { opacity: 0; }
 }
-/* 引用标题旁的跳转小按钮：不占正文位置，和卡内其他小按钮同一套观感。*/
-/* 引文块只加这一句定位上下文，不参与排布。*/
-.sa-jump-host { position: relative; }
-/* 绝对定位贴在引文块右上角：不占文字排布位，只有图标，说明走 title。*/
-.sa-jump { position: absolute; top: 2px; right: 2px; z-index: 2; display: inline-flex;
-  align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0;
-  border: 0; border-radius: 4px; background: transparent; cursor: pointer;
-  color: var(--dsw-alias-label-secondary, #8b949e); opacity: 0.55; }
-.sa-jump:hover, .sa-jump:focus-visible { opacity: 1; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,0.12)); }
-.sa-jump[data-disabled="1"] { opacity: 0.3; cursor: default; }
+/* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
+.sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }
+/* 已发送卡的引文块整块可点：悬停/键盘聚焦时从灰字回到正文色，并给出可点的指针。*/
+.sa-quote-jump { cursor: pointer; transition: color 140ms ease; }
+.sa-quote-jump:hover, .sa-quote-jump:focus-visible {
+  color: var(--sa-dim-primary, var(--dsw-alias-label-primary, #e8e8ea)); }
+.sa-quote-jump:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 2px; border-radius: 3px; }
 /* 跳转失败提示：会话区没有面板提示位，短暂浮一条，不挡操作。*/
 .sa-toast { position: fixed; left: 50%; bottom: 48px; z-index: 960; transform: translateX(-50%);
   padding: 6px 12px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2, #2b2b2b);
@@ -106,9 +103,11 @@ export const CSS = `
 /* 「引用原文」标题行：左标题、右跳转按钮，失败提示接在按钮后面。*/
 .sa-pop-quote-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-quote-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
-.sa-pop-jump-hint { position: absolute; top: 0; right: 24px; max-width: 60%; text-align: right; font-size: 11px; line-height: 16px;
+.sa-pop-jump-hint { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }
 .sa-pop-jump-hint[data-on="1"] { opacity: 1; }
+.sa-pop-jump-hint[data-on="0"] { display: none; }
 .sa-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   margin: 0 0 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder);
   cursor: move; user-select: none; touch-action: none; }

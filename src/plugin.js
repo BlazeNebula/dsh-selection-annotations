@@ -1820,6 +1820,7 @@ const rewindHandled = new Map()
           safe(() => {
             popQuoteLabel.textContent = t('label.quote')
             popNoteLabel.textContent = t('pop.noteLabel')
+            popJumpText.textContent = t('jump.label')
             popJump.setAttribute('aria-label', t('jump.label'))
             popJump.title = t('jump.hint')
           })
@@ -2798,21 +2799,30 @@ const rewindHandled = new Map()
         const popJumpHint = document.createElement('span')
         popJumpHint.className = 'sa-pop-jump-hint'
         popJumpHint.dataset.on = '0'
-        const popJump = document.createElement('button')
-        popJump.type = 'button'
-        popJump.className = 'sa-jump'
+        // 与「回放」同一套：图标常驻、文字悬停出现，作为标题行的普通子元素贴右。
+        const popJump = document.createElement('span')
+        popJump.className = 'sa-reuse sa-jump'
+        popJump.setAttribute('role', 'button')
+        popJump.setAttribute('tabindex', '0')
         popJump.setAttribute('aria-label', t('jump.label'))
         popJump.title = t('jump.hint')
         popJump.style.display = 'none'
-        popJump.appendChild(jumpIcon())
-        popJump.addEventListener('click', (event) => {
+        const popJumpText = document.createElement('span')
+        popJumpText.className = 'sa-reuse-text'
+        popJumpText.textContent = t('jump.label')
+        popJump.append(popJumpText, jumpIcon())
+        const popJumpRun = (event) => {
           event.preventDefault()
           event.stopPropagation()
           if (popoverItem === null) return
           jumpToQuote(popoverItem, undefined, popJump)
+        }
+        popJump.addEventListener('click', popJumpRun)
+        popJump.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') popJumpRun(event)
         })
         const popQuoteHead = document.createElement('div')
-        popQuoteHead.className = 'sa-pop-quote-head sa-jump-host'
+        popQuoteHead.className = 'sa-pop-quote-head'
         popQuoteHead.append(popQuoteLabel, popJumpHint, popJump)
         const popQuote = document.createElement('div')
         popQuote.className = 'sa-pop-quote'
@@ -5339,6 +5349,7 @@ const rewindHandled = new Map()
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
           jumpToQuote: (item, root) => jumpToQuote(item, undefined, root),
+          jumpButton: (item, onClick, hint) => cards.jumpButton(item, onClick, hint),
           removeAnnotation: (id) => removeAnnotation(id),
           sourceSummary: (item) => sourceSummary(item),
           openImageViewer: (url, name) => openImageViewer(url, name),

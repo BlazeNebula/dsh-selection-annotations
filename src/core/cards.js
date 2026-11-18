@@ -50,14 +50,8 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return head
   }
 
-  /** 已发送区右上角的「复用」图标：把这些批注重新放回待发送列表。*/
-  function reuseButton(label, onClick, hint) {
-    const button = document.createElement('span')
-    button.className = 'sa-reuse'
-    button.setAttribute('role', 'button')
-    button.setAttribute('tabindex', '0')
-    button.setAttribute('aria-label', label)
-    if (typeof hint === 'string' && hint !== '') button.title = hint
+  /** 回放按钮的图标：两张叠起来的纸，表示「放回复用」。*/
+  function replayIcon() {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     svg.setAttribute('viewBox', '0 0 16 16')
     svg.setAttribute('width', '13')
@@ -71,11 +65,26 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       path.setAttribute('stroke-width', '1.2')
       svg.appendChild(path)
     }
+    return svg
+  }
+
+  /**
+   * 「图标常驻、文字悬停出现」的小按钮：回放与查看出处共用这一套观感与交互。
+   * 文字节点始终占位，只切换透明度，悬停命中区域不会长大；.sa-reuse 自带 margin-left:auto，
+   * 放进 flex 行里就贴最右，不需要额外的定位或包裹层。
+   */
+  function hoverTextButton(label, onClick, hint, icon) {
+    const button = document.createElement('span')
+    button.className = 'sa-reuse'
+    button.setAttribute('role', 'button')
+    button.setAttribute('tabindex', '0')
+    button.setAttribute('aria-label', label)
+    if (typeof hint === 'string' && hint !== '') button.title = hint
     const text = document.createElement('span')
     text.className = 'sa-reuse-text'
     text.textContent = label
-    // 文字在前、复制图标贴右：与「回放」的语义一致。
-    button.append(text, svg)
+    // 文字在前、图标贴右：与「回放」的语义一致。
+    button.append(text, icon)
     const run = (event) => {
       event.preventDefault()
       event.stopPropagation()
@@ -88,24 +97,25 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return button
   }
 
+  /** 已发送区右上角的「复用」图标：把这些批注重新放回待发送列表。*/
+  function reuseButton(label, onClick, hint) {
+    return hoverTextButton(label, onClick, hint, replayIcon())
+  }
+
   /**
-   * 「查看出处」小按钮：绝对定位贴在引文块右上角，只放 13×13 图标，
-   * 文字说明走 title / aria-label，不参与排布，也不改变引文块尺寸。
+   * 「查看出处」按钮：与回放按钮同一套观感（图标常驻、文字悬停出现），
+   * 作为「引用原文」那一行的普通子元素贴右，不绝对定位、不覆盖引文。
    */
   function jumpButton(item, onClick, hint) {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.className = 'sa-jump'
-    button.setAttribute('aria-label', t('jump.label'))
-    button.title = typeof hint === 'string' && hint !== '' ? hint : t('jump.hint')
+    const button = hoverTextButton(
+      t('jump.label'),
+      () => onClick(item, button),
+      typeof hint === 'string' && hint !== '' ? hint : t('jump.hint'),
+      jumpIcon(),
+    )
+    button.classList.add('sa-jump')
     // 工作区文件这版不打开，置灰；点了仍走一次提示，避免静默。
     if (item?.source?.kind === 'file') button.setAttribute('data-disabled', '1')
-    button.appendChild(jumpIcon())
-    button.addEventListener('click', (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      onClick(item, button)
-    })
     return button
   }
 
@@ -163,12 +173,30 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       const quoteRow = document.createElement('div')
       quoteRow.className = 'sa-sent-quote-row'
       const quote = document.createElement('div')
-      quote.className = 'sa-sent-quote sa-jump-host'
+      quote.className = 'sa-sent-quote'
       quote.setAttribute('data-sa-field', 'quote')
       quote.textContent = truncateQuote(item.quote)
-      // 按钮绝对定位在引文块内部右上角，引文块自身只多了 position: relative。
-      if (typeof options.onJumpQuote === 'function') quote.appendChild(jumpButton(item, options.onJumpQuote))
+      if (typeof options.onJumpQuote === 'function') {
+        // 引文块整块可点：与右侧按钮跳同一个出处。悬停变正文色由 .sa-quote-jump 负责。
+        quote.classList.add('sa-quote-jump')
+        quote.setAttribute('role', 'button')
+        quote.setAttribute('tabindex', '0')
+        quote.title = t('jump.hint')
+        const runJump = (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          options.onJumpQuote(item, quote)
+        }
+        quote.addEventListener('click', runJump)
+        quote.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') runJump(event)
+        })
+      }
       quoteRow.appendChild(quote)
+      // 按钮是这一行的普通子元素，靠 .sa-reuse 的 margin-left:auto 贴右。
+      if (typeof options.onJumpQuote === 'function') {
+        quoteRow.appendChild(jumpButton(item, options.onJumpQuote))
+      }
       text.appendChild(quoteRow)
       if (typeof item.note === 'string' && item.note.trim() !== '') {
         const note = document.createElement('div')
@@ -293,18 +321,20 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           const qLabel = document.createElement('div')
           qLabel.className = 'sa-q-label'
           qLabel.textContent = t('label.quote')
-          // 标题行保持原样（只有标签），跳转按钮放进引文块内部绝对定位。
           const qHead = document.createElement('div')
           qHead.className = 'sa-q-head'
           qHead.appendChild(qLabel)
+          // 跳转按钮放在「引用原文」标题行末尾、作为普通子元素；引文块自己的点击仍只管展开。
+          if (typeof options.onJumpQuote === 'function') {
+            qHead.appendChild(jumpButton(displayItem, options.onJumpQuote))
+          }
           q.appendChild(qHead)
           const quote = document.createElement('div')
-          quote.className = 'sa-q-quote sa-jump-host'
+          quote.className = 'sa-q-quote'
           if (isAdopt(displayItem.note)) quote.dataset.adopt = '1'
           quote.setAttribute('data-sa-field', 'quote')
           quote.textContent = quoteText
           quote.title = t('expand')
-          if (typeof options.onJumpQuote === 'function') quote.appendChild(jumpButton(displayItem, options.onJumpQuote))
           // 超过三行时折叠；点一下展开，再点收回。
           quote.addEventListener('click', () => {
             quote.classList.toggle('sa-q-open')
@@ -399,5 +429,5 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return card
   }
 
-  return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection }
+  return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection, jumpButton }
 }

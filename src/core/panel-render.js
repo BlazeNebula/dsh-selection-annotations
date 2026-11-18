@@ -1,6 +1,5 @@
 import { el, button } from './util.js'
 import { PLUGIN_BUILD } from './config.js'
-import { jumpIcon } from './jump-icon.js'
 
 /**
  * 批注总览面板：固定头（标题、说明、条数、清空）、可在其中拖拽排序的列表、
@@ -16,6 +15,7 @@ export function createPanelRenderer({
   moveAnnotation,
   openEditPopover,
   jumpToQuote = () => {},
+  jumpButton = null, // 与已发送卡/答复共用的「查看出处」按钮工厂；放在「引用原文」标题行末尾
   removeAnnotation,
   sourceSummary,
   openImageViewer,
@@ -193,23 +193,12 @@ export function createPanelRenderer({
         const q = el('div', 'sa-item-q')
         const qHead = el('div', 'sa-item-q-head')
         qHead.appendChild(el('div', 'sa-item-label', t('panel.quote')))
+        if (typeof jumpButton === 'function') {
+          qHead.appendChild(jumpButton(item, (it, root) => jumpToQuote(it, root)))
+        }
         q.appendChild(qHead)
-        const quote = el('div', 'sa-item-quote sa-jump-host', item.quote)
+        const quote = el('div', 'sa-item-quote', item.quote)
         quote.title = t('expand')
-        // 按钮绝对定位在引文块内部，引文块只多了 position: relative。
-        const jump = document.createElement('button')
-        jump.type = 'button'
-        jump.className = 'sa-jump'
-        jump.setAttribute('aria-label', t('jump.label'))
-        jump.title = t('jump.hint')
-        if (item.source?.kind === 'file') jump.setAttribute('data-disabled', '1')
-        jump.appendChild(jumpIcon())
-        jump.addEventListener('click', (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          jumpToQuote(item, jump)
-        })
-        quote.appendChild(jump)
         quote.addEventListener('click', () => {
           quote.classList.toggle('sa-q-open')
         })
