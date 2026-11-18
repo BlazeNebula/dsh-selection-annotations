@@ -5,32 +5,23 @@ export const CSS = `
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
 .sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
-/* 跳转闪现：同一个覆盖层矩形，用 INFO 语义色加重底色加一圈描边；2 秒后条目被撤掉，自然消失。*/
-.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 45%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 90%, transparent);
+/* 跳转闪现：同一个覆盖层矩形，加重底色加一圈描边；2 秒后条目被撤掉，自然消失。*/
+.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 90%, transparent);
   animation: sa-flash-fade 2000ms ease-out forwards; }
 @keyframes sa-flash-fade {
   0% { opacity: 1; }
   65% { opacity: 1; }
   100% { opacity: 0; }
 }
-/* 「查看出处」：并入各处的操作按钮排，复用 .sa-reuse 的图标尺寸、间距与悬停底色；
-   图标常驻，文字只在悬停条目或按钮本身时出现。*/
-.sa-jump { margin-left: 0; }
-.sa-jump .sa-reuse-text { margin-right: 2px; }
+/* 引用标题旁的跳转小按钮：不占正文位置，和卡内其他小按钮同一套观感。*/
+.sa-jump { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: 6px;
+  padding: 0 4px; border: 0; border-radius: 4px; background: transparent; cursor: pointer;
+  font: inherit; font-size: 11px; line-height: 18px; color: var(--dsw-alias-label-secondary, #8b949e);
+  opacity: 0.75; }
+.sa-jump:hover { opacity: 1; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,0.12)); }
 .sa-jump[data-disabled="1"] { opacity: 0.45; cursor: default; }
-.sa-jump[data-disabled="1"]:hover { background: transparent; color: var(--sa-dim-tertiary); }
-.sa-sent-item:hover .sa-jump .sa-reuse-text,
-.sa-reply-item:hover .sa-jump .sa-reuse-text,
-.sa-item:hover .sa-jump .sa-reuse-text,
-.sa-pop-quote-head:hover .sa-jump .sa-reuse-text { opacity: 1; }
-/* 总览的操作行是文字按钮那一排：出处按钮沿用同一行的高度与 hover 底色。*/
-.sa-item-actions .sa-jump { height: 22px; padding: 0 4px; border-radius: 5px; }
-.sa-item-actions .sa-jump:hover { background: var(--dsw-alias-bg-layer-2, ButtonFace); }
-/* 答复条目的操作组：跳转与回放贴同一行右端。*/
-.sa-reply-actions { flex: none; display: flex; align-items: center; gap: 2px; }
-.sa-reply-actions .sa-reuse { margin-left: 0; }
-.sa-pop-quote-head .sa-jump { margin-left: 0; }
+.sa-jump[data-disabled="1"]:hover { background: transparent; }
 /* 跳转失败提示：会话区没有面板提示位，短暂浮一条，不挡操作。*/
 .sa-toast { position: fixed; left: 50%; bottom: 48px; z-index: 960; transform: translateX(-50%);
   padding: 6px 12px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2, #2b2b2b);
@@ -253,6 +244,8 @@ export const CSS = `
 .sa-item-action.sa-danger:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-item-q { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-item-label { font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); letter-spacing: 0.06em; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-item-q-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.sa-item-q-head .sa-item-label { flex: 1 1 auto; min-width: 0; }
 .sa-item-quote { margin: 3px 0 0; font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.7; white-space: pre-wrap; word-break: break-word;
   color: var(--dsw-alias-label-secondary, GrayText); display: -webkit-box; -webkit-box-orient: vertical;
   -webkit-line-clamp: 3; overflow: hidden; cursor: pointer; }
@@ -397,6 +390,8 @@ export const CSS = `
   background: var(--dsw-alias-bg-layer-2, #ffffff08); }
 .sa-q-label { font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: 0.08em;
   color: var(--dsw-alias-label-tertiary, #6e7681); }
+.sa-q-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.sa-q-head .sa-q-label { flex: 1 1 auto; min-width: 0; }
 .sa-q-quote { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.6; color: var(--dsw-alias-label-secondary, #8b949e);
   white-space: pre-wrap; word-break: break-word; cursor: pointer; }
@@ -442,11 +437,10 @@ export const CSS = `
 .sa-sent-item { display: flex; gap: 6px; padding: 8px 0; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;
   border-top: 1px solid var(--dsw-alias-border-secondary, #3333); }
 .sa-sent-item:first-child { border-top: none; padding-top: 0; }
-/* 已发送卡的操作按钮排：查看出处与回放并排，图标贴同一行顶。*/
-.sa-sent-actions { flex: none; display: flex; align-items: flex-start; gap: 2px; }
-.sa-sent-actions .sa-reuse { margin-left: 0; }
 .sa-sent-num { flex: none; min-width: 14px; font-weight: 600; color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-sent-text { min-width: 0; }
+.sa-sent-quote-row { display: flex; align-items: flex-start; gap: 2px; min-width: 0; }
+.sa-sent-quote-row .sa-sent-quote { flex: 1 1 auto; min-width: 0; }
 .sa-sent-quote { padding-left: 8px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder);
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-note { margin-top: 4px; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }

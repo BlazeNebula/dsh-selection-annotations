@@ -7,32 +7,23 @@
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
 .sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
-/* 跳转闪现：同一个覆盖层矩形，用 INFO 语义色加重底色加一圈描边；2 秒后条目被撤掉，自然消失。*/
-.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 45%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 90%, transparent);
+/* 跳转闪现：同一个覆盖层矩形，加重底色加一圈描边；2 秒后条目被撤掉，自然消失。*/
+.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 90%, transparent);
   animation: sa-flash-fade 2000ms ease-out forwards; }
 @keyframes sa-flash-fade {
   0% { opacity: 1; }
   65% { opacity: 1; }
   100% { opacity: 0; }
 }
-/* 「查看出处」：并入各处的操作按钮排，复用 .sa-reuse 的图标尺寸、间距与悬停底色；
-   图标常驻，文字只在悬停条目或按钮本身时出现。*/
-.sa-jump { margin-left: 0; }
-.sa-jump .sa-reuse-text { margin-right: 2px; }
+/* 引用标题旁的跳转小按钮：不占正文位置，和卡内其他小按钮同一套观感。*/
+.sa-jump { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: 6px;
+  padding: 0 4px; border: 0; border-radius: 4px; background: transparent; cursor: pointer;
+  font: inherit; font-size: 11px; line-height: 18px; color: var(--dsw-alias-label-secondary, #8b949e);
+  opacity: 0.75; }
+.sa-jump:hover { opacity: 1; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,0.12)); }
 .sa-jump[data-disabled="1"] { opacity: 0.45; cursor: default; }
-.sa-jump[data-disabled="1"]:hover { background: transparent; color: var(--sa-dim-tertiary); }
-.sa-sent-item:hover .sa-jump .sa-reuse-text,
-.sa-reply-item:hover .sa-jump .sa-reuse-text,
-.sa-item:hover .sa-jump .sa-reuse-text,
-.sa-pop-quote-head:hover .sa-jump .sa-reuse-text { opacity: 1; }
-/* 总览的操作行是文字按钮那一排：出处按钮沿用同一行的高度与 hover 底色。*/
-.sa-item-actions .sa-jump { height: 22px; padding: 0 4px; border-radius: 5px; }
-.sa-item-actions .sa-jump:hover { background: var(--dsw-alias-bg-layer-2, ButtonFace); }
-/* 答复条目的操作组：跳转与回放贴同一行右端。*/
-.sa-reply-actions { flex: none; display: flex; align-items: center; gap: 2px; }
-.sa-reply-actions .sa-reuse { margin-left: 0; }
-.sa-pop-quote-head .sa-jump { margin-left: 0; }
+.sa-jump[data-disabled="1"]:hover { background: transparent; }
 /* 跳转失败提示：会话区没有面板提示位，短暂浮一条，不挡操作。*/
 .sa-toast { position: fixed; left: 50%; bottom: 48px; z-index: 960; transform: translateX(-50%);
   padding: 6px 12px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2, #2b2b2b);
@@ -255,6 +246,8 @@
 .sa-item-action.sa-danger:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-item-q { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-item-label { font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); letter-spacing: 0.06em; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-item-q-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.sa-item-q-head .sa-item-label { flex: 1 1 auto; min-width: 0; }
 .sa-item-quote { margin: 3px 0 0; font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.7; white-space: pre-wrap; word-break: break-word;
   color: var(--dsw-alias-label-secondary, GrayText); display: -webkit-box; -webkit-box-orient: vertical;
   -webkit-line-clamp: 3; overflow: hidden; cursor: pointer; }
@@ -399,6 +392,8 @@
   background: var(--dsw-alias-bg-layer-2, #ffffff08); }
 .sa-q-label { font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: 0.08em;
   color: var(--dsw-alias-label-tertiary, #6e7681); }
+.sa-q-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.sa-q-head .sa-q-label { flex: 1 1 auto; min-width: 0; }
 .sa-q-quote { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.6; color: var(--dsw-alias-label-secondary, #8b949e);
   white-space: pre-wrap; word-break: break-word; cursor: pointer; }
@@ -444,11 +439,10 @@
 .sa-sent-item { display: flex; gap: 6px; padding: 8px 0; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;
   border-top: 1px solid var(--dsw-alias-border-secondary, #3333); }
 .sa-sent-item:first-child { border-top: none; padding-top: 0; }
-/* 已发送卡的操作按钮排：查看出处与回放并排，图标贴同一行顶。*/
-.sa-sent-actions { flex: none; display: flex; align-items: flex-start; gap: 2px; }
-.sa-sent-actions .sa-reuse { margin-left: 0; }
 .sa-sent-num { flex: none; min-width: 14px; font-weight: 600; color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-sent-text { min-width: 0; }
+.sa-sent-quote-row { display: flex; align-items: flex-start; gap: 2px; min-width: 0; }
+.sa-sent-quote-row .sa-sent-quote { flex: 1 1 auto; min-width: 0; }
 .sa-sent-quote { padding-left: 8px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder);
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-note { margin-top: 4px; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
@@ -701,7 +695,7 @@
       "label.answer": "答复",
       "label.reason": "答复理由",
       "label.next": "下一步",
-      "jump.label": "查看出处",
+      "jump.label": "跳到出处",
       "jump.hint": "跳回这段引用的正文位置",
       "jump.file": "这条出自工作区文件",
       "jump.noAnchor": "这条找不到可定位的正文",
@@ -837,7 +831,7 @@
       "label.answer": "Reply",
       "label.reason": "Reason",
       "label.next": "Next step",
-      "jump.label": "View source",
+      "jump.label": "Jump to source",
       "jump.hint": "Jump back to where this quote came from",
       "jump.file": "This one comes from a workspace file",
       "jump.noAnchor": "No locatable text for this one",
@@ -1720,38 +1714,17 @@
       return button2;
     }
     function jumpButton(item, onClick, hint) {
-      const button2 = document.createElement("span");
-      button2.className = "sa-reuse sa-jump";
-      button2.setAttribute("role", "button");
-      button2.setAttribute("tabindex", "0");
+      const button2 = document.createElement("button");
+      button2.type = "button";
+      button2.className = "sa-jump";
+      button2.textContent = t("jump.label");
       button2.setAttribute("aria-label", t("jump.label"));
       button2.title = typeof hint === "string" && hint !== "" ? hint : t("jump.hint");
       if (item?.source?.kind === "file") button2.setAttribute("data-disabled", "1");
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("viewBox", "0 0 16 16");
-      svg.setAttribute("width", "13");
-      svg.setAttribute("height", "13");
-      svg.setAttribute("fill", "none");
-      svg.setAttribute("aria-hidden", "true");
-      for (const d of ["M11.6 4.4 5.6 10.4", "M5.6 6.8v3.6h3.6"]) {
-        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        path.setAttribute("d", d);
-        path.setAttribute("stroke", "currentColor");
-        path.setAttribute("stroke-width", "1.2");
-        svg.appendChild(path);
-      }
-      const text = document.createElement("span");
-      text.className = "sa-reuse-text sa-jump-text";
-      text.textContent = t("jump.label");
-      button2.append(text, svg);
-      const run = (event) => {
+      button2.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
         onClick(item, button2);
-      };
-      button2.addEventListener("click", run);
-      button2.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") run(event);
       });
       return button2;
     }
@@ -1796,11 +1769,15 @@
         num.textContent = Number.isFinite(item.index) ? String(item.index) : "";
         const text = document.createElement("div");
         text.className = "sa-sent-text";
+        const quoteRow = document.createElement("div");
+        quoteRow.className = "sa-sent-quote-row";
         const quote = document.createElement("div");
         quote.className = "sa-sent-quote";
         quote.setAttribute("data-sa-field", "quote");
         quote.textContent = truncateQuote(item.quote);
-        text.appendChild(quote);
+        quoteRow.appendChild(quote);
+        if (typeof options.onJumpQuote === "function") quoteRow.appendChild(jumpButton(item, options.onJumpQuote));
+        text.appendChild(quoteRow);
         if (typeof item.note === "string" && item.note.trim() !== "") {
           const note = document.createElement("div");
           note.className = "sa-sent-note";
@@ -1830,13 +1807,9 @@
           if (gallery.childNodes.length > 0) text.appendChild(gallery);
         }
         line.append(num, text);
-        const actions = document.createElement("div");
-        actions.className = "sa-sent-actions";
-        if (typeof options.onJumpQuote === "function") actions.appendChild(jumpButton(item, options.onJumpQuote));
         if (typeof options.onReplayItem === "function") {
-          actions.appendChild(reuseButton(t("sent.replayItem"), () => options.onReplayItem(item), t("reuse.hint")));
+          line.appendChild(reuseButton(t("sent.replayItem"), () => options.onReplayItem(item), t("reuse.hint")));
         }
-        if (actions.childNodes.length > 0) line.appendChild(actions);
         body.appendChild(line);
       }
       head.addEventListener("click", (event) => {
@@ -1896,15 +1869,9 @@
         verdict.textContent = t(labelKey);
         cardHead.append(index, verdict);
         const replayItem = displayItem ?? { quote: reply.quote, note: reply.note };
-        const headActions = document.createElement("div");
-        headActions.className = "sa-reply-actions";
-        if (displayItem !== void 0 && typeof options.onJumpQuote === "function") {
-          headActions.appendChild(jumpButton(displayItem, options.onJumpQuote));
-        }
         if (typeof options.onReplayItem === "function") {
-          headActions.appendChild(reuseButton(t("replies.replay"), () => options.onReplayItem(replayItem), t("reuse.hint")));
+          cardHead.appendChild(reuseButton(t("replies.replay"), () => options.onReplayItem(replayItem), t("reuse.hint")));
         }
-        if (headActions.childNodes.length > 0) cardHead.appendChild(headActions);
         group.appendChild(cardHead);
         const content = document.createElement("div");
         content.className = "sa-reply-body";
@@ -1916,7 +1883,11 @@
             const qLabel = document.createElement("div");
             qLabel.className = "sa-q-label";
             qLabel.textContent = t("label.quote");
-            q.appendChild(qLabel);
+            const qHead = document.createElement("div");
+            qHead.className = "sa-q-head";
+            qHead.appendChild(qLabel);
+            if (typeof options.onJumpQuote === "function") qHead.appendChild(jumpButton(displayItem, options.onJumpQuote));
+            q.appendChild(qHead);
             const quote = document.createElement("div");
             quote.className = "sa-q-quote";
             if (isAdopt(displayItem.note)) quote.dataset.adopt = "1";
@@ -2013,7 +1984,7 @@
       card.append(wrap);
       return card;
     }
-    return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection, jumpButton };
+    return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection };
   }
 
   // src/core/markdown.js
@@ -2089,7 +2060,6 @@
     openEditPopover,
     jumpToQuote = () => {
     },
-    jumpButton = null,
     removeAnnotation,
     sourceSummary,
     openImageViewer,
@@ -2235,9 +2205,6 @@
         summary.title = summary.textContent;
         head.appendChild(summary);
         const actions = el("div", "sa-item-actions");
-        if (typeof jumpButton === "function") {
-          actions.appendChild(jumpButton(item, (it, root) => jumpToQuote(it, root)));
-        }
         actions.appendChild(button("sa-item-action", t("panel.copy"), () => copyItem(item, panelEl)));
         actions.appendChild(button("sa-item-action", t("panel.edit"), () => openEditPopover(item.id, head)));
         actions.appendChild(button("sa-item-action sa-danger", t("panel.delete"), () => removeAnnotation(item.id)));
@@ -2245,7 +2212,13 @@
         row.appendChild(head);
         if (item.quote !== "") {
           const q = el("div", "sa-item-q");
-          q.appendChild(el("div", "sa-item-label", t("panel.quote")));
+          const qHead = el("div", "sa-item-q-head");
+          qHead.appendChild(el("div", "sa-item-label", t("panel.quote")));
+          const jump = button("sa-jump", t("jump.label"), () => jumpToQuote(item, jump));
+          jump.title = t("jump.hint");
+          if (item.source?.kind === "file") jump.setAttribute("data-disabled", "1");
+          qHead.appendChild(jump);
+          q.appendChild(qHead);
           const quote = el("div", "sa-item-quote", item.quote);
           quote.title = t("expand");
           quote.addEventListener("click", () => {
@@ -5042,7 +5015,7 @@ ${PICK_SCRIPT}<\/script>`;
           safe(() => {
             popQuoteLabel.textContent = t("label.quote");
             popNoteLabel.textContent = t("pop.noteLabel");
-            popJumpText.textContent = t("jump.label");
+            popJump.textContent = t("jump.label");
             popJump.setAttribute("aria-label", t("jump.label"));
             popJump.title = t("jump.hint");
           });
@@ -5795,39 +5768,18 @@ ${PICK_SCRIPT}<\/script>`;
         const popJumpHint = document.createElement("span");
         popJumpHint.className = "sa-pop-jump-hint";
         popJumpHint.dataset.on = "0";
-        const popJump = document.createElement("span");
-        popJump.className = "sa-reuse sa-jump";
-        popJump.setAttribute("role", "button");
-        popJump.setAttribute("tabindex", "0");
+        const popJump = document.createElement("button");
+        popJump.type = "button";
+        popJump.className = "sa-jump";
+        popJump.textContent = t("jump.label");
         popJump.setAttribute("aria-label", t("jump.label"));
         popJump.title = t("jump.hint");
-        const popJumpText = document.createElement("span");
-        popJumpText.className = "sa-reuse-text sa-jump-text";
-        popJumpText.textContent = t("jump.label");
-        const popJumpIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        popJumpIcon.setAttribute("viewBox", "0 0 16 16");
-        popJumpIcon.setAttribute("width", "13");
-        popJumpIcon.setAttribute("height", "13");
-        popJumpIcon.setAttribute("fill", "none");
-        popJumpIcon.setAttribute("aria-hidden", "true");
-        for (const d of ["M11.6 4.4 5.6 10.4", "M5.6 6.8v3.6h3.6"]) {
-          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-          path.setAttribute("d", d);
-          path.setAttribute("stroke", "currentColor");
-          path.setAttribute("stroke-width", "1.2");
-          popJumpIcon.appendChild(path);
-        }
-        popJump.append(popJumpText, popJumpIcon);
         popJump.style.display = "none";
-        const popJumpRun = (event) => {
+        popJump.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
           if (popoverItem === null) return;
           jumpToQuote(popoverItem, void 0, popJump);
-        };
-        popJump.addEventListener("click", popJumpRun);
-        popJump.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") popJumpRun(event);
         });
         const popQuoteHead = document.createElement("div");
         popQuoteHead.className = "sa-pop-quote-head";
@@ -6429,7 +6381,7 @@ ${PICK_SCRIPT}<\/script>`;
         let popoverItem = null;
         let popAutoSaveTimer = null;
         function schedulePopAutoSave() {
-          if (popoverMode !== "edit" && popoverMode !== "create") return;
+          if (popoverMode !== "edit" || popoverTargetId === null) return;
           if (popover.dataset.open !== "1") return;
           if (popAutoSaveTimer !== null) window.clearTimeout(popAutoSaveTimer);
           popAutoSaveTimer = window.setTimeout(() => {
@@ -6437,41 +6389,14 @@ ${PICK_SCRIPT}<\/script>`;
             autoSavePopover();
           }, POP_AUTO_SAVE_MS);
         }
-        function createAnnotationFromPopover() {
-          const anchor = popoverAnchor;
-          if (anchor === null) return;
-          const created = addAnnotation({
-            quote: anchor.quote,
-            note: noteValue(),
-            images: popInputImages,
-            source: anchor.source,
-            liveRange: anchor.range
-          });
-          if (created === void 0) return;
-          popoverTargetId = created.id;
-          popoverItem = created;
-          popoverAnchor = null;
-          popDelete.style.display = "";
-          popTitle.textContent = t("pop.editTitle", { n: created.number });
-          if (anchor.quote !== "") popJump.style.display = "";
-          popJump.dataset.disabled = created.source?.kind === "file" ? "1" : "0";
-          refineSourcePosition(created.id, anchor.source, anchor.quote).catch((err) => {
-            warn("[selection-annotations] 位置精修失败（不影响这条批注）：", err);
-          });
-        }
         function autoSavePopover() {
+          if (popoverMode !== "edit" || popoverTargetId === null) return;
           if (popover.dataset.open !== "1") return;
-          const note = noteValue();
-          const images = popInputImages;
-          if (popoverMode === "create" && popoverTargetId === null) {
-            if (note.trim() === "" && images.length === 0) return;
-            createAnnotationFromPopover();
-            return;
-          }
-          if (popoverTargetId === null) return;
           const target = popoverTargetId;
           const item = annotations.find((candidate) => candidate.id === target);
           if (item === void 0) return;
+          const note = noteValue();
+          const images = popInputImages;
           const nextNote = note.trim().slice(0, MAX_NOTE);
           if (item.note === nextNote && JSON.stringify(item.images ?? []) === JSON.stringify(images)) return;
           updateAnnotation(target, note, images);
@@ -6880,19 +6805,13 @@ ${PICK_SCRIPT}<\/script>`;
             return;
           }
           const anchor = popoverAnchor;
-          if (popoverTargetId !== null) {
-            closePopover({ discardWebEmpty: false });
-            return;
-          }
           if (anchor === null) return;
           const note = noteValue();
           const images = popInputImages;
           if (discardEmpty && shouldDiscardEmpty(popoverMode, note, images)) {
-            cancelPopAutoSave();
             closePopover();
             return;
           }
-          cancelPopAutoSave();
           closePopover();
           const created = addAnnotation({
             quote: anchor.quote,
@@ -6910,11 +6829,6 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function cancelPopoverEdit() {
           cancelPopAutoSave();
-          if (popoverMode === "create") {
-            if (popoverTargetId !== null) removeAnnotation(popoverTargetId);
-            closePopover({ autoSave: false });
-            return;
-          }
           const snapshot2 = popoverSnapshot;
           if (popoverMode === "edit" && popoverTargetId !== null && snapshot2 !== null && snapshot2.id === popoverTargetId) {
             const current = annotations.find((item) => item.id === popoverTargetId);
@@ -7886,7 +7800,6 @@ ${PICK_SCRIPT}`;
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
           jumpToQuote: (item, root) => jumpToQuote(item, void 0, root),
-          jumpButton: cards.jumpButton,
           removeAnnotation: (id) => removeAnnotation(id),
           sourceSummary: (item) => sourceSummary(item),
           openImageViewer: (url, name) => openImageViewer(url, name),

@@ -15,7 +15,6 @@ export function createPanelRenderer({
   moveAnnotation,
   openEditPopover,
   jumpToQuote = () => {},
-  jumpButton = null,
   removeAnnotation,
   sourceSummary,
   openImageViewer,
@@ -184,10 +183,6 @@ export function createPanelRenderer({
       summary.title = summary.textContent
       head.appendChild(summary)
       const actions = el('div', 'sa-item-actions')
-      // 「查看出处」并入右上角这一排：同样只在悬停条目时随整排出现。
-      if (typeof jumpButton === 'function') {
-        actions.appendChild(jumpButton(item, (it, root) => jumpToQuote(it, root)))
-      }
       actions.appendChild(button('sa-item-action', t('panel.copy'), () => copyItem(item, panelEl)))
       actions.appendChild(button('sa-item-action', t('panel.edit'), () => openEditPopover(item.id, head)))
       actions.appendChild(button('sa-item-action sa-danger', t('panel.delete'), () => removeAnnotation(item.id)))
@@ -195,7 +190,13 @@ export function createPanelRenderer({
       row.appendChild(head)
       if (item.quote !== '') {
         const q = el('div', 'sa-item-q')
-        q.appendChild(el('div', 'sa-item-label', t('panel.quote')))
+        const qHead = el('div', 'sa-item-q-head')
+        qHead.appendChild(el('div', 'sa-item-label', t('panel.quote')))
+        const jump = button('sa-jump', t('jump.label'), () => jumpToQuote(item, jump))
+        jump.title = t('jump.hint')
+        if (item.source?.kind === 'file') jump.setAttribute('data-disabled', '1')
+        qHead.appendChild(jump)
+        q.appendChild(qHead)
         const quote = el('div', 'sa-item-quote', item.quote)
         quote.title = t('expand')
         quote.addEventListener('click', () => {

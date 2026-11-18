@@ -87,45 +87,20 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return button
   }
 
-  /**
-   * 「查看出处」按钮：并入各卡自己的操作按钮排，与「回放/复用」同一套尺寸与悬停样式。
-   * 图标常驻、文字默认收起，悬停条目或按钮本身时由 CSS 显示。
-   */
+  /** 「跳到出处」小按钮：挂在引文标题右侧，不占正文位置。*/
   function jumpButton(item, onClick, hint) {
-    const button = document.createElement('span')
-    button.className = 'sa-reuse sa-jump'
-    button.setAttribute('role', 'button')
-    button.setAttribute('tabindex', '0')
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'sa-jump'
+    button.textContent = t('jump.label')
     button.setAttribute('aria-label', t('jump.label'))
     button.title = typeof hint === 'string' && hint !== '' ? hint : t('jump.hint')
     // 工作区文件这版不打开，置灰；点了仍走一次提示，避免静默。
     if (item?.source?.kind === 'file') button.setAttribute('data-disabled', '1')
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    svg.setAttribute('viewBox', '0 0 16 16')
-    svg.setAttribute('width', '13')
-    svg.setAttribute('height', '13')
-    svg.setAttribute('fill', 'none')
-    svg.setAttribute('aria-hidden', 'true')
-    // 斜向箭头指向正文，与「回放」的复制图标区分开。
-    for (const d of ['M11.6 4.4 5.6 10.4', 'M5.6 6.8v3.6h3.6']) {
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-      path.setAttribute('d', d)
-      path.setAttribute('stroke', 'currentColor')
-      path.setAttribute('stroke-width', '1.2')
-      svg.appendChild(path)
-    }
-    const text = document.createElement('span')
-    text.className = 'sa-reuse-text sa-jump-text'
-    text.textContent = t('jump.label')
-    button.append(text, svg)
-    const run = (event) => {
+    button.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
       onClick(item, button)
-    }
-    button.addEventListener('click', run)
-    button.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') run(event)
     })
     return button
   }
@@ -181,11 +156,15 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       num.textContent = Number.isFinite(item.index) ? String(item.index) : ''
       const text = document.createElement('div')
       text.className = 'sa-sent-text'
+      const quoteRow = document.createElement('div')
+      quoteRow.className = 'sa-sent-quote-row'
       const quote = document.createElement('div')
       quote.className = 'sa-sent-quote'
       quote.setAttribute('data-sa-field', 'quote')
       quote.textContent = truncateQuote(item.quote)
-      text.appendChild(quote)
+      quoteRow.appendChild(quote)
+      if (typeof options.onJumpQuote === 'function') quoteRow.appendChild(jumpButton(item, options.onJumpQuote))
+      text.appendChild(quoteRow)
       if (typeof item.note === 'string' && item.note.trim() !== '') {
         const note = document.createElement('div')
         note.className = 'sa-sent-note'
@@ -215,14 +194,9 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
         if (gallery.childNodes.length > 0) text.appendChild(gallery)
       }
       line.append(num, text)
-      // 「查看出处」与「回放」同排：图标尺寸、间距、悬停底色都由 .sa-reuse 统一。
-      const actions = document.createElement('div')
-      actions.className = 'sa-sent-actions'
-      if (typeof options.onJumpQuote === 'function') actions.appendChild(jumpButton(item, options.onJumpQuote))
       if (typeof options.onReplayItem === 'function') {
-        actions.appendChild(reuseButton(t('sent.replayItem'), () => options.onReplayItem(item), t('reuse.hint')))
+        line.appendChild(reuseButton(t('sent.replayItem'), () => options.onReplayItem(item), t('reuse.hint')))
       }
-      if (actions.childNodes.length > 0) line.appendChild(actions)
       body.appendChild(line)
     }
     head.addEventListener('click', (event) => {
@@ -298,16 +272,9 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       verdict.textContent = t(labelKey)
       cardHead.append(index, verdict)
       const replayItem = displayItem ?? { quote: reply.quote, note: reply.note }
-      // 跳转与回放并成答复条目自己的操作组（判定标签之后）。
-      const headActions = document.createElement('div')
-      headActions.className = 'sa-reply-actions'
-      if (displayItem !== undefined && typeof options.onJumpQuote === 'function') {
-        headActions.appendChild(jumpButton(displayItem, options.onJumpQuote))
-      }
       if (typeof options.onReplayItem === 'function') {
-        headActions.appendChild(reuseButton(t('replies.replay'), () => options.onReplayItem(replayItem), t('reuse.hint')))
+        cardHead.appendChild(reuseButton(t('replies.replay'), () => options.onReplayItem(replayItem), t('reuse.hint')))
       }
-      if (headActions.childNodes.length > 0) cardHead.appendChild(headActions)
       group.appendChild(cardHead)
 
       const content = document.createElement('div')
@@ -321,7 +288,12 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           const qLabel = document.createElement('div')
           qLabel.className = 'sa-q-label'
           qLabel.textContent = t('label.quote')
-          q.appendChild(qLabel)
+          // 标题与跳转按钮同一行：按钮靠右，失败提示贴着它出现。
+          const qHead = document.createElement('div')
+          qHead.className = 'sa-q-head'
+          qHead.appendChild(qLabel)
+          if (typeof options.onJumpQuote === 'function') qHead.appendChild(jumpButton(displayItem, options.onJumpQuote))
+          q.appendChild(qHead)
           const quote = document.createElement('div')
           quote.className = 'sa-q-quote'
           if (isAdopt(displayItem.note)) quote.dataset.adopt = '1'
@@ -422,5 +394,5 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return card
   }
 
-  return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection, jumpButton }
+  return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection }
 }
