@@ -7621,11 +7621,27 @@ ${PICK_SCRIPT}`;
         });
         ctx.effect(() => {
           document.addEventListener("selectionchange", onSelectionChange);
+          const UI_CONTROL_SELECTOR = [
+            "button",
+            "a[href]",
+            "input",
+            "textarea",
+            "select",
+            '[contenteditable="true"]',
+            ".sa-section-head",
+            ".sa-drag-handle",
+            '[data-sa-ui="popover"]',
+            '[data-sa-ui="panel"]',
+            '[data-sa-ui="toolbar"]',
+            '[data-sa-ui="menu"]',
+            '[data-sa-ui="suggest"]',
+            '[data-sa-ui="ghost"]'
+          ].join(", ");
           let pointerDownInUi = false;
           const onSelectPointerDown = (event) => {
             const target = elementOf2(event.target);
             pointerSelecting = true;
-            pointerDownInUi = target !== null && target.closest("[data-sa-ui]") !== null;
+            pointerDownInUi = target !== null && target.closest(UI_CONTROL_SELECTOR) !== null;
             if (pointerDownInUi) return;
             hideToolbar();
           };

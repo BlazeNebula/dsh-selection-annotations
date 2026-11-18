@@ -5259,15 +5259,36 @@ const rewindHandled = new Map()
         ctx.effect(() => {
           document.addEventListener('selectionchange', onSelectionChange)
           // 拖动选区的过程中只记录指针，不渲染工具条；松手后再出现，避免频闪。
-          /** 指针按下时是否落在插件自己的 UI 里：从自己 UI 里按下再松手不算划线结束。*/
+          /**
+           * 按下时算「点插件自己的 UI、不是划线」的选择器：只有真正的控件与浮层。
+           * 已发送卡与答复区本身带 data-sa-ui，但正文是用户可以划选的，不能算进来，
+           * 否则在卡片正文里划线时松手，会被当成「点自己的 UI」而跳过工具条。
+           */
+          const UI_CONTROL_SELECTOR = [
+            'button',
+            'a[href]',
+            'input',
+            'textarea',
+            'select',
+            '[contenteditable="true"]',
+            '.sa-section-head',
+            '.sa-drag-handle',
+            '[data-sa-ui="popover"]',
+            '[data-sa-ui="panel"]',
+            '[data-sa-ui="toolbar"]',
+            '[data-sa-ui="menu"]',
+            '[data-sa-ui="suggest"]',
+            '[data-sa-ui="ghost"]',
+          ].join(', ')
+          /** 指针按下时是否落在插件自己的控件或浮层里：从这些里面按下再松手不算划线结束。*/
           let pointerDownInUi = false
           const onSelectPointerDown = (event) => {
             const target = elementOf(event.target)
             // 不管按在正文还是插件自己的卡片、答复区上，按下就进入拖选态：拖选期间不能重建卡片，
             // 否则选区起点会被夹到容器开头，松手后选区也会消失。
             pointerSelecting = true
-            pointerDownInUi = target !== null && target.closest('[data-sa-ui]') !== null
-            // 点自己的 UI（卡片、答复区、弹层）：只是交互，不动工具条。
+            pointerDownInUi = target !== null && target.closest(UI_CONTROL_SELECTOR) !== null
+            // 点真正的控件（卡片标题、复用按钮、弹层、面板）：只是交互，不动工具条。
             if (pointerDownInUi) return
             hideToolbar()
           }
@@ -5281,7 +5302,8 @@ const rewindHandled = new Map()
             const target = elementOf(event.target)
             const fromUi = pointerDownInUi
             pointerDownInUi = false
-            // 从自己的 UI 里按下又松手（点卡片、点答复区、拖弹层）不算划线结束：不重算工具条。
+            // 从控件上按下又松手（点卡片标题、按钮、拖弹层）不算划线结束：不重算工具条。
+            // 只有「按下点在控件里」才算；在卡片正文里划选时按下点不是控件，走下面的正常收尾。
             if (fromUi && target !== null && target.closest('[data-sa-ui]') !== null) return
             if (target !== null && target.closest('[data-sa-ui="toolbar"], [data-sa-ui="menu"], [data-sa-ui="suggest"]') !== null) return
             // 在弹层里松手（包括拖标题）不算划线结束，不重算工具条。
