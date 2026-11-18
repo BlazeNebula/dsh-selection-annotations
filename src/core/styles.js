@@ -1,18 +1,21 @@
 export const CSS = `
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
+/* 常驻划线：以主题前景色为基准的低透明度底色，草稿与已发送同色。
+   采纳/待办不再决定静态配色，只在「查看出处」闪烁时回到旧底色。*/
 .sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
+/* 跳转闪烁的「亮」相位：旧底色（待办=warn、已采纳=success），由 JS 每 250ms 切换一次。*/
+.sa-hl.sa-hl-blink { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
-.sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
+.sa-hl.sa-hl-blink[data-adopt="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
-/* 跳转闪现：同一个覆盖层矩形，加重底色加一圈描边；2 秒后条目被撤掉，自然消失。*/
-.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 45%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 90%, transparent);
-  animation: sa-flash-fade 2000ms ease-out forwards; }
-@keyframes sa-flash-fade {
-  0% { opacity: 1; }
-  65% { opacity: 1; }
-  100% { opacity: 0; }
+/* 减少动态：整个闪烁只做一次淡入，由 JS 在 280ms 后撤掉相位。*/
+.sa-hl.sa-hl-once { animation: sa-hl-fade-in 260ms ease-out; }
+@keyframes sa-hl-fade-in {
+  from { opacity: 0.25; }
+  to { opacity: 1; }
 }
 /* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
 .sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }

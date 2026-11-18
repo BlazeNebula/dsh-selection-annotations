@@ -28,7 +28,6 @@ import {
   CONSUME_POLL_MS,
   DRAFT_MAX_BYTES,
   HOVER_OPEN_DELAY_MS,
-  JUMP_FLASH_MS,
   JUMP_NAV_POLL_MS,
   JUMP_NAV_TIMEOUT_MS,
   ORPHAN_SWEEP_MS,
@@ -345,8 +344,8 @@ const rewindHandled = new Map()
           const payload = safe(() => JSON.parse(buildPayload(annotations)))
           if (payload !== null && typeof payload === 'object' && Array.isArray(payload.annotations)) {
             const items = payload.annotations.map((annotation, index) => {
-              const source = annotations[index]
-              const images = Array.isArray(source?.images) ? source.images : []
+              const origin = annotations[index]
+              const images = Array.isArray(origin?.images) ? origin.images : []
               const thumbs = []
               for (const image of images) {
                 if (typeof image?.thumb !== 'string' || image.thumb === '') continue
@@ -356,7 +355,13 @@ const rewindHandled = new Map()
                   preview: typeof image.preview === 'string' && image.preview !== '' ? image.preview : image.dataUrl,
                 })
               }
-              return thumbs.length > 0 ? { ...annotation, thumbs } : annotation
+              // 指纹跟着台账条目走：payloadSource 只保留白名单字段，留在 source 上的指纹到不了这里。
+              // 台账条目会原样落盘，之后即使消息行换了锚点键，也能靠它把划线找回来。
+              const fingerprint = {}
+              if (typeof origin?.source?.contextBefore === 'string') fingerprint.contextBefore = origin.source.contextBefore
+              if (typeof origin?.source?.contextAfter === 'string') fingerprint.contextAfter = origin.source.contextAfter
+              const sentItem = { ...annotation, ...fingerprint }
+              return thumbs.length > 0 ? { ...sentItem, thumbs } : sentItem
             })
             pendingSent.push({
               items,
@@ -652,7 +657,32 @@ const rewindHandled = new Map()
         const resolveSourcePosition = (source, quote, onSkip) => sourceResolver.resolve(source, quote, onSkip)
 
         const sourceCapture = createSourceCapture()
-        const captureSource = (range) => sourceCapture.captureSource(range)
+        /** 文本指纹半径：选中文字前后各 40 字；比对时去掉所有空白，免得换行/缩进差异干扰。*/
+        const FINGERPRINT_RADIUS = 40
+        const flatText = (value) => String(value ?? '').replace(/\s+/g, '')
+        /**
+         * 给消息来源补一份文本指纹：锚点行重渲染后 data-chat-anchor-key 可能对不上，
+         * 「轮次 + 前后文」是最后一条能在已加载行里认出同一段的线索。
+         * 指纹存在 source 上，随草稿落盘；发送时再抄到台账条目上（payloadSource 只留白名单字段）。
+         */
+        function withSourceFingerprint(range, source) {
+          if (source === null || typeof source !== 'object' || source.kind !== 'message') return source
+          if (typeof source.anchorKey !== 'string' || source.anchorKey === '') return source
+          const start = Number.isFinite(source.charStart) ? source.charStart : -1
+          const end = Number.isFinite(source.charEnd) ? source.charEnd : -1
+          if (start < 0 || end < start) return source
+          const node = range.startContainer
+          const element = node === null || node === undefined ? null : node.nodeType === 1 ? node : node.parentElement
+          const row = element === null ? null : element.closest('[data-chat-anchor-key]')
+          if (row === null) return source
+          const text = row.textContent ?? ''
+          if (text === '') return source
+          const before = flatText(text.slice(0, start)).slice(-FINGERPRINT_RADIUS)
+          const after = flatText(text.slice(end)).slice(0, FINGERPRINT_RADIUS)
+          if (before === '' && after === '') return source
+          return { ...source, contextBefore: before, contextAfter: after }
+        }
+        const captureSource = (range) => withSourceFingerprint(range, sourceCapture.captureSource(range))
         const anchorRoot = (source) => sourceCapture.anchorRoot(source)
         const rangeFromOffsets = (root, start, length) => sourceCapture.rangeFromOffsets(root, start, length)
         const matchInRoot = (root, quote, savedOffset) => sourceCapture.matchInRoot(root, quote, savedOffset)
@@ -2367,8 +2397,10 @@ const rewindHandled = new Map()
          * 重绘会在视口上方摘挂节点，浏览器为了保住可见内容会改写滚动位置，表现为会话区自己跳。
          * 位置保护改成「就地锚定」，不回写旧数值：
          * - 已经贴底的容器，重绘后保持贴底；
-         * - 其余容器记住「视口顶部那条消息行」和它相对容器顶部的偏移，重绘后把这条行滚回同样的偏移；
-         * - 找不到可锚定的行时，退回按 scrollHeight 的差值补偿。
+         * - 其余容器记住「视口顶部那条消息行」和它相对容器顶部的偏移，重绘后按这条行的实际位移
+         *   把 scrollTop 加回去（只加差值）；修完复核一次，残差超过 4px 再补一次，之后放弃，
+         *   免得反复修把视野抖成来回跳；
+         * - 找不到可锚定的行时，退回按 scrollHeight 的差值补偿，同样只加差。
          * 回写绝对数值会把浏览器为保住可见内容所做的锚定、以及 dsh 自己滚到最新一轮的结果一并撤销，
          * 表现就是进入会话约两秒后视野从最后一轮跳回更早的位置。
          *
@@ -2435,6 +2467,37 @@ const rewindHandled = new Map()
             for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node)
             for (const root of roots) remember(root)
           }
+          /** 量一行相对容器顶边的偏移；行或容器已经量不到时返回 undefined。*/
+          const rowOffsetOf = (container, row) => {
+            const box = safe(() => container.getBoundingClientRect())
+            const rect = safe(() => row.getBoundingClientRect())
+            if (box === undefined || rect === undefined) return undefined
+            return rect.top - box.top
+          }
+          /**
+           * 按锚点行的实际位移修正 scrollTop：只加差值，不写绝对位置。
+           * 写完复核一次：一次补不齐（浏览器另有锚定、内容还在长）时残差超过 4px 再补一次；
+           * 第二遍之后不再量也不再写，避免反复修把视野抖成来回跳。
+           * 返回 false 表示这一行量不到，交给调用方按内容高度兜底。
+           */
+          const restoreAnchor = (container, row, target) => {
+            const offset = rowOffsetOf(container, row)
+            if (offset === undefined) return false
+            const delta = offset - target
+            if (delta !== 0) {
+              scrollTrace.markWrite(container, 'repaint-anchor', container.scrollTop + delta)
+              container.scrollTop += delta
+              const settled = rowOffsetOf(container, row)
+              if (settled !== undefined) {
+                const residual = settled - target
+                if (Math.abs(residual) > 4) {
+                  scrollTrace.markWrite(container, 'repaint-anchor', container.scrollTop + residual)
+                  container.scrollTop += residual
+                }
+              }
+            }
+            return true
+          }
           const restore = (late) => {
             for (const entry of saved) {
               const container = entry.el
@@ -2449,23 +2512,16 @@ const rewindHandled = new Map()
                 continue
               }
               if (entry.row !== undefined && entry.row.isConnected === true) {
-                const box = safe(() => container.getBoundingClientRect())
-                const rect = safe(() => entry.row.getBoundingClientRect())
-                if (box !== undefined && rect !== undefined) {
-                  const delta = rect.top - box.top - entry.offset
-                  if (delta !== 0) {
-                    scrollTrace.markWrite(container, 'repaint-anchor', container.scrollTop + delta)
-                    container.scrollTop += delta
-                  }
-                  continue
-                }
+                // 同一元素还在文档里：按它的实际位移补偿，rAF 那一遍也走这套差值逻辑。
+                if (restoreAnchor(container, entry.row, entry.offset) === true) continue
               }
-              // 拿不到锚点行：按内容高度的差值补偿。下一帧不再做这一步，避免两遍补偿叠加。
+              // 拿不到锚点行：按内容高度的差值补偿，同样只加差，不回写记录下来的绝对位置。
+              // 下一帧不再做这一步，避免两遍补偿叠加。
               if (late === true) continue
               const grown = container.scrollHeight - entry.scrollHeight
               if (grown !== 0) {
-                scrollTrace.markWrite(container, 'restore', entry.top + grown)
-                container.scrollTop = entry.top + grown
+                scrollTrace.markWrite(container, 'restore', container.scrollTop + grown)
+                container.scrollTop += grown
               }
             }
           }
@@ -2504,6 +2560,113 @@ const rewindHandled = new Map()
         }
 
         /**
+         * 高亮条目的身份：草稿按条目 id，已发送按 uuid（没有 uuid 时退回锚点键 + 序号）。
+         * 台账 item 没有 id；绘制副本把 key 写进 id 并置 sentHighlight，闪烁与常驻都按同一个 key 配对。
+         */
+        function highlightKeyOf(item) {
+          if (item === null || item === undefined) return null
+          if (item.sentHighlight === true) return typeof item.id === 'string' ? item.id : null
+          if (typeof item.id === 'string' && item.id !== '') return `draft:${item.id}`
+          const uuid = typeof item.uuid === 'string' && item.uuid !== '' ? item.uuid : ''
+          if (uuid !== '') return `sent:${uuid}`
+          const anchorKey =
+            typeof item.source?.anchorKey === 'string' && item.source.anchorKey !== ''
+              ? item.source.anchorKey
+              : typeof item.anchorKey === 'string' && item.anchorKey !== ''
+                ? item.anchorKey
+                : ''
+          if (anchorKey === '') return null
+          const index = Number.isFinite(item.index)
+            ? item.index
+            : Number.isFinite(item.source?.index)
+              ? item.source.index
+              : ''
+          return `sent:${anchorKey}#${index}`
+        }
+
+        /** 台账条目的 key；与 jumpToQuote 拿到的台账 item 用同一套算法。*/
+        function sentHighlightKey(anchorKey, item) {
+          const uuid = typeof item?.uuid === 'string' && item.uuid !== '' ? item.uuid : ''
+          if (uuid !== '') return `sent:${uuid}`
+          const index = Number.isFinite(item?.index) ? item.index : ''
+          return `sent:${anchorKey}#${index}`
+        }
+
+        /** 页面定位用的偏移：精修后 charStart 是原文坐标，只认保存的渲染坐标。*/
+        function savedOffsetOf(source) {
+          if (source === null || source === undefined) return undefined
+          if (source.textOrigin === 'source') {
+            return Number.isFinite(source.renderedCharStart) ? source.renderedCharStart : undefined
+          }
+          return source.charStart
+        }
+
+        /**
+         * 已发送批注的划线来源：sent 台账里的每一批。
+         * annotations 只装未发送草稿，发送成功时草稿被清空、条目落进台账，两者互斥 ——
+         * 「已发送」的判据就是台账里存在的条目，不需要再猜状态字段。
+         * 画的是台账条目的副本：locateRange 会把 liveRange 写回条目，DOM 对象不能进台账。
+         */
+        function collectSentHighlightItems() {
+          const sessionId = currentSessionId()
+          if (sessionId === undefined) return []
+          const table = safe(() => loadSent(sessionId)) ?? null
+          if (table === null) return []
+          const items = []
+          const alive = new Set()
+          for (const [storedKey, record] of table) {
+            if (record === null || typeof record !== 'object' || Array.isArray(record.items) === false) continue
+            const anchorKey =
+              typeof record.anchorKey === 'string' && record.anchorKey !== '' ? record.anchorKey : storedKey
+            for (const item of record.items) {
+              if (item === null || typeof item !== 'object') continue
+              if (typeof item.quote !== 'string' || item.quote === '') continue
+              // 与 jumpToQuote 拿到的台账条目走完全相同的算法：条目自带 source 时优先用它，
+              // 老记录/turn 记账换了锚点键时 source 与 record 可能不同，这里不能各算各的。
+              const key = highlightKeyOf(item) ?? sentHighlightKey(anchorKey, item)
+              alive.add(key)
+              const cached = sentHighlightCache.get(key)
+              if (cached !== undefined && cached.savedAt === record.savedAt) {
+                items.push(cached.entry)
+                continue
+              }
+              const entry = { ...item, id: key, sentHighlight: true }
+              sentHighlightCache.set(key, { savedAt: record.savedAt, entry })
+              items.push(entry)
+            }
+          }
+          for (const key of [...sentHighlightCache.keys()]) {
+            if (!alive.has(key)) sentHighlightCache.delete(key)
+          }
+          return items
+        }
+
+        /** 先按锚点重建，锚点键对不上时退到文本指纹；找到的 Range 写回条目缓存。*/
+        function locateHighlightRange(item) {
+          const range = locateRange(item)
+          if (range !== undefined) return range
+          const fingerprint = fingerprintOf(item)
+          if (fingerprint === null) return undefined
+          const source = item?.source
+          const turn = Number.isFinite(source?.turn) ? source.turn : null
+          let row = null
+          for (const holder of turnHolders(turn)) {
+            row = rowByFingerprint(holder, fingerprint)
+            if (row !== null) break
+          }
+          if (row === null) row = rowByFingerprint(document, fingerprint)
+          if (row === null) return undefined
+          const found = safe(() => matchInRoot(row, item.quote, savedOffsetOf(source))) ?? undefined
+          if (found !== undefined) item.liveRange = found
+          return found
+        }
+
+        /** 这一相位是否要把划线换回旧底色：闪烁三下，每下 250ms 由 flashQuote 排下一拍。*/
+        function flashPhaseOn(item) {
+          return flashPhase === 1 && flashKey !== null && highlightKeyOf(item) === flashKey
+        }
+
+        /**
          * 高亮层节点与命中矩形：位置要在会话区回到原位之后量，
          * 所以从 keepScrollStable 的保护段里挪到这里，由 repaint 在滚动回正之后单独调用。
          */
@@ -2516,35 +2679,40 @@ const rewindHandled = new Map()
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, 'collectHighlightNodes', error),
             )
           }
-          // 跳转闪现是临时条目，只画不登记：不进命中缓存，也不进批注数据。
-          if (flashEntry !== null) {
+          // 已发送条目只画常驻划线：不挂角标、不进悬停命中（命中表按草稿 id 配弹层）。
+          for (const item of collectSentHighlightItems()) {
             safe(
-              () => collectHighlightOf(flashEntry, nodes, null, true),
-              (error) => reportRepaintFailure('collectHighlightNodes:flash', 'collectHighlightNodes', error),
+              () => collectHighlightOf(item, nodes, null),
+              (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, 'collectHighlightNodes', error),
             )
           }
         }
 
-        function collectHighlightOf(item, nodes, target, flash = false) {
-          const range = locateRange(item)
-          if (range === undefined) return
+        function collectHighlightOf(item, nodes, target) {
+          const blinking = flashPhaseOn(item)
+          const range =
+            blinking && flashRange !== null && (safe(() => flashRange.startContainer.isConnected === true) === true)
+              ? flashRange
+              : locateHighlightRange(item)
+          if (range === undefined || range === null) return
           const rects = safe(() => [...range.getClientRects()]) ?? []
           if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects })
-          // 采纳判定要读设置项：它只决定配色，读不到也必须照常把这条划线画出来。
+          // 采纳判定要读设置项：它只决定闪烁时回到哪个旧底色，读不到也必须照常把这条划线画出来。
           const adopt = safe(() => hasAdoptNote(item.note)) === true
           let badged = false
           for (const rect of rects) {
             if (rect.width <= 0 || rect.height <= 0) continue
             const box = document.createElement('div')
-            box.className = flash ? 'sa-hl sa-flash' : 'sa-hl'
+            box.className = blinking ? 'sa-hl sa-hl-blink' : 'sa-hl'
+            if (blinking && flashReduced) box.classList.add('sa-hl-once')
             if (adopt) box.dataset.adopt = '1'
             box.style.left = `${rect.left}px`
             box.style.top = `${rect.top}px`
             box.style.width = `${rect.width}px`
             box.style.height = `${rect.height}px`
             nodes.push(box)
-            // 闪现不挂角标：那会让用户以为这儿多了一条批注。
-            if (!badged && !flash) {
+            // 角标只挂草稿：已发送条目没有可编辑的条目 id，那会让用户以为这儿多了一条批注。
+            if (!badged && item.sentHighlight !== true) {
               badged = true
               // 角标是唯一的「从正文直接回到这条批注」的入口，必须可点击。
               const badge = document.createElement('button')
@@ -2876,9 +3044,18 @@ const rewindHandled = new Map()
         popInput.dataset.empty = '1'
         /** 已批注原文的高亮矩形缓存，供鼠标悬停命中检测。*/
         let highlightHits = []
-        /** 「跳到出处」的临时条目：只走绘制，不进 annotations、不触发保存；到时清掉。*/
-        let flashEntry = null
-        let flashTimer = 0
+        /**
+         * 「查看出处」的闪烁状态：按高亮 key + 相位驱动，不靠一次性 CSS 动画。
+         * 覆盖层每轮重绘都会整层重建，相位只有放在状态里，重建后才不会跳回起点。
+         */
+        let flashKey = null
+        let flashPhase = 0
+        let flashTimers = []
+        let flashReduced = false
+        /** 闪烁目标在跳转时命中的 Range：锚点键对不上时也能在找到的那一行上闪。*/
+        let flashRange = null
+        /** 已发送批注的绘制副本：按 key 缓存，台账 savedAt 变了就重建，避免重绘丢 liveRange。*/
+        const sentHighlightCache = new Map()
         /** 悬停打开编辑框的定时器与目标。*/
         let hoverOpenTimer = null
         let hoverTargetId = null
@@ -4019,25 +4196,169 @@ const rewindHandled = new Map()
           return null
         }
 
-        /** 闪现：临时条目走同一条绘制路径，2 秒后撤掉，不进批注数据、不触发保存。*/
-        function flashQuote(item) {
-          if (item === undefined || item === null) return
-          if (flashTimer !== 0) window.clearTimeout(flashTimer)
-          // 用副本：locateRange 会把 liveRange 写回条目，闪现不能污染真实数据。
-          flashEntry = { ...item, liveRange: undefined }
-          highlightDirty = true
-          scheduleRepaint('jump-quote')
-          flashTimer = window.setTimeout(() => {
-            flashTimer = 0
-            flashEntry = null
-            highlightDirty = true
-            scheduleRepaint('jump-quote')
-          }, JUMP_FLASH_MS)
+        /** 一轮在 DOM 里可能由分组外壳与多个 flow 项共同带 data-chat-turn，全部收进来。*/
+        function turnHolders(turn) {
+          if (!Number.isFinite(turn)) return []
+          return safe(() => [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)]) ?? []
+        }
+
+        function rowOwnAnchorKey(element) {
+          if (element === null || element === undefined) return null
+          const own = safe(() => element.getAttribute('data-chat-anchor-key')) ?? null
+          if (typeof own === 'string' && own !== '') return own
+          const flow = safe(() => element.getAttribute('data-chat-flow-key')) ?? null
+          return typeof flow === 'string' && flow !== '' ? flow : null
+        }
+
+        /** 在给定范围里按锚点键找行；范围自身就是行时也算命中。*/
+        function rowByAnchor(scope, source) {
+          const key = typeof source?.anchorKey === 'string' ? source.anchorKey : ''
+          if (key === '' || scope === null || scope === undefined) return null
+          if (rowOwnAnchorKey(scope) === key) return scope
+          const direct = safe(() => scope.querySelector(`[data-chat-anchor-key="${cssEscape(key)}"]`)) ?? null
+          if (direct !== null) return direct
+          return safe(() => scope.querySelector(`[data-chat-flow-key="${cssEscape(key)}"]`)) ?? null
+        }
+
+        /** 指纹：选中文字前后各 40 个非空白字符；草稿存在 source 上，台账条目存在条目前两层字段上。*/
+        function fingerprintOf(item) {
+          const source = item?.source
+          const before =
+            typeof item?.contextBefore === 'string'
+              ? item.contextBefore
+              : typeof source?.contextBefore === 'string'
+                ? source.contextBefore
+                : ''
+          const after =
+            typeof item?.contextAfter === 'string'
+              ? item.contextAfter
+              : typeof source?.contextAfter === 'string'
+                ? source.contextAfter
+                : ''
+          const quote = flatText(item?.quote)
+          if (quote === '' || (before === '' && after === '')) return null
+          return { quote, before, after }
+        }
+
+        /** 在范围内的已加载行里按「引文 + 前后文」找行；范围可以是一轮，也可以是 document。*/
+        function rowByFingerprint(scope, fingerprint) {
+          if (scope === null || scope === undefined || fingerprint === null) return null
+          const rows = safe(() => document.querySelectorAll('[data-chat-anchor-key]')) ?? []
+          for (const row of rows) {
+            if (scope !== document && row !== scope && scope.contains(row) !== true) continue
+            const text = flatText(row.textContent)
+            if (text === '') continue
+            let at = text.indexOf(fingerprint.quote)
+            while (at !== -1) {
+              const head = text.slice(Math.max(0, at - fingerprint.before.length), at)
+              const tailAt = at + fingerprint.quote.length
+              const tail = text.slice(tailAt, tailAt + fingerprint.after.length)
+              const headOk = fingerprint.before === '' || head === fingerprint.before
+              const tailOk = fingerprint.after === '' || tail === fingerprint.after
+              if (headOk && tailOk) return row
+              at = text.indexOf(fingerprint.quote, at + 1)
+            }
+          }
+          return null
         }
 
         /**
-         * 「跳到出处」的落点：优先用锚点找到正文行；行被宿主卸下时，拿轮次号点官方
-         * 轮次导航把它加载回来。两步行不通就明确提示，不静默无反应。
+         * 「查看出处」的查找顺序：轮次内锚点 → 轮次内指纹 → 全页锚点 → 全页指纹。
+         * 轮次是宿主自己的 data-chat-turn；行被卸载时返回 null，由调用方去点轮次导航。
+         */
+        function findSourceRow(source, item, turn) {
+          const holders = turnHolders(turn)
+          for (const holder of holders) {
+            const row = rowByAnchor(holder, source)
+            if (row !== null) return row
+          }
+          const fingerprint = fingerprintOf(item)
+          if (fingerprint !== null) {
+            for (const holder of holders) {
+              const row = rowByFingerprint(holder, fingerprint)
+              if (row !== null) return row
+            }
+          }
+          const anchored = safe(() => anchorRoot(source)) ?? null
+          if (anchored !== null) return anchored
+          if (fingerprint !== null) return rowByFingerprint(document, fingerprint)
+          return null
+        }
+
+        /** 用目标行与引文算一个 Range，闪烁就闪这一段；算不出来就让 collectHighlightOf 自己定位。*/
+        function locateRangeInRow(item, row) {
+          if (item === undefined || item === null || row === null || row === undefined) return null
+          const source = item.source
+          if (source === undefined || source === null) return null
+          return safe(() => matchInRoot(row, item.quote, savedOffsetOf(source))) ?? null
+        }
+
+        const FLASH_STEP_MS = 250
+        const FLASH_STEPS = 6 // 亮/灭各三次，总计 1.5s
+        const FLASH_REDUCED_MS = 280
+
+        function clearFlashTimers() {
+          for (const timer of flashTimers) window.clearTimeout(timer)
+          flashTimers = []
+        }
+
+        function resetFlashState() {
+          clearFlashTimers()
+          flashKey = null
+          flashPhase = 0
+          flashReduced = false
+          flashRange = null
+        }
+
+        /**
+         * 闪烁：让目标那条批注的常驻划线按相位换回旧底色，不再另画一个临时框。
+         * 三下（亮/灭各 250ms）后回到常驻色；减少动态时只做一次淡入。
+         * @param item - 跳转目标（草稿条目或台账条目）。
+         * @param range - 跳转时命中的 Range；锚点键对不上时也保证闪在刚找到的那一行。
+         */
+        function flashQuote(item, range = null) {
+          const key = highlightKeyOf(item)
+          if (key === null) return
+          resetFlashState()
+          flashKey = key
+          flashRange = range !== null && range !== undefined ? range : null
+          flashReduced =
+            safe(() => typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) === true
+          flashPhase = 1
+          highlightDirty = true
+          scheduleRepaint('jump-quote')
+          if (flashReduced) {
+            flashTimers.push(window.setTimeout(() => {
+              flashTimers = []
+              flashPhase = 0
+              flashReduced = false
+              flashRange = null
+              highlightDirty = true
+              scheduleRepaint('jump-quote')
+            }, FLASH_REDUCED_MS))
+            return
+          }
+          for (let step = 1; step < FLASH_STEPS; step += 1) {
+            flashTimers.push(window.setTimeout(() => {
+              flashPhase = step % 2 === 0 ? 1 : 0
+              highlightDirty = true
+              scheduleRepaint('jump-quote')
+            }, step * FLASH_STEP_MS))
+          }
+          flashTimers.push(window.setTimeout(() => {
+            flashTimers = []
+            flashKey = null
+            flashPhase = 0
+            flashReduced = false
+            flashRange = null
+            highlightDirty = true
+            scheduleRepaint('jump-quote')
+          }, FLASH_STEPS * FLASH_STEP_MS))
+        }
+
+        /**
+         * 「跳到出处」的落点：按轮次与锚点/指纹在已加载的行里找；行被宿主卸下时，拿轮次号
+         * 点官方轮次导航把它加载回来，落地后重新走同一套查找。找不到就明确提示，不静默无反应。
          * @param item - 带 source 的批注条目。
          * @param turnHint - 已知的轮次号（已发送卡/答复区手里有）。
          * @param root - 触发按钮，用来把提示落在对应的界面层里。
@@ -4058,11 +4379,12 @@ const rewindHandled = new Map()
           }
           const turn = Number.isFinite(turnHint) ? turnHint : Number.isFinite(source.turn) ? source.turn : null
           const land = () => {
-            const row = safe(() => anchorRoot(source)) ?? null
+            const row = safe(() => findSourceRow(source, item, turn)) ?? null
             if (row === null) return false
             scrollRowToCenter(row)
+            const range = locateRangeInRow(item, row)
             // 行刚挂载时正文可能还在排版，下一帧再量矩形，免得量到 0×0。
-            window.requestAnimationFrame(() => flashQuote(item))
+            window.requestAnimationFrame(() => flashQuote(item, range))
             return true
           }
           if (land()) return

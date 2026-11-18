@@ -2,19 +2,22 @@
   // src/core/styles.js
   var CSS = `
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
+/* 常驻划线：以主题前景色为基准的低透明度底色，草稿与已发送同色。
+   采纳/待办不再决定静态配色，只在「查看出处」闪烁时回到旧底色。*/
 .sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
+/* 跳转闪烁的「亮」相位：旧底色（待办=warn、已采纳=success），由 JS 每 250ms 切换一次。*/
+.sa-hl.sa-hl-blink { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
-.sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
+.sa-hl.sa-hl-blink[data-adopt="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
-/* 跳转闪现：同一个覆盖层矩形，加重底色加一圈描边；2 秒后条目被撤掉，自然消失。*/
-.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 45%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary, #58a6ff) 90%, transparent);
-  animation: sa-flash-fade 2000ms ease-out forwards; }
-@keyframes sa-flash-fade {
-  0% { opacity: 1; }
-  65% { opacity: 1; }
-  100% { opacity: 0; }
+/* 减少动态：整个闪烁只做一次淡入，由 JS 在 280ms 后撤掉相位。*/
+.sa-hl.sa-hl-once { animation: sa-hl-fade-in 260ms ease-out; }
+@keyframes sa-hl-fade-in {
+  from { opacity: 0.25; }
+  to { opacity: 1; }
 }
 /* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
 .sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
@@ -568,7 +571,6 @@
   var SETTLE_MS = 220;
   var UPLOAD_DEBOUNCE_MS = 450;
   var POP_AUTO_SAVE_MS = 300;
-  var JUMP_FLASH_MS = 2e3;
   var JUMP_NAV_TIMEOUT_MS = 3e3;
   var JUMP_NAV_POLL_MS = 120;
   var UPLOAD_READY_TIMEOUT_MS = 1e4;
@@ -3912,8 +3914,8 @@ ${PICK_SCRIPT}<\/script>`;
           const payload = safe(() => JSON.parse(buildPayload(annotations)));
           if (payload !== null && typeof payload === "object" && Array.isArray(payload.annotations)) {
             const items = payload.annotations.map((annotation, index) => {
-              const source = annotations[index];
-              const images = Array.isArray(source?.images) ? source.images : [];
+              const origin = annotations[index];
+              const images = Array.isArray(origin?.images) ? origin.images : [];
               const thumbs = [];
               for (const image of images) {
                 if (typeof image?.thumb !== "string" || image.thumb === "") continue;
@@ -3923,7 +3925,11 @@ ${PICK_SCRIPT}<\/script>`;
                   preview: typeof image.preview === "string" && image.preview !== "" ? image.preview : image.dataUrl
                 });
               }
-              return thumbs.length > 0 ? { ...annotation, thumbs } : annotation;
+              const fingerprint = {};
+              if (typeof origin?.source?.contextBefore === "string") fingerprint.contextBefore = origin.source.contextBefore;
+              if (typeof origin?.source?.contextAfter === "string") fingerprint.contextAfter = origin.source.contextAfter;
+              const sentItem = { ...annotation, ...fingerprint };
+              return thumbs.length > 0 ? { ...sentItem, thumbs } : sentItem;
             });
             pendingSent.push({
               items,
@@ -4155,7 +4161,26 @@ ${PICK_SCRIPT}<\/script>`;
         });
         const resolveSourcePosition = (source, quote, onSkip) => sourceResolver.resolve(source, quote, onSkip);
         const sourceCapture = createSourceCapture();
-        const captureSource = (range) => sourceCapture.captureSource(range);
+        const FINGERPRINT_RADIUS = 40;
+        const flatText = (value) => String(value ?? "").replace(/\s+/g, "");
+        function withSourceFingerprint(range, source) {
+          if (source === null || typeof source !== "object" || source.kind !== "message") return source;
+          if (typeof source.anchorKey !== "string" || source.anchorKey === "") return source;
+          const start = Number.isFinite(source.charStart) ? source.charStart : -1;
+          const end = Number.isFinite(source.charEnd) ? source.charEnd : -1;
+          if (start < 0 || end < start) return source;
+          const node = range.startContainer;
+          const element = node === null || node === void 0 ? null : node.nodeType === 1 ? node : node.parentElement;
+          const row = element === null ? null : element.closest("[data-chat-anchor-key]");
+          if (row === null) return source;
+          const text = row.textContent ?? "";
+          if (text === "") return source;
+          const before = flatText(text.slice(0, start)).slice(-FINGERPRINT_RADIUS);
+          const after = flatText(text.slice(end)).slice(0, FINGERPRINT_RADIUS);
+          if (before === "" && after === "") return source;
+          return { ...source, contextBefore: before, contextAfter: after };
+        }
+        const captureSource = (range) => withSourceFingerprint(range, sourceCapture.captureSource(range));
         const anchorRoot = (source) => sourceCapture.anchorRoot(source);
         const rangeFromOffsets = (root, start, length) => sourceCapture.rangeFromOffsets(root, start, length);
         const matchInRoot = (root, quote, savedOffset) => sourceCapture.matchInRoot(root, quote, savedOffset);
@@ -5512,6 +5537,30 @@ ${PICK_SCRIPT}<\/script>`;
             for (const node of document.querySelectorAll('[data-sa-ui="sent"], [data-sa-ui="replies"]')) roots.push(node);
             for (const root of roots) remember(root);
           };
+          const rowOffsetOf = (container, row) => {
+            const box = safe(() => container.getBoundingClientRect());
+            const rect = safe(() => row.getBoundingClientRect());
+            if (box === void 0 || rect === void 0) return void 0;
+            return rect.top - box.top;
+          };
+          const restoreAnchor = (container, row, target) => {
+            const offset = rowOffsetOf(container, row);
+            if (offset === void 0) return false;
+            const delta = offset - target;
+            if (delta !== 0) {
+              scrollTrace.markWrite(container, "repaint-anchor", container.scrollTop + delta);
+              container.scrollTop += delta;
+              const settled = rowOffsetOf(container, row);
+              if (settled !== void 0) {
+                const residual = settled - target;
+                if (Math.abs(residual) > 4) {
+                  scrollTrace.markWrite(container, "repaint-anchor", container.scrollTop + residual);
+                  container.scrollTop += residual;
+                }
+              }
+            }
+            return true;
+          };
           const restore = (late) => {
             for (const entry of saved) {
               const container = entry.el;
@@ -5524,22 +5573,13 @@ ${PICK_SCRIPT}<\/script>`;
                 continue;
               }
               if (entry.row !== void 0 && entry.row.isConnected === true) {
-                const box = safe(() => container.getBoundingClientRect());
-                const rect = safe(() => entry.row.getBoundingClientRect());
-                if (box !== void 0 && rect !== void 0) {
-                  const delta = rect.top - box.top - entry.offset;
-                  if (delta !== 0) {
-                    scrollTrace.markWrite(container, "repaint-anchor", container.scrollTop + delta);
-                    container.scrollTop += delta;
-                  }
-                  continue;
-                }
+                if (restoreAnchor(container, entry.row, entry.offset) === true) continue;
               }
               if (late === true) continue;
               const grown = container.scrollHeight - entry.scrollHeight;
               if (grown !== 0) {
-                scrollTrace.markWrite(container, "restore", entry.top + grown);
-                container.scrollTop = entry.top + grown;
+                scrollTrace.markWrite(container, "restore", container.scrollTop + grown);
+                container.scrollTop += grown;
               }
             }
           };
@@ -5570,6 +5610,81 @@ ${PICK_SCRIPT}<\/script>`;
           hoverMisses.add(id);
           warn("[selection-annotations] 悬停命中找不到对应批注:", id);
         }
+        function highlightKeyOf(item) {
+          if (item === null || item === void 0) return null;
+          if (item.sentHighlight === true) return typeof item.id === "string" ? item.id : null;
+          if (typeof item.id === "string" && item.id !== "") return `draft:${item.id}`;
+          const uuid = typeof item.uuid === "string" && item.uuid !== "" ? item.uuid : "";
+          if (uuid !== "") return `sent:${uuid}`;
+          const anchorKey = typeof item.source?.anchorKey === "string" && item.source.anchorKey !== "" ? item.source.anchorKey : typeof item.anchorKey === "string" && item.anchorKey !== "" ? item.anchorKey : "";
+          if (anchorKey === "") return null;
+          const index = Number.isFinite(item.index) ? item.index : Number.isFinite(item.source?.index) ? item.source.index : "";
+          return `sent:${anchorKey}#${index}`;
+        }
+        function sentHighlightKey(anchorKey, item) {
+          const uuid = typeof item?.uuid === "string" && item.uuid !== "" ? item.uuid : "";
+          if (uuid !== "") return `sent:${uuid}`;
+          const index = Number.isFinite(item?.index) ? item.index : "";
+          return `sent:${anchorKey}#${index}`;
+        }
+        function savedOffsetOf(source) {
+          if (source === null || source === void 0) return void 0;
+          if (source.textOrigin === "source") {
+            return Number.isFinite(source.renderedCharStart) ? source.renderedCharStart : void 0;
+          }
+          return source.charStart;
+        }
+        function collectSentHighlightItems() {
+          const sessionId = currentSessionId();
+          if (sessionId === void 0) return [];
+          const table = safe(() => loadSent(sessionId)) ?? null;
+          if (table === null) return [];
+          const items = [];
+          const alive = /* @__PURE__ */ new Set();
+          for (const [storedKey, record] of table) {
+            if (record === null || typeof record !== "object" || Array.isArray(record.items) === false) continue;
+            const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : storedKey;
+            for (const item of record.items) {
+              if (item === null || typeof item !== "object") continue;
+              if (typeof item.quote !== "string" || item.quote === "") continue;
+              const key = highlightKeyOf(item) ?? sentHighlightKey(anchorKey, item);
+              alive.add(key);
+              const cached = sentHighlightCache.get(key);
+              if (cached !== void 0 && cached.savedAt === record.savedAt) {
+                items.push(cached.entry);
+                continue;
+              }
+              const entry = { ...item, id: key, sentHighlight: true };
+              sentHighlightCache.set(key, { savedAt: record.savedAt, entry });
+              items.push(entry);
+            }
+          }
+          for (const key of [...sentHighlightCache.keys()]) {
+            if (!alive.has(key)) sentHighlightCache.delete(key);
+          }
+          return items;
+        }
+        function locateHighlightRange(item) {
+          const range = locateRange(item);
+          if (range !== void 0) return range;
+          const fingerprint = fingerprintOf(item);
+          if (fingerprint === null) return void 0;
+          const source = item?.source;
+          const turn = Number.isFinite(source?.turn) ? source.turn : null;
+          let row = null;
+          for (const holder of turnHolders(turn)) {
+            row = rowByFingerprint(holder, fingerprint);
+            if (row !== null) break;
+          }
+          if (row === null) row = rowByFingerprint(document, fingerprint);
+          if (row === null) return void 0;
+          const found = safe(() => matchInRoot(row, item.quote, savedOffsetOf(source))) ?? void 0;
+          if (found !== void 0) item.liveRange = found;
+          return found;
+        }
+        function flashPhaseOn(item) {
+          return flashPhase === 1 && flashKey !== null && highlightKeyOf(item) === flashKey;
+        }
         function collectHighlightNodes(nodes, hits) {
           const target = Array.isArray(hits) ? hits : highlightHits;
           for (const item of annotations) {
@@ -5578,16 +5693,17 @@ ${PICK_SCRIPT}<\/script>`;
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, "collectHighlightNodes", error)
             );
           }
-          if (flashEntry !== null) {
+          for (const item of collectSentHighlightItems()) {
             safe(
-              () => collectHighlightOf(flashEntry, nodes, null, true),
-              (error) => reportRepaintFailure("collectHighlightNodes:flash", "collectHighlightNodes", error)
+              () => collectHighlightOf(item, nodes, null),
+              (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, "collectHighlightNodes", error)
             );
           }
         }
-        function collectHighlightOf(item, nodes, target, flash = false) {
-          const range = locateRange(item);
-          if (range === void 0) return;
+        function collectHighlightOf(item, nodes, target) {
+          const blinking = flashPhaseOn(item);
+          const range = blinking && flashRange !== null && safe(() => flashRange.startContainer.isConnected === true) === true ? flashRange : locateHighlightRange(item);
+          if (range === void 0 || range === null) return;
           const rects = safe(() => [...range.getClientRects()]) ?? [];
           if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects });
           const adopt = safe(() => hasAdoptNote(item.note)) === true;
@@ -5595,14 +5711,15 @@ ${PICK_SCRIPT}<\/script>`;
           for (const rect of rects) {
             if (rect.width <= 0 || rect.height <= 0) continue;
             const box = document.createElement("div");
-            box.className = flash ? "sa-hl sa-flash" : "sa-hl";
+            box.className = blinking ? "sa-hl sa-hl-blink" : "sa-hl";
+            if (blinking && flashReduced) box.classList.add("sa-hl-once");
             if (adopt) box.dataset.adopt = "1";
             box.style.left = `${rect.left}px`;
             box.style.top = `${rect.top}px`;
             box.style.width = `${rect.width}px`;
             box.style.height = `${rect.height}px`;
             nodes.push(box);
-            if (!badged && !flash) {
+            if (!badged && item.sentHighlight !== true) {
               badged = true;
               const badge = document.createElement("button");
               badge.type = "button";
@@ -5879,8 +5996,12 @@ ${PICK_SCRIPT}<\/script>`;
         popInput.dataset.placeholder = t("pop.placeholder");
         popInput.dataset.empty = "1";
         let highlightHits = [];
-        let flashEntry = null;
-        let flashTimer = 0;
+        let flashKey = null;
+        let flashPhase = 0;
+        let flashTimers = [];
+        let flashReduced = false;
+        let flashRange = null;
+        const sentHighlightCache = /* @__PURE__ */ new Map();
         let hoverOpenTimer = null;
         let hoverTargetId = null;
         let hoverCloseTimer = null;
@@ -6797,18 +6918,128 @@ ${PICK_SCRIPT}<\/script>`;
           }
           return null;
         }
-        function flashQuote(item) {
-          if (item === void 0 || item === null) return;
-          if (flashTimer !== 0) window.clearTimeout(flashTimer);
-          flashEntry = { ...item, liveRange: void 0 };
+        function turnHolders(turn) {
+          if (!Number.isFinite(turn)) return [];
+          return safe(() => [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)]) ?? [];
+        }
+        function rowOwnAnchorKey(element) {
+          if (element === null || element === void 0) return null;
+          const own = safe(() => element.getAttribute("data-chat-anchor-key")) ?? null;
+          if (typeof own === "string" && own !== "") return own;
+          const flow = safe(() => element.getAttribute("data-chat-flow-key")) ?? null;
+          return typeof flow === "string" && flow !== "" ? flow : null;
+        }
+        function rowByAnchor(scope, source) {
+          const key = typeof source?.anchorKey === "string" ? source.anchorKey : "";
+          if (key === "" || scope === null || scope === void 0) return null;
+          if (rowOwnAnchorKey(scope) === key) return scope;
+          const direct = safe(() => scope.querySelector(`[data-chat-anchor-key="${cssEscape(key)}"]`)) ?? null;
+          if (direct !== null) return direct;
+          return safe(() => scope.querySelector(`[data-chat-flow-key="${cssEscape(key)}"]`)) ?? null;
+        }
+        function fingerprintOf(item) {
+          const source = item?.source;
+          const before = typeof item?.contextBefore === "string" ? item.contextBefore : typeof source?.contextBefore === "string" ? source.contextBefore : "";
+          const after = typeof item?.contextAfter === "string" ? item.contextAfter : typeof source?.contextAfter === "string" ? source.contextAfter : "";
+          const quote = flatText(item?.quote);
+          if (quote === "" || before === "" && after === "") return null;
+          return { quote, before, after };
+        }
+        function rowByFingerprint(scope, fingerprint) {
+          if (scope === null || scope === void 0 || fingerprint === null) return null;
+          const rows = safe(() => document.querySelectorAll("[data-chat-anchor-key]")) ?? [];
+          for (const row of rows) {
+            if (scope !== document && row !== scope && scope.contains(row) !== true) continue;
+            const text = flatText(row.textContent);
+            if (text === "") continue;
+            let at = text.indexOf(fingerprint.quote);
+            while (at !== -1) {
+              const head = text.slice(Math.max(0, at - fingerprint.before.length), at);
+              const tailAt = at + fingerprint.quote.length;
+              const tail = text.slice(tailAt, tailAt + fingerprint.after.length);
+              const headOk = fingerprint.before === "" || head === fingerprint.before;
+              const tailOk = fingerprint.after === "" || tail === fingerprint.after;
+              if (headOk && tailOk) return row;
+              at = text.indexOf(fingerprint.quote, at + 1);
+            }
+          }
+          return null;
+        }
+        function findSourceRow(source, item, turn) {
+          const holders = turnHolders(turn);
+          for (const holder of holders) {
+            const row = rowByAnchor(holder, source);
+            if (row !== null) return row;
+          }
+          const fingerprint = fingerprintOf(item);
+          if (fingerprint !== null) {
+            for (const holder of holders) {
+              const row = rowByFingerprint(holder, fingerprint);
+              if (row !== null) return row;
+            }
+          }
+          const anchored = safe(() => anchorRoot(source)) ?? null;
+          if (anchored !== null) return anchored;
+          if (fingerprint !== null) return rowByFingerprint(document, fingerprint);
+          return null;
+        }
+        function locateRangeInRow(item, row) {
+          if (item === void 0 || item === null || row === null || row === void 0) return null;
+          const source = item.source;
+          if (source === void 0 || source === null) return null;
+          return safe(() => matchInRoot(row, item.quote, savedOffsetOf(source))) ?? null;
+        }
+        const FLASH_STEP_MS = 250;
+        const FLASH_STEPS = 6;
+        const FLASH_REDUCED_MS = 280;
+        function clearFlashTimers() {
+          for (const timer of flashTimers) window.clearTimeout(timer);
+          flashTimers = [];
+        }
+        function resetFlashState() {
+          clearFlashTimers();
+          flashKey = null;
+          flashPhase = 0;
+          flashReduced = false;
+          flashRange = null;
+        }
+        function flashQuote(item, range = null) {
+          const key = highlightKeyOf(item);
+          if (key === null) return;
+          resetFlashState();
+          flashKey = key;
+          flashRange = range !== null && range !== void 0 ? range : null;
+          flashReduced = safe(() => typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) === true;
+          flashPhase = 1;
           highlightDirty = true;
           scheduleRepaint("jump-quote");
-          flashTimer = window.setTimeout(() => {
-            flashTimer = 0;
-            flashEntry = null;
+          if (flashReduced) {
+            flashTimers.push(window.setTimeout(() => {
+              flashTimers = [];
+              flashPhase = 0;
+              flashReduced = false;
+              flashRange = null;
+              highlightDirty = true;
+              scheduleRepaint("jump-quote");
+            }, FLASH_REDUCED_MS));
+            return;
+          }
+          for (let step = 1; step < FLASH_STEPS; step += 1) {
+            flashTimers.push(window.setTimeout(() => {
+              flashPhase = step % 2 === 0 ? 1 : 0;
+              highlightDirty = true;
+              scheduleRepaint("jump-quote");
+            }, step * FLASH_STEP_MS));
+          }
+          flashTimers.push(window.setTimeout(() => {
+            flashTimers = [];
+            flashKey = null;
+            flashPhase = 0;
+            flashReduced = false;
+            flashRange = null;
             highlightDirty = true;
             scheduleRepaint("jump-quote");
-          }, JUMP_FLASH_MS);
+          }, FLASH_STEPS * FLASH_STEP_MS));
         }
         function jumpToQuote(item, turnHint, root) {
           const source = item === void 0 || item === null ? null : item.source;
@@ -6826,10 +7057,11 @@ ${PICK_SCRIPT}<\/script>`;
           }
           const turn = Number.isFinite(turnHint) ? turnHint : Number.isFinite(source.turn) ? source.turn : null;
           const land = () => {
-            const row = safe(() => anchorRoot(source)) ?? null;
+            const row = safe(() => findSourceRow(source, item, turn)) ?? null;
             if (row === null) return false;
             scrollRowToCenter(row);
-            window.requestAnimationFrame(() => flashQuote(item));
+            const range = locateRangeInRow(item, row);
+            window.requestAnimationFrame(() => flashQuote(item, range));
             return true;
           };
           if (land()) return;
