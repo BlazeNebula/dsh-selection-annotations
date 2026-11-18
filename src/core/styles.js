@@ -46,8 +46,8 @@ export const CSS = `
   .sa-toolbar .sa-btn + .sa-btn { box-shadow: inset 1px 0 0 var(--dsw-alias-border-l2, ButtonBorder); border-radius: 0 6px 6px 0; }
   .sa-toolbar .sa-btn-adopt, .sa-toolbar .sa-btn-adopt:hover { color: var(--dsw-alias-brand-primary, #247bbf); }
   .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
-.sa-popover { position: fixed; display: block; z-index: 70; width: 340px; max-width: calc(100vw - 24px);
-  overflow-y: auto; overscroll-behavior: contain;
+.sa-popover { position: fixed; display: flex; flex-direction: column; z-index: 70; width: 340px; max-width: calc(100vw - 16px);
+  overflow: hidden; overscroll-behavior: contain;
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-layer-2, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
   box-shadow: var(--dsw-elevation-prominent, 0 10px 32px rgba(0,0,0,.24));
@@ -69,10 +69,10 @@ export const CSS = `
   background: var(--dsw-alias-bg-layer-2, ButtonFace); border-left: 2px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 4px; }
 .sa-pop-src { margin: 0 0 6px; font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.45;
   color: var(--dsw-alias-label-tertiary, GrayText); }
-.sa-pop-input { width: 100%; box-sizing: border-box; min-height: 62px; resize: vertical; padding: 6px 8px;
+.sa-pop-input { width: 100%; box-sizing: border-box; min-height: 62px; padding: 6px 8px;
   font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-layer-1, Canvas);
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
-.sa-pop-input { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; max-height: 60vh; }
+.sa-pop-input { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; }
 .sa-pop-input:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary, #247bbf)); outline-offset: 1px; }
 .sa-pop-input[data-empty="1"]::before { content: attr(data-placeholder); color: var(--dsw-alias-label-tertiary, GrayText); pointer-events: none; }
 .sa-pop-label { margin: 8px 0 4px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
@@ -82,6 +82,23 @@ export const CSS = `
   cursor: move; user-select: none; touch-action: none; }
 .sa-pop-dragging, .sa-pop-dragging * { cursor: grabbing !important; user-select: none; }
 .sa-pop-head .sa-pop-title { margin: 0; }
+/* 弹层内部布局：标题与引用原文固定，中间正文区自己滚动，底部动作行常驻。
+   这样输入框随内容长高时，滚动条出现在正文区，而不是输入框里再套一层。*/
+.sa-pop-fixed { flex: none; }
+.sa-pop-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* 尺寸调整：四边各一条 5px 宽的命中区，右下角 12×12 的斜纹把手。*/
+.sa-pop-resizer { position: absolute; z-index: 2; touch-action: none; }
+.sa-pop-resizer[data-edge="left"] { top: 6px; bottom: 6px; left: 0; width: 5px; cursor: ew-resize; }
+.sa-pop-resizer[data-edge="right"] { top: 6px; bottom: 6px; right: 0; width: 5px; cursor: ew-resize; }
+.sa-pop-resizer[data-edge="top"] { left: 6px; right: 6px; top: 0; height: 5px; cursor: ns-resize; }
+.sa-pop-resizer[data-edge="bottom"] { left: 6px; right: 6px; bottom: 0; height: 5px; cursor: ns-resize; }
+.sa-pop-grip { right: 1px; bottom: 1px; width: 12px; height: 12px; border-radius: 3px; cursor: nwse-resize; }
+.sa-pop-grip::before { content: ''; position: absolute; inset: 1px; border-radius: 2px;
+  background-image: repeating-linear-gradient(135deg, transparent 0 2px, var(--dsw-alias-border-l2, ButtonBorder) 2px 3px); }
+.sa-pop-grip:hover::before, .sa-pop-grip:focus-visible::before {
+  background-image: repeating-linear-gradient(135deg, transparent 0 2px, var(--dsw-alias-brand-primary, #247bbf) 2px 3px); }
+.sa-pop-grip:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 0; }
+.sa-pop-resizing, .sa-pop-resizing * { user-select: none; }
 .sa-pop-close { flex: none; width: 24px; height: 24px; padding: 0; border: none; border-radius: 6px;
   background: transparent; color: var(--dsw-alias-label-secondary, GrayText); font-size: 16px; line-height: 1; cursor: pointer; }
 .sa-pop-close:hover { background: var(--dsw-alias-interactive-bg-hover, ButtonFace); color: var(--dsw-alias-label-primary, CanvasText); }
@@ -100,7 +117,7 @@ export const CSS = `
   background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px dashed var(--dsw-alias-border-l2, ButtonBorder);
   border-radius: 6px; cursor: pointer; }
 .sa-suggest:hover { background: var(--dsw-alias-interactive-bg-hover, ButtonFace); }
-.sa-pop-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.sa-pop-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex: none; }
 .sa-pop-spacer { flex: 1; }
 .sa-pop-delete { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-float { position: fixed; z-index: 63; max-width: calc(100vw - 16px); }

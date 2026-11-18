@@ -48,8 +48,8 @@
   .sa-toolbar .sa-btn + .sa-btn { box-shadow: inset 1px 0 0 var(--dsw-alias-border-l2, ButtonBorder); border-radius: 0 6px 6px 0; }
   .sa-toolbar .sa-btn-adopt, .sa-toolbar .sa-btn-adopt:hover { color: var(--dsw-alias-brand-primary, #247bbf); }
   .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
-.sa-popover { position: fixed; display: block; z-index: 70; width: 340px; max-width: calc(100vw - 24px);
-  overflow-y: auto; overscroll-behavior: contain;
+.sa-popover { position: fixed; display: flex; flex-direction: column; z-index: 70; width: 340px; max-width: calc(100vw - 16px);
+  overflow: hidden; overscroll-behavior: contain;
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
   background: var(--dsw-alias-bg-layer-2, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
   box-shadow: var(--dsw-elevation-prominent, 0 10px 32px rgba(0,0,0,.24));
@@ -71,10 +71,10 @@
   background: var(--dsw-alias-bg-layer-2, ButtonFace); border-left: 2px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 4px; }
 .sa-pop-src { margin: 0 0 6px; font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.45;
   color: var(--dsw-alias-label-tertiary, GrayText); }
-.sa-pop-input { width: 100%; box-sizing: border-box; min-height: 62px; resize: vertical; padding: 6px 8px;
+.sa-pop-input { width: 100%; box-sizing: border-box; min-height: 62px; padding: 6px 8px;
   font: inherit; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-layer-1, Canvas);
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); border-radius: 6px; }
-.sa-pop-input { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; max-height: 60vh; }
+.sa-pop-input { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; }
 .sa-pop-input:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary, #247bbf)); outline-offset: 1px; }
 .sa-pop-input[data-empty="1"]::before { content: attr(data-placeholder); color: var(--dsw-alias-label-tertiary, GrayText); pointer-events: none; }
 .sa-pop-label { margin: 8px 0 4px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
@@ -84,6 +84,23 @@
   cursor: move; user-select: none; touch-action: none; }
 .sa-pop-dragging, .sa-pop-dragging * { cursor: grabbing !important; user-select: none; }
 .sa-pop-head .sa-pop-title { margin: 0; }
+/* 弹层内部布局：标题与引用原文固定，中间正文区自己滚动，底部动作行常驻。
+   这样输入框随内容长高时，滚动条出现在正文区，而不是输入框里再套一层。*/
+.sa-pop-fixed { flex: none; }
+.sa-pop-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* 尺寸调整：四边各一条 5px 宽的命中区，右下角 12×12 的斜纹把手。*/
+.sa-pop-resizer { position: absolute; z-index: 2; touch-action: none; }
+.sa-pop-resizer[data-edge="left"] { top: 6px; bottom: 6px; left: 0; width: 5px; cursor: ew-resize; }
+.sa-pop-resizer[data-edge="right"] { top: 6px; bottom: 6px; right: 0; width: 5px; cursor: ew-resize; }
+.sa-pop-resizer[data-edge="top"] { left: 6px; right: 6px; top: 0; height: 5px; cursor: ns-resize; }
+.sa-pop-resizer[data-edge="bottom"] { left: 6px; right: 6px; bottom: 0; height: 5px; cursor: ns-resize; }
+.sa-pop-grip { right: 1px; bottom: 1px; width: 12px; height: 12px; border-radius: 3px; cursor: nwse-resize; }
+.sa-pop-grip::before { content: ''; position: absolute; inset: 1px; border-radius: 2px;
+  background-image: repeating-linear-gradient(135deg, transparent 0 2px, var(--dsw-alias-border-l2, ButtonBorder) 2px 3px); }
+.sa-pop-grip:hover::before, .sa-pop-grip:focus-visible::before {
+  background-image: repeating-linear-gradient(135deg, transparent 0 2px, var(--dsw-alias-brand-primary, #247bbf) 2px 3px); }
+.sa-pop-grip:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #247bbf); outline-offset: 0; }
+.sa-pop-resizing, .sa-pop-resizing * { user-select: none; }
 .sa-pop-close { flex: none; width: 24px; height: 24px; padding: 0; border: none; border-radius: 6px;
   background: transparent; color: var(--dsw-alias-label-secondary, GrayText); font-size: 16px; line-height: 1; cursor: pointer; }
 .sa-pop-close:hover { background: var(--dsw-alias-interactive-bg-hover, ButtonFace); color: var(--dsw-alias-label-primary, CanvasText); }
@@ -102,7 +119,7 @@
   background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px dashed var(--dsw-alias-border-l2, ButtonBorder);
   border-radius: 6px; cursor: pointer; }
 .sa-suggest:hover { background: var(--dsw-alias-interactive-bg-hover, ButtonFace); }
-.sa-pop-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.sa-pop-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex: none; }
 .sa-pop-spacer { flex: 1; }
 .sa-pop-delete { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-float { position: fixed; z-index: 63; max-width: calc(100vw - 16px); }
@@ -446,6 +463,7 @@
   var ADOPT_SETTINGS_KEY = "dsh-selection-annotations:adopt-settings";
   var DEFAULT_ADOPT_TEXT = "【意见采纳】";
   var FALLBACK_SETTINGS_KEY = "dsh-selection-annotations:fallback-settings";
+  var POPOVER_SIZE_KEY = "dsh-selection-annotations:popover-size";
   var DEFAULT_FALLBACK_TEXT = "此轮对话内容均在批注中给出，总计 {count} 条批注。\n此轮消息发起时间：{time}";
   var DEFAULT_INSTRUCTION = [
     "这是用户随消息附上的批注数据块，与本轮用户正文同属一条用户消息：正文可能在前，也可能只有这份数据。\n",
@@ -549,6 +567,7 @@
       "pop.save": "保存",
       "pop.createTitle": "新建批注",
       "pop.editTitle": "修改批注 #{n}",
+      "pop.resize": "调整面板大小",
       "panel.empty": "选中回复、消息或文件预览里的文字，点浮动的「批注反馈」即可。",
       "panel.title": "批注总览",
       "panel.count": "{n} 条",
@@ -679,6 +698,7 @@
       "pop.save": "Save",
       "pop.createTitle": "New annotation",
       "pop.editTitle": "Edit annotation #{n}",
+      "pop.resize": "Resize panel",
       "panel.empty": "Select text in a reply, message, or file preview, then click the floating “Feedback”.",
       "panel.title": "Annotations",
       "panel.count": "{n} items",
@@ -5425,6 +5445,10 @@ ${PICK_SCRIPT}<\/script>`;
         popover.setAttribute("data-sa-ui", "popover");
         const popHead = document.createElement("div");
         popHead.className = "sa-pop-head";
+        const popFixed = document.createElement("div");
+        popFixed.className = "sa-pop-fixed";
+        const popBody = document.createElement("div");
+        popBody.className = "sa-pop-body";
         const popTitle = document.createElement("div");
         popTitle.className = "sa-pop-title";
         const popClose = document.createElement("button");
@@ -5704,7 +5728,188 @@ ${PICK_SCRIPT}<\/script>`;
         popSave.className = "sa-btn sa-pop-primary";
         popSave.textContent = t("pop.save");
         popActions.append(popDelete, popSpacer, popCancel, popSave);
-        popover.append(popHead, popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions);
+        popFixed.append(popSource, popQuoteLabel, popQuote);
+        popBody.append(popDivider, popNoteLabel, popInput, popImages, popActions);
+        popover.append(popHead, popFixed, popBody);
+        const POPOVER_MIN_WIDTH = 260;
+        const POPOVER_MIN_HEIGHT = 160;
+        const POPOVER_MARGIN = 8;
+        let popoverSized = false;
+        let popResize = null;
+        const popoverSizeBounds = () => ({
+          maxWidth: Math.max(POPOVER_MIN_WIDTH, window.innerWidth - POPOVER_MARGIN * 2),
+          maxHeight: Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)
+        });
+        function clampPopoverSize(width, height) {
+          const bounds = popoverSizeBounds();
+          const w = Number.isFinite(width) ? width : POPOVER_MIN_WIDTH;
+          const h2 = Number.isFinite(height) ? height : POPOVER_MIN_HEIGHT;
+          return {
+            width: Math.round(Math.max(POPOVER_MIN_WIDTH, Math.min(w, bounds.maxWidth))),
+            height: Math.round(Math.max(POPOVER_MIN_HEIGHT, Math.min(h2, bounds.maxHeight)))
+          };
+        }
+        function applyPopoverSize(width, height) {
+          const next = clampPopoverSize(width, height);
+          popover.style.width = `${next.width}px`;
+          popover.style.height = `${next.height}px`;
+          popoverSized = true;
+          return next;
+        }
+        function readPopoverSize() {
+          const storage = draftStorage();
+          if (storage === void 0) return null;
+          const raw = safe(() => storage.getItem(POPOVER_SIZE_KEY));
+          if (typeof raw !== "string" || raw === "") return null;
+          const parsed = safe(() => JSON.parse(raw));
+          if (parsed === void 0 || parsed === null || typeof parsed !== "object") return null;
+          const width = Number(parsed.width);
+          const height = Number(parsed.height);
+          if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+          return { width, height };
+        }
+        function savePopoverSize(width, height) {
+          const storage = draftStorage();
+          if (storage === void 0) return;
+          const next = clampPopoverSize(width, height);
+          safe(() => storage.setItem(POPOVER_SIZE_KEY, JSON.stringify(next)));
+        }
+        function restorePopoverSize() {
+          const saved = readPopoverSize();
+          if (saved === null) {
+            popoverSized = false;
+            popover.style.width = "";
+            popover.style.height = "";
+            return;
+          }
+          applyPopoverSize(saved.width, saved.height);
+        }
+        function clampSizedPopoverToViewport() {
+          if (!popoverSized || popover.dataset.open !== "1") return;
+          const bounds = popoverSizeBounds();
+          applyPopoverSize(popover.offsetWidth, popover.offsetHeight);
+          popover.style.maxHeight = `${bounds.maxHeight}px`;
+          const width = popover.offsetWidth;
+          const height = popover.offsetHeight;
+          const rect = popover.getBoundingClientRect();
+          const left = Math.max(POPOVER_MARGIN, Math.min(rect.left, window.innerWidth - width - POPOVER_MARGIN));
+          const top = Math.max(POPOVER_MARGIN, Math.min(rect.top, window.innerHeight - height - POPOVER_MARGIN));
+          popover.style.left = `${Math.round(left)}px`;
+          popover.style.top = `${Math.round(top)}px`;
+        }
+        function resizePopoverFromPointer(clientX, clientY) {
+          const start = popResize;
+          if (start === null) return;
+          const dx = clientX - start.x;
+          const dy = clientY - start.y;
+          const bounds = popoverSizeBounds();
+          let left = start.left;
+          let top = start.top;
+          let width = start.width;
+          let height = start.height;
+          if (start.edge === "left" || start.edge === "topLeft") {
+            const right = start.left + start.width;
+            left = Math.max(POPOVER_MARGIN, Math.min(start.left + dx, right - POPOVER_MIN_WIDTH));
+            left = Math.max(left, right - bounds.maxWidth);
+            width = right - left;
+          } else if (start.edge === "right" || start.edge === "topRight" || start.edge === "bottomRight") {
+            width = Math.max(POPOVER_MIN_WIDTH, Math.min(start.width + dx, bounds.maxWidth));
+            width = Math.min(width, window.innerWidth - POPOVER_MARGIN - start.left);
+          }
+          if (start.edge === "top" || start.edge === "topLeft" || start.edge === "topRight") {
+            const bottom = start.top + start.height;
+            top = Math.max(POPOVER_MARGIN, Math.min(start.top + dy, bottom - POPOVER_MIN_HEIGHT));
+            top = Math.max(top, bottom - bounds.maxHeight);
+            height = bottom - top;
+          } else if (start.edge === "bottom" || start.edge === "bottomRight") {
+            height = Math.max(POPOVER_MIN_HEIGHT, Math.min(start.height + dy, bounds.maxHeight));
+            height = Math.min(height, window.innerHeight - POPOVER_MARGIN - start.top);
+          }
+          popover.style.width = `${Math.round(Math.max(POPOVER_MIN_WIDTH, width))}px`;
+          popover.style.height = `${Math.round(Math.max(POPOVER_MIN_HEIGHT, height))}px`;
+          popover.style.left = `${Math.round(left)}px`;
+          popover.style.top = `${Math.round(top)}px`;
+          popoverSized = true;
+        }
+        function beginPopoverResize(edge, event) {
+          if (event.button !== 0) return;
+          if (popover.dataset.open !== "1") return;
+          const rect = popover.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+          popResize = {
+            edge,
+            x: event.clientX,
+            y: event.clientY,
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height
+          };
+          popover.style.width = `${Math.round(rect.width)}px`;
+          popover.style.height = `${Math.round(rect.height)}px`;
+          popover.style.maxHeight = `${Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)}px`;
+          popoverSized = true;
+          popover.dataset.dragged = "1";
+          popover.classList.add("sa-pop-resizing");
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        function nudgePopoverSize(deltaWidth, deltaHeight) {
+          if (popover.dataset.open !== "1") return;
+          const rect = popover.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+          const width = Math.max(
+            POPOVER_MIN_WIDTH,
+            Math.min(rect.width + deltaWidth, window.innerWidth - POPOVER_MARGIN - rect.left)
+          );
+          const height = Math.max(
+            POPOVER_MIN_HEIGHT,
+            Math.min(rect.height + deltaHeight, window.innerHeight - POPOVER_MARGIN - rect.top)
+          );
+          applyPopoverSize(width, height);
+          popover.style.maxHeight = `${Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)}px`;
+          popover.dataset.dragged = "1";
+          savePopoverSize(width, height);
+        }
+        function createPopoverResizer(edge, extraClass, label) {
+          const handle = document.createElement("div");
+          handle.className = extraClass === void 0 ? "sa-pop-resizer" : `sa-pop-resizer ${extraClass}`;
+          handle.dataset.edge = edge;
+          if (label === void 0) {
+            handle.setAttribute("aria-hidden", "true");
+          } else {
+            handle.setAttribute("role", "separator");
+            handle.setAttribute("aria-label", label);
+            handle.setAttribute("tabindex", "0");
+          }
+          handle.addEventListener("pointerdown", (event) => {
+            beginPopoverResize(edge, event);
+            if (label !== void 0) safe(() => handle.focus({ preventScroll: true }));
+            if (typeof handle.setPointerCapture === "function") safe(() => handle.setPointerCapture(event.pointerId));
+          });
+          handle.addEventListener("keydown", (event) => {
+            const step = event.shiftKey ? 32 : 8;
+            let dw = 0;
+            let dh = 0;
+            if (event.key === "ArrowRight") dw = step;
+            else if (event.key === "ArrowLeft") dw = -step;
+            else if (event.key === "ArrowDown") dh = step;
+            else if (event.key === "ArrowUp") dh = -step;
+            else return;
+            event.preventDefault();
+            event.stopPropagation();
+            nudgePopoverSize(dw, dh);
+          });
+          return handle;
+        }
+        const popEdgeHandles = [
+          createPopoverResizer("left", "sa-pop-edge"),
+          createPopoverResizer("right", "sa-pop-edge"),
+          createPopoverResizer("top", "sa-pop-edge"),
+          createPopoverResizer("bottom", "sa-pop-edge")
+        ];
+        const popGrip = createPopoverResizer("bottomRight", "sa-pop-grip", t("pop.resize"));
+        popover.append(...popEdgeHandles, popGrip);
         function isExcluded(node) {
           const element = elementOf2(node);
           if (element === null) return true;
@@ -5830,8 +6035,9 @@ ${PICK_SCRIPT}<\/script>`;
           const spaceBelow = window.innerHeight - rect.bottom - gap - margin;
           const preferAbove = spaceAbove >= Math.min(height, spaceBelow);
           const available = Math.max(160, preferAbove ? spaceAbove : spaceBelow);
-          popover.style.maxHeight = `${Math.floor(available)}px`;
-          const effectiveHeight = Math.min(height, available);
+          const sizeCap = Math.max(160, window.innerHeight - margin * 2);
+          popover.style.maxHeight = popoverSized ? `${Math.floor(sizeCap)}px` : `${Math.floor(available)}px`;
+          const effectiveHeight = popoverSized ? Math.min(height, sizeCap) : Math.min(height, available);
           top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap;
           const surface = popoverSource === "manual" ? document.querySelector('[data-sa-ui="panel"]') ?? document.querySelector('[data-sa-ui="side"]') : null;
           const surfaceRect = surface === null ? null : safe(() => surface.getBoundingClientRect());
@@ -5848,8 +6054,9 @@ ${PICK_SCRIPT}<\/script>`;
             top = Math.max(margin, Math.min(rect.top, window.innerHeight - shownHeight - margin));
             popover.style.maxHeight = `${Math.floor(maxHeight)}px`;
           }
-          popover.style.left = `${Math.max(margin, left)}px`;
-          popover.style.top = `${Math.max(margin, top)}px`;
+          popover.style.left = `${Math.max(margin, Math.min(left, Math.max(margin, window.innerWidth - width - margin)))}px`;
+          const boundedTop = popoverSized ? Math.max(margin, Math.min(top, Math.max(margin, window.innerHeight - effectiveHeight - margin))) : Math.max(margin, top);
+          popover.style.top = `${boundedTop}px`;
         }
         function placeToolbar(element, rect, point) {
           const width = element.offsetWidth || 80;
@@ -5977,12 +6184,11 @@ ${PICK_SCRIPT}<\/script>`;
         function syncPopInputHeight() {
           if (!popInputAutoHeight) return;
           const min = 62;
-          const max = Math.max(min, Math.round(window.innerHeight * 0.6));
           const keepTop = popInput.scrollTop;
           popInput.style.height = "auto";
           const measured = Number(popInput.scrollHeight);
           if (!Number.isFinite(measured) || measured <= 0) return;
-          const next = Math.max(min, Math.min(measured, max));
+          const next = Math.max(min, Math.round(measured));
           popInput.style.height = `${next}px`;
           popInputAutoValue = next;
           popInput.scrollTop = keepTop;
@@ -5992,11 +6198,11 @@ ${PICK_SCRIPT}<\/script>`;
           if (selection === null || selection.rangeCount === 0) return;
           const range = selection.getRangeAt(0).cloneRange();
           const rect = range.getBoundingClientRect();
-          const box = popInput.getBoundingClientRect();
+          const box = popBody.getBoundingClientRect();
           if (rect.bottom > box.bottom - 4) {
-            popInput.scrollTop += rect.bottom - box.bottom + 12;
+            popBody.scrollTop += rect.bottom - box.bottom + 12;
           } else if (rect.top < box.top + 4) {
-            popInput.scrollTop -= box.top - rect.top + 12;
+            popBody.scrollTop -= box.top - rect.top + 12;
           }
         }
         function syncAdoptTone() {
@@ -6023,6 +6229,8 @@ ${PICK_SCRIPT}<\/script>`;
           cancelHoverClose();
           delete popover.dataset.dragged;
           popover.dataset.open = "1";
+          restorePopoverSize();
+          popBody.scrollTop = 0;
           if (options.rect !== void 0 && options.rect !== null) placePopover(options.rect);
           syncPopInputHeight();
           const focusEditor = () => {
@@ -6080,6 +6288,8 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function closePopover(options = {}) {
           popover.dataset.open = "0";
+          popResize = null;
+          popover.classList.remove("sa-pop-resizing");
           if (popoverSource === "hover") cancelHoverOpen();
           lowerPopover();
           safe(() => popInput.blur());
@@ -7678,6 +7888,10 @@ ${PICK_SCRIPT}`;
           document.addEventListener("pointerup", onPointerUp, true);
           const onPointerMove = (event) => {
             lastPointerMove = { x: event.clientX, y: event.clientY };
+            if (popResize !== null && popover.dataset.open === "1") {
+              resizePopoverFromPointer(event.clientX, event.clientY);
+              return;
+            }
             if (popDrag === null || popover.dataset.open !== "1") return;
             const left = Math.max(8, Math.min(event.clientX - popDrag.dx, window.innerWidth - popDrag.width - 8));
             const top = Math.max(8, Math.min(event.clientY - popDrag.dy, window.innerHeight - popDrag.height - 8));
@@ -7685,6 +7899,12 @@ ${PICK_SCRIPT}`;
             popover.style.top = `${top}px`;
           };
           const onPopDragUp = () => {
+            if (popResize !== null) {
+              popResize = null;
+              popover.classList.remove("sa-pop-resizing");
+              const sized = popover.getBoundingClientRect();
+              if (sized.width > 0 && sized.height > 0) savePopoverSize(sized.width, sized.height);
+            }
             if (popDrag === null) return;
             popDrag = null;
             popover.classList.remove("sa-pop-dragging");
@@ -7734,6 +7954,7 @@ ${PICK_SCRIPT}`;
             if (event.type === "resize") {
               markViewportResize();
               clampPanelToViewport();
+              clampSizedPopoverToViewport();
             }
           };
           window.addEventListener("scroll", onViewport, true);

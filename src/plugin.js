@@ -12,6 +12,7 @@ import {
   MAX_NOTE,
   MAX_QUOTE,
   PAYLOAD_KIND,
+  POPOVER_SIZE_KEY,
   DRAFT_STORAGE_PREFIX,
   DRAFT_MAX_SESSIONS,
   DRAFT_MAX_ITEMS,
@@ -2659,6 +2660,11 @@ const rewindHandled = new Map()
         popover.setAttribute('data-sa-ui', 'popover')
         const popHead = document.createElement('div')
         popHead.className = 'sa-pop-head'
+        // 固定区（来源、引用原文）与滚动正文区分开：外层不再整块滚动，输入框长高时滚的是正文区。
+        const popFixed = document.createElement('div')
+        popFixed.className = 'sa-pop-fixed'
+        const popBody = document.createElement('div')
+        popBody.className = 'sa-pop-body'
         const popTitle = document.createElement('div')
         popTitle.className = 'sa-pop-title'
         const popClose = document.createElement('button')
@@ -2968,7 +2974,214 @@ const rewindHandled = new Map()
         popSave.className = 'sa-btn sa-pop-primary'
         popSave.textContent = t('pop.save')
         popActions.append(popDelete, popSpacer, popCancel, popSave)
-        popover.append(popHead, popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions)
+        // 标题与引用原文固定在顶部；备注编辑器、图片、按钮行放进滚动区，输入框长高时外层跟着滚。
+        popFixed.append(popSource, popQuoteLabel, popQuote)
+        popBody.append(popDivider, popNoteLabel, popInput, popImages, popActions)
+        popover.append(popHead, popFixed, popBody)
+
+        /* ------------------------------------------------------------------ 弹层尺寸调整*/
+        const POPOVER_MIN_WIDTH = 260
+        const POPOVER_MIN_HEIGHT = 160
+        const POPOVER_MARGIN = 8
+        /** 用户定过尺寸后，宽高由 inline style 固定，不再随内容或锚点空间自适应。*/
+        let popoverSized = false
+        /** 正在拖拽的边缘与起始几何。*/
+        let popResize = null
+
+        const popoverSizeBounds = () => ({
+          maxWidth: Math.max(POPOVER_MIN_WIDTH, window.innerWidth - POPOVER_MARGIN * 2),
+          maxHeight: Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2),
+        })
+
+        function clampPopoverSize(width, height) {
+          const bounds = popoverSizeBounds()
+          const w = Number.isFinite(width) ? width : POPOVER_MIN_WIDTH
+          const h = Number.isFinite(height) ? height : POPOVER_MIN_HEIGHT
+          return {
+            width: Math.round(Math.max(POPOVER_MIN_WIDTH, Math.min(w, bounds.maxWidth))),
+            height: Math.round(Math.max(POPOVER_MIN_HEIGHT, Math.min(h, bounds.maxHeight))),
+          }
+        }
+
+        function applyPopoverSize(width, height) {
+          const next = clampPopoverSize(width, height)
+          popover.style.width = `${next.width}px`
+          popover.style.height = `${next.height}px`
+          popoverSized = true
+          return next
+        }
+
+        function readPopoverSize() {
+          const storage = draftStorage()
+          if (storage === undefined) return null
+          const raw = safe(() => storage.getItem(POPOVER_SIZE_KEY))
+          if (typeof raw !== 'string' || raw === '') return null
+          const parsed = safe(() => JSON.parse(raw))
+          if (parsed === undefined || parsed === null || typeof parsed !== 'object') return null
+          const width = Number(parsed.width)
+          const height = Number(parsed.height)
+          if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+          return { width, height }
+        }
+
+        function savePopoverSize(width, height) {
+          const storage = draftStorage()
+          if (storage === undefined) return
+          const next = clampPopoverSize(width, height)
+          safe(() => storage.setItem(POPOVER_SIZE_KEY, JSON.stringify(next)))
+        }
+
+        /** 打开时沿用上次的尺寸；没有记录就回到 CSS 的默认宽度与自动高度。*/
+        function restorePopoverSize() {
+          const saved = readPopoverSize()
+          if (saved === null) {
+            popoverSized = false
+            popover.style.width = ''
+            popover.style.height = ''
+            return
+          }
+          applyPopoverSize(saved.width, saved.height)
+        }
+
+        /** 窗口缩小时把已定尺寸的浮层夹回视口；夹取结果不写回存储，放大窗口后还能恢复原尺寸。*/
+        function clampSizedPopoverToViewport() {
+          if (!popoverSized || popover.dataset.open !== '1') return
+          const bounds = popoverSizeBounds()
+          applyPopoverSize(popover.offsetWidth, popover.offsetHeight)
+          popover.style.maxHeight = `${bounds.maxHeight}px`
+          const width = popover.offsetWidth
+          const height = popover.offsetHeight
+          const rect = popover.getBoundingClientRect()
+          const left = Math.max(POPOVER_MARGIN, Math.min(rect.left, window.innerWidth - width - POPOVER_MARGIN))
+          const top = Math.max(POPOVER_MARGIN, Math.min(rect.top, window.innerHeight - height - POPOVER_MARGIN))
+          popover.style.left = `${Math.round(left)}px`
+          popover.style.top = `${Math.round(top)}px`
+        }
+
+        /** 按拖拽位移算新几何：被拖的那条边跟着指针走，对边不动，并夹在视口内。*/
+        function resizePopoverFromPointer(clientX, clientY) {
+          const start = popResize
+          if (start === null) return
+          const dx = clientX - start.x
+          const dy = clientY - start.y
+          const bounds = popoverSizeBounds()
+          let left = start.left
+          let top = start.top
+          let width = start.width
+          let height = start.height
+          if (start.edge === 'left' || start.edge === 'topLeft') {
+            const right = start.left + start.width
+            left = Math.max(POPOVER_MARGIN, Math.min(start.left + dx, right - POPOVER_MIN_WIDTH))
+            left = Math.max(left, right - bounds.maxWidth)
+            width = right - left
+          } else if (start.edge === 'right' || start.edge === 'topRight' || start.edge === 'bottomRight') {
+            width = Math.max(POPOVER_MIN_WIDTH, Math.min(start.width + dx, bounds.maxWidth))
+            width = Math.min(width, window.innerWidth - POPOVER_MARGIN - start.left)
+          }
+          if (start.edge === 'top' || start.edge === 'topLeft' || start.edge === 'topRight') {
+            const bottom = start.top + start.height
+            top = Math.max(POPOVER_MARGIN, Math.min(start.top + dy, bottom - POPOVER_MIN_HEIGHT))
+            top = Math.max(top, bottom - bounds.maxHeight)
+            height = bottom - top
+          } else if (start.edge === 'bottom' || start.edge === 'bottomRight') {
+            height = Math.max(POPOVER_MIN_HEIGHT, Math.min(start.height + dy, bounds.maxHeight))
+            height = Math.min(height, window.innerHeight - POPOVER_MARGIN - start.top)
+          }
+          popover.style.width = `${Math.round(Math.max(POPOVER_MIN_WIDTH, width))}px`
+          popover.style.height = `${Math.round(Math.max(POPOVER_MIN_HEIGHT, height))}px`
+          popover.style.left = `${Math.round(left)}px`
+          popover.style.top = `${Math.round(top)}px`
+          popoverSized = true
+        }
+
+        /**
+         * 开始拖某一条边。右下角把手与四条边共用这套起点数据：
+         * 先把当前实际尺寸固化成 inline 尺寸，避免从「自动高度」开始拖时基准漂移。
+         */
+        function beginPopoverResize(edge, event) {
+          if (event.button !== 0) return
+          if (popover.dataset.open !== '1') return
+          const rect = popover.getBoundingClientRect()
+          if (rect.width <= 0 || rect.height <= 0) return
+          popResize = {
+            edge,
+            x: event.clientX,
+            y: event.clientY,
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+          }
+          popover.style.width = `${Math.round(rect.width)}px`
+          popover.style.height = `${Math.round(rect.height)}px`
+          popover.style.maxHeight = `${Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)}px`
+          popoverSized = true
+          popover.dataset.dragged = '1'
+          popover.classList.add('sa-pop-resizing')
+          event.preventDefault()
+          event.stopPropagation()
+        }
+
+        /** 方向键微调：右下角把手聚焦后可用，Shift 加大步长。*/
+        function nudgePopoverSize(deltaWidth, deltaHeight) {
+          if (popover.dataset.open !== '1') return
+          const rect = popover.getBoundingClientRect()
+          if (rect.width <= 0 || rect.height <= 0) return
+          const width = Math.max(
+            POPOVER_MIN_WIDTH,
+            Math.min(rect.width + deltaWidth, window.innerWidth - POPOVER_MARGIN - rect.left),
+          )
+          const height = Math.max(
+            POPOVER_MIN_HEIGHT,
+            Math.min(rect.height + deltaHeight, window.innerHeight - POPOVER_MARGIN - rect.top),
+          )
+          applyPopoverSize(width, height)
+          popover.style.maxHeight = `${Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)}px`
+          popover.dataset.dragged = '1'
+          savePopoverSize(width, height)
+        }
+
+        /** 边缘与把手：四条边只吃指针，右下角把手额外可键盘聚焦。*/
+        function createPopoverResizer(edge, extraClass, label) {
+          const handle = document.createElement('div')
+          handle.className = extraClass === undefined ? 'sa-pop-resizer' : `sa-pop-resizer ${extraClass}`
+          handle.dataset.edge = edge
+          if (label === undefined) {
+            handle.setAttribute('aria-hidden', 'true')
+          } else {
+            handle.setAttribute('role', 'separator')
+            handle.setAttribute('aria-label', label)
+            handle.setAttribute('tabindex', '0')
+          }
+          handle.addEventListener('pointerdown', (event) => {
+            beginPopoverResize(edge, event)
+            if (label !== undefined) safe(() => handle.focus({ preventScroll: true }))
+            if (typeof handle.setPointerCapture === 'function') safe(() => handle.setPointerCapture(event.pointerId))
+          })
+          handle.addEventListener('keydown', (event) => {
+            const step = event.shiftKey ? 32 : 8
+            let dw = 0
+            let dh = 0
+            if (event.key === 'ArrowRight') dw = step
+            else if (event.key === 'ArrowLeft') dw = -step
+            else if (event.key === 'ArrowDown') dh = step
+            else if (event.key === 'ArrowUp') dh = -step
+            else return
+            event.preventDefault()
+            event.stopPropagation()
+            nudgePopoverSize(dw, dh)
+          })
+          return handle
+        }
+
+        const popEdgeHandles = [
+          createPopoverResizer('left', 'sa-pop-edge'),
+          createPopoverResizer('right', 'sa-pop-edge'),
+          createPopoverResizer('top', 'sa-pop-edge'),
+          createPopoverResizer('bottom', 'sa-pop-edge'),
+        ]
+        const popGrip = createPopoverResizer('bottomRight', 'sa-pop-grip', t('pop.resize'))
+        popover.append(...popEdgeHandles, popGrip)
 
         function isExcluded(node) {
           const element = elementOf(node)
@@ -3125,8 +3338,10 @@ const rewindHandled = new Map()
           // 上方放得下就放上方；否则下方；无论哪种，高度都夹进可用空间，超出时在面板内滚动。
           const preferAbove = spaceAbove >= Math.min(height, spaceBelow)
           const available = Math.max(160, preferAbove ? spaceAbove : spaceBelow)
-          popover.style.maxHeight = `${Math.floor(available)}px`
-          const effectiveHeight = Math.min(height, available)
+          // 用户定过尺寸就按他定的来，只保证整块留在视口内；没定过才把高度夹进锚点周围的空间。
+          const sizeCap = Math.max(160, window.innerHeight - margin * 2)
+          popover.style.maxHeight = popoverSized ? `${Math.floor(sizeCap)}px` : `${Math.floor(available)}px`
+          const effectiveHeight = popoverSized ? Math.min(height, sizeCap) : Math.min(height, available)
           top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap
           // 从总览里点开时，弹层不能压住总览：先找左右视野的空位，
           // 只有左右都放不下时才退回到条目的上方/下方。
@@ -3157,8 +3372,12 @@ const rewindHandled = new Map()
             top = Math.max(margin, Math.min(rect.top, window.innerHeight - shownHeight - margin))
             popover.style.maxHeight = `${Math.floor(maxHeight)}px`
           }
-          popover.style.left = `${Math.max(margin, left)}px`
-          popover.style.top = `${Math.max(margin, top)}px`
+          popover.style.left = `${Math.max(margin, Math.min(left, Math.max(margin, window.innerWidth - width - margin)))}px`
+          // 用户定过尺寸时高度是固定的，可能被推到视口外：往上/往下夹回来。
+          const boundedTop = popoverSized
+            ? Math.max(margin, Math.min(top, Math.max(margin, window.innerHeight - effectiveHeight - margin)))
+            : Math.max(margin, top)
+          popover.style.top = `${boundedTop}px`
         }
 
         /** 工具条：横向跟随划线结束的位置，纵向仍贴着选区下沿，避免盖住刚划的那行字。*/
@@ -3311,32 +3530,31 @@ const rewindHandled = new Map()
           popInput.style.height = ''
         }
 
-        /** 按内容行数长高；用户拖过高度之后这里什么都不做。*/
+        /** 按内容长高，不再设自己的高度上限：放不下时滚的是外层正文区，避免两层滚动条。*/
         function syncPopInputHeight() {
           if (!popInputAutoHeight) return
           const min = 62
-          const max = Math.max(min, Math.round(window.innerHeight * 0.6))
           const keepTop = popInput.scrollTop
           popInput.style.height = 'auto'
           const measured = Number(popInput.scrollHeight)
           if (!Number.isFinite(measured) || measured <= 0) return
-          const next = Math.max(min, Math.min(measured, max))
+          const next = Math.max(min, Math.round(measured))
           popInput.style.height = `${next}px`
           popInputAutoValue = next
           popInput.scrollTop = keepTop
         }
 
-        /** 键入后让插入点留在可视区，而不是被撑高后跳回第一行。*/
+        /** 键入后让插入点留在可视区：滚的是正文区，输入框自己通常不再滚。*/
         function ensureCaretVisible() {
           const selection = window.getSelection()
           if (selection === null || selection.rangeCount === 0) return
           const range = selection.getRangeAt(0).cloneRange()
           const rect = range.getBoundingClientRect()
-          const box = popInput.getBoundingClientRect()
+          const box = popBody.getBoundingClientRect()
           if (rect.bottom > box.bottom - 4) {
-            popInput.scrollTop += rect.bottom - box.bottom + 12
+            popBody.scrollTop += rect.bottom - box.bottom + 12
           } else if (rect.top < box.top + 4) {
-            popInput.scrollTop -= box.top - rect.top + 12
+            popBody.scrollTop -= box.top - rect.top + 12
           }
         }
 
@@ -3366,6 +3584,9 @@ const rewindHandled = new Map()
           // 每次打开都从「自动贴靠」开始；用户手动拖过之后，滚动与窗口变化不再把它挪回去。
           delete popover.dataset.dragged
           popover.dataset.open = '1'
+          // 用户上次拖出来的尺寸按会话记住， reopened 时直接用；没记过就回到内容自适应。
+          restorePopoverSize()
+          popBody.scrollTop = 0
           if (options.rect !== undefined && options.rect !== null) placePopover(options.rect)
           syncPopInputHeight()
           const focusEditor = () => {
@@ -3440,6 +3661,9 @@ const rewindHandled = new Map()
 
         function closePopover(options = {}) {
           popover.dataset.open = '0'
+          // 关掉时顺手结束可能还挂着的尺寸拖拽，避免下一次打开带着旧的起始几何。
+          popResize = null
+          popover.classList.remove('sa-pop-resizing')
           // 悬停预览收起后不能留下「刚才瞄的就是这条」的记忆：指针再回到同一条划线上时，
           // onHoverMove 会因为 hoverTargetId 相同直接返回，这条就再也弹不出来了。
           if (popoverSource === 'hover') cancelHoverOpen()
@@ -5353,6 +5577,10 @@ const rewindHandled = new Map()
           document.addEventListener('pointerup', onPointerUp, true)
           const onPointerMove = (event) => {
             lastPointerMove = { x: event.clientX, y: event.clientY }
+            if (popResize !== null && popover.dataset.open === '1') {
+              resizePopoverFromPointer(event.clientX, event.clientY)
+              return
+            }
             if (popDrag === null || popover.dataset.open !== '1') return
             const left = Math.max(8, Math.min(event.clientX - popDrag.dx, window.innerWidth - popDrag.width - 8))
             const top = Math.max(8, Math.min(event.clientY - popDrag.dy, window.innerHeight - popDrag.height - 8))
@@ -5360,6 +5588,12 @@ const rewindHandled = new Map()
             popover.style.top = `${top}px`
           }
           const onPopDragUp = () => {
+            if (popResize !== null) {
+              popResize = null
+              popover.classList.remove('sa-pop-resizing')
+              const sized = popover.getBoundingClientRect()
+              if (sized.width > 0 && sized.height > 0) savePopoverSize(sized.width, sized.height)
+            }
             if (popDrag === null) return
             popDrag = null
             popover.classList.remove('sa-pop-dragging')
@@ -5414,6 +5648,7 @@ const rewindHandled = new Map()
             if (event.type === 'resize') {
               markViewportResize()
               clampPanelToViewport()
+              clampSizedPopoverToViewport()
             }
           }
           window.addEventListener('scroll', onViewport, true)
