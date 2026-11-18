@@ -159,6 +159,11 @@ export function createPlugin(React, extras = {}) {
         let conversationDirty = true
         /** 上一遍有卡片/答复因为锚点还没进 DOM 而没落位：为真时继续重试，否则新卡永远出不来。*/
         let placementPending = false
+        /**
+         * 高亮层需要重算：批注数据变了、滚动或窗口尺寸变了、换会话、松手补绘。
+         * 只是「有人排了一次重绘」不足以重建整层覆盖物——关闭编辑弹层就属于这种，改的只有弹层自己。
+         */
+        let highlightDirty = true
         /** 非空表示正在受保护的这一遍重绘里：渲染函数在真要摘挂节点前调它记下滚动位置。*/
         let scrollGuardCapture = null
         let settleTimer = null
@@ -221,6 +226,8 @@ export function createPlugin(React, extras = {}) {
 /** 每个会话最近一次已处理的回退时间戳，避免轮询重复回放。 */
 const rewindHandled = new Map()
         function emit() {
+          // 批注集合变了：编号、引文都画在高亮层上，下一遍重绘必须重算。
+          highlightDirty = true
           for (const fn of [...listeners]) {
             try {
               fn()
@@ -2259,6 +2266,13 @@ const rewindHandled = new Map()
          */
         function markConversationDirty() {
           conversationDirty = true
+          // 卡片与答复区的插入/摘除会顶动正文，高亮的视口坐标随之失效。
+          highlightDirty = true
+        }
+
+        /** 高亮层需要重算：会移动正文或改批注集合的动作都要调它。*/
+        function markHighlightsDirty() {
+          highlightDirty = true
         }
 
         /** 有没有必须重建会话区的理由：数据变了，或者还有卡片/答复在等锚点进 DOM。*/
@@ -2493,6 +2507,8 @@ const rewindHandled = new Map()
           if (repaintPending !== true || pointerSelecting === true) return
           if (selectionAtRisk() === true) return
           repaintPending = false
+          // 松手补绘：这一遍本来就该把挡住期间错开的高亮重新量一次。
+          highlightDirty = true
           scheduleRepaint()
         }
 
@@ -2528,15 +2544,22 @@ const rewindHandled = new Map()
           // 会话区只在数据真的变了、或还有卡片/答复在等锚点进 DOM 时才重建。
           // 宿主自己的重排、流式增量、时间刷新都不再触发这里，滚动与窗口尺寸变化只更新高亮。
           const rebuild = conversationNeedsRender()
+          // 高亮只在「批注集合变了、正文被顶动过、视口变了」时才重算。会话区重建一定会动正文，
+          // 所以它也连带要重算高亮；单纯排了一次重绘（例如关掉编辑弹层）不该重建整层覆盖物。
+          const rebuildHighlights = rebuild === true || highlightDirty === true
+          // 两样都不需要：这一遍什么都不做，不读也不写滚动位置，不碰 overlay。
+          if (!rebuild && !rebuildHighlights) return
           // 先清标记再跑：这一遍渲染过程中新落账的记录会把标记重新置上，留到下一遍再补。
           conversationDirty = false
           placementPending = false
+          highlightDirty = false
           if (rebuild) {
             // 被选区挡住且已经超时：直接渲染，跳过 keepScrollStable——不加位置锚点、不读不写 scrollTop。
             // 只包住会动会话区 DOM 的几步；overlay 是 fixed 层，不在滚动流里，不必包。
             if (blocked) renderConversation()
             else keepScrollStable(renderConversation)
           }
+          if (!rebuildHighlights) return
           // 高亮最后量：放在位置保护之后，量到的视口坐标才与最终的滚动位置一致。
           step('collectHighlightNodes', () => {
             collectHighlightNodes(nodes, hits)
@@ -3513,12 +3536,15 @@ const rewindHandled = new Map()
             const images = popInputImages
             const note = noteValue()
             const before = target === null ? undefined : annotations.find((item) => item.id === target)
+            // 内容一个字都没改时不要改写：updateAnnotation 会换掉条目对象并 emit、排同步、写草稿，
+            // 关闭弹层这种 no-op 不该惊动面板、存储与远端。
+            const unchanged =
+              before !== undefined &&
+              before.note === note &&
+              JSON.stringify(before.images) === JSON.stringify(images)
             // 保存路径先写内容再关弹层：closePopover 里「空正文就删除网页条目」只适用于取消。
-            if (target !== null) updateAnnotation(target, note, images)
+            if (!unchanged && target !== null) updateAnnotation(target, note, images)
             closePopover({ discardWebEmpty: false })
-            if (before !== undefined && before.note === note && JSON.stringify(before.images) === JSON.stringify(images)) {
-              return
-            }
             return
           }
           const anchor = popoverAnchor
@@ -3823,8 +3849,12 @@ const rewindHandled = new Map()
             if (popover.contains(node)) continue
             const host = node.closest?.('[data-sa-ui]')
             if (host !== null && host !== undefined) {
+              const kind = host.getAttribute('data-sa-ui')
               // 角标的祖先就是高亮层：它盖住文字时仍按文字处理。
-              if (host.getAttribute('data-sa-ui') === 'overlay') continue
+              // 已发送卡与答复区不是浮层：它们的正文可以划选，高亮框也画在它们的文字上，
+              // 判成遮挡的话在批注区里悬停永远弹不出预览。其余 data-sa-ui（面板、菜单、弹层、
+              // 建议、ghost、viewer）仍是遮挡。
+              if (kind === 'overlay' || kind === 'sent' || kind === 'replies') continue
               return false
             }
             const style = window.getComputedStyle(node)
@@ -5188,6 +5218,8 @@ const rewindHandled = new Map()
             .sort((left, right) => left.record.savedAt - right.record.savedAt)
             .flatMap(({ record }) => (Array.isArray(record.items) ? record.items : []))
           if (items.length > 0) reuseSentItems(items)
+          // 这里直接摘掉了卡片与答复区，正文位置变了：高亮必须重新量。
+          if (removed.length > 0) markHighlightsDirty()
           scheduleRepaint()
         }
 
@@ -5373,6 +5405,8 @@ const rewindHandled = new Map()
           document.addEventListener('click', onDocumentClick, true)
           document.addEventListener('keydown', onDocumentKeydown, true)
           const onViewport = (event) => {
+            // 滚动与窗口尺寸变化会移动正文：高亮要重新量，但会话区不必重建。
+            highlightDirty = true
             scheduleRepaint()
             closeContextMenu()
             if (popover.dataset.open === '1' && popoverRect !== null && popover.dataset.dragged !== '1') placePopover(popoverRect)

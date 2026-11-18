@@ -3524,6 +3524,7 @@ ${PICK_SCRIPT}<\/script>`;
         let conversationChanges = 0;
         let conversationDirty = true;
         let placementPending = false;
+        let highlightDirty = true;
         let scrollGuardCapture = null;
         let settleTimer = null;
         let pendingSelection = null;
@@ -3562,6 +3563,7 @@ ${PICK_SCRIPT}<\/script>`;
         let webPickerHandle = null;
         const rewindHandled = /* @__PURE__ */ new Map();
         function emit() {
+          highlightDirty = true;
           for (const fn of [...listeners]) {
             try {
               fn();
@@ -5125,6 +5127,10 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function markConversationDirty() {
           conversationDirty = true;
+          highlightDirty = true;
+        }
+        function markHighlightsDirty() {
+          highlightDirty = true;
         }
         function conversationNeedsRender() {
           return conversationDirty === true || placementPending === true;
@@ -5303,6 +5309,7 @@ ${PICK_SCRIPT}<\/script>`;
           if (repaintPending !== true || pointerSelecting === true) return;
           if (selectionAtRisk() === true) return;
           repaintPending = false;
+          highlightDirty = true;
           scheduleRepaint();
         }
         function repaint() {
@@ -5326,12 +5333,16 @@ ${PICK_SCRIPT}<\/script>`;
             return scanned || sent || replies;
           };
           const rebuild = conversationNeedsRender();
+          const rebuildHighlights = rebuild === true || highlightDirty === true;
+          if (!rebuild && !rebuildHighlights) return;
           conversationDirty = false;
           placementPending = false;
+          highlightDirty = false;
           if (rebuild) {
             if (blocked) renderConversation();
             else keepScrollStable(renderConversation);
           }
+          if (!rebuildHighlights) return;
           step("collectHighlightNodes", () => {
             collectHighlightNodes(nodes, hits);
             highlightHits = hits;
@@ -6127,11 +6138,9 @@ ${PICK_SCRIPT}<\/script>`;
             const images2 = popInputImages;
             const note2 = noteValue();
             const before = target === null ? void 0 : annotations.find((item) => item.id === target);
-            if (target !== null) updateAnnotation(target, note2, images2);
+            const unchanged = before !== void 0 && before.note === note2 && JSON.stringify(before.images) === JSON.stringify(images2);
+            if (!unchanged && target !== null) updateAnnotation(target, note2, images2);
             closePopover({ discardWebEmpty: false });
-            if (before !== void 0 && before.note === note2 && JSON.stringify(before.images) === JSON.stringify(images2)) {
-              return;
-            }
             return;
           }
           const anchor = popoverAnchor;
@@ -6394,7 +6403,8 @@ ${PICK_SCRIPT}<\/script>`;
             if (popover.contains(node)) continue;
             const host = node.closest?.("[data-sa-ui]");
             if (host !== null && host !== void 0) {
-              if (host.getAttribute("data-sa-ui") === "overlay") continue;
+              const kind = host.getAttribute("data-sa-ui");
+              if (kind === "overlay" || kind === "sent" || kind === "replies") continue;
               return false;
             }
             const style = window.getComputedStyle(node);
@@ -7558,6 +7568,7 @@ ${PICK_SCRIPT}`;
           }
           const items = removed.sort((left, right) => left.record.savedAt - right.record.savedAt).flatMap(({ record }) => Array.isArray(record.items) ? record.items : []);
           if (items.length > 0) reuseSentItems(items);
+          if (removed.length > 0) markHighlightsDirty();
           scheduleRepaint();
         }
         ctx.effect(() => {
@@ -7716,6 +7727,7 @@ ${PICK_SCRIPT}`;
           document.addEventListener("click", onDocumentClick, true);
           document.addEventListener("keydown", onDocumentKeydown, true);
           const onViewport = (event) => {
+            highlightDirty = true;
             scheduleRepaint();
             closeContextMenu();
             if (popover.dataset.open === "1" && popoverRect !== null && popover.dataset.dragged !== "1") placePopover(popoverRect);
