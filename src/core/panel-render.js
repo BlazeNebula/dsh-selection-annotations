@@ -14,6 +14,7 @@ export function createPanelRenderer({
   copyItem = () => {},
   moveAnnotation,
   openEditPopover,
+  jumpToQuote = () => {},
   removeAnnotation,
   sourceSummary,
   openImageViewer,
@@ -189,7 +190,13 @@ export function createPanelRenderer({
       row.appendChild(head)
       if (item.quote !== '') {
         const q = el('div', 'sa-item-q')
-        q.appendChild(el('div', 'sa-item-label', t('panel.quote')))
+        const qHead = el('div', 'sa-item-q-head')
+        qHead.appendChild(el('div', 'sa-item-label', t('panel.quote')))
+        const jump = button('sa-jump', t('jump.label'), () => jumpToQuote(item, jump))
+        jump.title = t('jump.hint')
+        if (item.source?.kind === 'file') jump.setAttribute('data-disabled', '1')
+        qHead.appendChild(jump)
+        q.appendChild(qHead)
         const quote = el('div', 'sa-item-quote', item.quote)
         quote.title = t('expand')
         quote.addEventListener('click', () => {

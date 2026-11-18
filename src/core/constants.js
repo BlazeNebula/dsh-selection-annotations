@@ -7,6 +7,12 @@ export const SETTLE_MS = 220
 export const UPLOAD_DEBOUNCE_MS = 450
     /** 编辑弹层里改一个字就写盘会太频繁：停手 300ms 再存，崩溃时最多丢这一段。*/
 export const POP_AUTO_SAVE_MS = 300
+    /** 「跳到出处」的高亮闪现时长，到点自动撤掉，不留在正文里。*/
+export const JUMP_FLASH_MS = 2000
+    /** 轮次导航按钮点下去后，等目标行挂载出来的上限；超时就提示没加载。*/
+export const JUMP_NAV_TIMEOUT_MS = 3000
+    /** 等挂载期间的重试间隔；按宿主重绘节奏给两帧左右。*/
+export const JUMP_NAV_POLL_MS = 120
     /** 等草稿附件上传就绪的上限；超时就本次不挂，绝不制造发送失败。*/
 export const UPLOAD_READY_TIMEOUT_MS = 10000
     /** 装饰重绘合并窗口。*/

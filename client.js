@@ -7,6 +7,29 @@
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
 .sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
+/* 跳转闪现：同一个覆盖层矩形，加重底色加一圈描边；2 秒后条目被撤掉，自然消失。*/
+.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 90%, transparent);
+  animation: sa-flash-fade 2000ms ease-out forwards; }
+@keyframes sa-flash-fade {
+  0% { opacity: 1; }
+  65% { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* 引用标题旁的跳转小按钮：不占正文位置，和卡内其他小按钮同一套观感。*/
+.sa-jump { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: 6px;
+  padding: 0 4px; border: 0; border-radius: 4px; background: transparent; cursor: pointer;
+  font: inherit; font-size: 11px; line-height: 18px; color: var(--dsw-alias-label-secondary, #8b949e);
+  opacity: 0.75; }
+.sa-jump:hover { opacity: 1; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,0.12)); }
+.sa-jump[data-disabled="1"] { opacity: 0.45; cursor: default; }
+.sa-jump[data-disabled="1"]:hover { background: transparent; }
+/* 跳转失败提示：会话区没有面板提示位，短暂浮一条，不挡操作。*/
+.sa-toast { position: fixed; left: 50%; bottom: 48px; z-index: 960; transform: translateX(-50%);
+  padding: 6px 12px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2, #2b2b2b);
+  color: var(--dsw-alias-label-primary, #f0f0f0); font-size: 12px; line-height: 18px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.28); pointer-events: none; animation: sa-toast-in 160ms ease-out; }
+@keyframes sa-toast-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 /* 批注文字的墨色从主题前景色派生（同 dsh-todo-notes 的优先级着色）：普通批注走 warn 色相，采纳走 success 色相。*/
 .sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-token {
   color: var(--dsw-alias-state-warn-primary, #d29922); }
@@ -79,6 +102,12 @@
 .sa-pop-input[data-empty="1"]::before { content: attr(data-placeholder); color: var(--dsw-alias-label-tertiary, GrayText); pointer-events: none; }
 .sa-pop-label { margin: 8px 0 4px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
   letter-spacing: .02em; color: var(--dsw-alias-label-secondary, GrayText); }
+/* 「引用原文」标题行：左标题、右跳转按钮，失败提示接在按钮后面。*/
+.sa-pop-quote-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
+.sa-pop-quote-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
+.sa-pop-jump-hint { flex: 0 1 auto; max-width: 60%; text-align: right; font-size: 11px; line-height: 16px;
+  color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }
+.sa-pop-jump-hint[data-on="1"] { opacity: 1; }
 .sa-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   margin: 0 0 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder);
   cursor: move; user-select: none; touch-action: none; }
@@ -217,6 +246,8 @@
 .sa-item-action.sa-danger:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-item-q { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-item-label { font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); letter-spacing: 0.06em; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-item-q-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.sa-item-q-head .sa-item-label { flex: 1 1 auto; min-width: 0; }
 .sa-item-quote { margin: 3px 0 0; font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.7; white-space: pre-wrap; word-break: break-word;
   color: var(--dsw-alias-label-secondary, GrayText); display: -webkit-box; -webkit-box-orient: vertical;
   -webkit-line-clamp: 3; overflow: hidden; cursor: pointer; }
@@ -361,6 +392,8 @@
   background: var(--dsw-alias-bg-layer-2, #ffffff08); }
 .sa-q-label { font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: 0.08em;
   color: var(--dsw-alias-label-tertiary, #6e7681); }
+.sa-q-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.sa-q-head .sa-q-label { flex: 1 1 auto; min-width: 0; }
 .sa-q-quote { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.6; color: var(--dsw-alias-label-secondary, #8b949e);
   white-space: pre-wrap; word-break: break-word; cursor: pointer; }
@@ -408,6 +441,8 @@
 .sa-sent-item:first-child { border-top: none; padding-top: 0; }
 .sa-sent-num { flex: none; min-width: 14px; font-weight: 600; color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-sent-text { min-width: 0; }
+.sa-sent-quote-row { display: flex; align-items: flex-start; gap: 2px; min-width: 0; }
+.sa-sent-quote-row .sa-sent-quote { flex: 1 1 auto; min-width: 0; }
 .sa-sent-quote { padding-left: 8px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder);
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-note { margin-top: 4px; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
@@ -527,6 +562,9 @@
   var SETTLE_MS = 220;
   var UPLOAD_DEBOUNCE_MS = 450;
   var POP_AUTO_SAVE_MS = 300;
+  var JUMP_FLASH_MS = 2e3;
+  var JUMP_NAV_TIMEOUT_MS = 3e3;
+  var JUMP_NAV_POLL_MS = 120;
   var UPLOAD_READY_TIMEOUT_MS = 1e4;
   var REPAINT_MS = 120;
   var CONSUME_POLL_MS = 1e3;
@@ -657,6 +695,11 @@
       "label.answer": "答复",
       "label.reason": "答复理由",
       "label.next": "下一步",
+      "jump.label": "跳到出处",
+      "jump.hint": "跳回这段引用的正文位置",
+      "jump.file": "这条出自工作区文件",
+      "jump.noAnchor": "这条找不到可定位的正文",
+      "jump.notLoaded": "第 {n} 轮还没加载",
       "reply.index": "批注 {n}",
       "reply.fallbackLabel": "批注 {n} · 答复",
       "next.label": "接下来",
@@ -788,6 +831,11 @@
       "label.answer": "Reply",
       "label.reason": "Reason",
       "label.next": "Next step",
+      "jump.label": "Jump to source",
+      "jump.hint": "Jump back to where this quote came from",
+      "jump.file": "This one comes from a workspace file",
+      "jump.noAnchor": "No locatable text for this one",
+      "jump.notLoaded": "Turn {n} is not loaded yet",
       "reply.index": "Annotation {n}",
       "reply.fallbackLabel": "Annotation {n} · reply",
       "next.label": "Next",
@@ -1133,6 +1181,7 @@
         out.role = source.role ?? (source.flowKind === "user" || source.flowKind === "steering" ? "user" : "assistant");
         if (typeof source.anchorKey === "string" && source.anchorKey !== "") out.anchorKey = source.anchorKey;
         if (typeof source.flowKind === "string" && source.flowKind !== "") out.flowKind = source.flowKind;
+        if (Number.isFinite(source.turn)) out.turn = source.turn;
       } else if (source?.kind === "file") {
         if (typeof source.path === "string" && source.path !== "") out.path = source.path;
         if (Number.isFinite(source.lineStart)) out.lineStart = source.lineStart;
@@ -1383,13 +1432,16 @@
       const row = startEl.closest("[data-chat-anchor-key]");
       if (row !== null) {
         const chars = offsetRange(row, range);
+        const turnText = row.closest("[data-chat-turn]")?.getAttribute("data-chat-turn") ?? "";
+        const turn = turnText === "" ? null : Number(turnText);
         return {
           kind: "message",
           role: (row.getAttribute("data-chat-flow-kind") ?? "") === "user" ? "user" : "assistant",
           anchorKey: row.getAttribute("data-chat-anchor-key") ?? "",
           flowKind: row.getAttribute("data-chat-flow-kind") ?? "",
           charStart: chars.start,
-          charEnd: chars.end
+          charEnd: chars.end,
+          ...Number.isFinite(turn) ? { turn } : {}
         };
       }
       const doc = startEl.closest("[data-textpreview-url]");
@@ -1661,6 +1713,21 @@
       });
       return button2;
     }
+    function jumpButton(item, onClick, hint) {
+      const button2 = document.createElement("button");
+      button2.type = "button";
+      button2.className = "sa-jump";
+      button2.textContent = t("jump.label");
+      button2.setAttribute("aria-label", t("jump.label"));
+      button2.title = typeof hint === "string" && hint !== "" ? hint : t("jump.hint");
+      if (item?.source?.kind === "file") button2.setAttribute("data-disabled", "1");
+      button2.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick(item, button2);
+      });
+      return button2;
+    }
     function collapsible(body, open) {
       const wrap = document.createElement("div");
       wrap.className = "sa-collapse";
@@ -1702,11 +1769,15 @@
         num.textContent = Number.isFinite(item.index) ? String(item.index) : "";
         const text = document.createElement("div");
         text.className = "sa-sent-text";
+        const quoteRow = document.createElement("div");
+        quoteRow.className = "sa-sent-quote-row";
         const quote = document.createElement("div");
         quote.className = "sa-sent-quote";
         quote.setAttribute("data-sa-field", "quote");
         quote.textContent = truncateQuote(item.quote);
-        text.appendChild(quote);
+        quoteRow.appendChild(quote);
+        if (typeof options.onJumpQuote === "function") quoteRow.appendChild(jumpButton(item, options.onJumpQuote));
+        text.appendChild(quoteRow);
         if (typeof item.note === "string" && item.note.trim() !== "") {
           const note = document.createElement("div");
           note.className = "sa-sent-note";
@@ -1812,7 +1883,11 @@
             const qLabel = document.createElement("div");
             qLabel.className = "sa-q-label";
             qLabel.textContent = t("label.quote");
-            q.appendChild(qLabel);
+            const qHead = document.createElement("div");
+            qHead.className = "sa-q-head";
+            qHead.appendChild(qLabel);
+            if (typeof options.onJumpQuote === "function") qHead.appendChild(jumpButton(displayItem, options.onJumpQuote));
+            q.appendChild(qHead);
             const quote = document.createElement("div");
             quote.className = "sa-q-quote";
             if (isAdopt(displayItem.note)) quote.dataset.adopt = "1";
@@ -1983,6 +2058,8 @@
     },
     moveAnnotation,
     openEditPopover,
+    jumpToQuote = () => {
+    },
     removeAnnotation,
     sourceSummary,
     openImageViewer,
@@ -2135,7 +2212,13 @@
         row.appendChild(head);
         if (item.quote !== "") {
           const q = el("div", "sa-item-q");
-          q.appendChild(el("div", "sa-item-label", t("panel.quote")));
+          const qHead = el("div", "sa-item-q-head");
+          qHead.appendChild(el("div", "sa-item-label", t("panel.quote")));
+          const jump = button("sa-jump", t("jump.label"), () => jumpToQuote(item, jump));
+          jump.title = t("jump.hint");
+          if (item.source?.kind === "file") jump.setAttribute("data-disabled", "1");
+          qHead.appendChild(jump);
+          q.appendChild(qHead);
           const quote = el("div", "sa-item-quote", item.quote);
           quote.title = t("expand");
           quote.addEventListener("click", () => {
@@ -4702,7 +4785,8 @@ ${PICK_SCRIPT}<\/script>`;
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
             const cardOptions = {
               onReuse: () => reuseSentItems(record.items),
-              onReplayItem: (item) => reuseSentItems([item])
+              onReplayItem: (item) => reuseSentItems([item]),
+              onJumpQuote: (item, root) => jumpToQuote(item, turn, root)
             };
             let card = existing;
             const sentSignature = hashString({
@@ -4931,6 +5015,9 @@ ${PICK_SCRIPT}<\/script>`;
           safe(() => {
             popQuoteLabel.textContent = t("label.quote");
             popNoteLabel.textContent = t("pop.noteLabel");
+            popJump.textContent = t("jump.label");
+            popJump.setAttribute("aria-label", t("jump.label"));
+            popJump.title = t("jump.hint");
           });
           safe(() => {
             popImagesHint.textContent = t("pop.imagesHint");
@@ -5047,7 +5134,8 @@ ${PICK_SCRIPT}<\/script>`;
               }
               const fresh = buildReplySection(list, items, {
                 onReuseAll: () => reuseSentItems(items),
-                onReplayItem: (item) => reuseSentItems([item])
+                onReplayItem: (item) => reuseSentItems([item]),
+                onJumpQuote: (item, root) => jumpToQuote(item, turn, root)
               });
               fresh.setAttribute("data-anchor", anchorKey);
               fresh.dataset.signature = signature;
@@ -5065,7 +5153,8 @@ ${PICK_SCRIPT}<\/script>`;
             }
             const section = buildReplySection(list, items, {
               onReuseAll: () => reuseSentItems(items),
-              onReplayItem: (item) => reuseSentItems([item])
+              onReplayItem: (item) => reuseSentItems([item]),
+              onJumpQuote: (item, root) => jumpToQuote(item, turn, root)
             });
             section.setAttribute("data-anchor", anchorKey);
             section.dataset.signature = signature;
@@ -5431,25 +5520,31 @@ ${PICK_SCRIPT}<\/script>`;
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, "collectHighlightNodes", error)
             );
           }
+          if (flashEntry !== null) {
+            safe(
+              () => collectHighlightOf(flashEntry, nodes, null, true),
+              (error) => reportRepaintFailure("collectHighlightNodes:flash", "collectHighlightNodes", error)
+            );
+          }
         }
-        function collectHighlightOf(item, nodes, target) {
+        function collectHighlightOf(item, nodes, target, flash = false) {
           const range = locateRange(item);
           if (range === void 0) return;
           const rects = safe(() => [...range.getClientRects()]) ?? [];
-          if (rects.length > 0) target.push({ id: item.id, rects });
+          if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects });
           const adopt = safe(() => hasAdoptNote(item.note)) === true;
           let badged = false;
           for (const rect of rects) {
             if (rect.width <= 0 || rect.height <= 0) continue;
             const box = document.createElement("div");
-            box.className = "sa-hl";
+            box.className = flash ? "sa-hl sa-flash" : "sa-hl";
             if (adopt) box.dataset.adopt = "1";
             box.style.left = `${rect.left}px`;
             box.style.top = `${rect.top}px`;
             box.style.width = `${rect.width}px`;
             box.style.height = `${rect.height}px`;
             nodes.push(box);
-            if (!badged) {
+            if (!badged && !flash) {
               badged = true;
               const badge = document.createElement("button");
               badge.type = "button";
@@ -5670,6 +5765,25 @@ ${PICK_SCRIPT}<\/script>`;
         const popQuoteLabel = document.createElement("div");
         popQuoteLabel.className = "sa-pop-label";
         popQuoteLabel.textContent = t("label.quote");
+        const popJumpHint = document.createElement("span");
+        popJumpHint.className = "sa-pop-jump-hint";
+        popJumpHint.dataset.on = "0";
+        const popJump = document.createElement("button");
+        popJump.type = "button";
+        popJump.className = "sa-jump";
+        popJump.textContent = t("jump.label");
+        popJump.setAttribute("aria-label", t("jump.label"));
+        popJump.title = t("jump.hint");
+        popJump.style.display = "none";
+        popJump.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (popoverItem === null) return;
+          jumpToQuote(popoverItem, void 0, popJump);
+        });
+        const popQuoteHead = document.createElement("div");
+        popQuoteHead.className = "sa-pop-quote-head";
+        popQuoteHead.append(popQuoteLabel, popJumpHint, popJump);
         const popQuote = document.createElement("div");
         popQuote.className = "sa-pop-quote";
         const popDivider = document.createElement("div");
@@ -5699,6 +5813,8 @@ ${PICK_SCRIPT}<\/script>`;
         popInput.dataset.placeholder = t("pop.placeholder");
         popInput.dataset.empty = "1";
         let highlightHits = [];
+        let flashEntry = null;
+        let flashTimer = 0;
         let hoverOpenTimer = null;
         let hoverTargetId = null;
         let hoverCloseTimer = null;
@@ -5881,7 +5997,7 @@ ${PICK_SCRIPT}<\/script>`;
         popSave.className = "sa-btn sa-pop-primary";
         popSave.textContent = t("pop.save");
         popActions.append(popDelete, popSpacer, popCancel, popSave);
-        popBody.append(popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions);
+        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions);
         popover.append(popHead, popBody);
         const POPOVER_MIN_WIDTH = 260;
         const POPOVER_MIN_HEIGHT = 160;
@@ -6262,6 +6378,7 @@ ${PICK_SCRIPT}<\/script>`;
         let popoverAnchor = null;
         let popoverTargetId = null;
         let popoverSnapshot = null;
+        let popoverItem = null;
         let popAutoSaveTimer = null;
         function schedulePopAutoSave() {
           if (popoverMode !== "edit" || popoverTargetId === null) return;
@@ -6411,13 +6528,18 @@ ${PICK_SCRIPT}<\/script>`;
           popTitle.textContent = options.title;
           popQuote.textContent = options.quote.length > 400 ? `${options.quote.slice(0, 400)}…` : options.quote;
           popQuote.style.display = options.quote === "" ? "none" : "";
-          popQuoteLabel.style.display = options.quote === "" ? "none" : "";
+          popQuoteHead.style.display = options.quote === "" ? "none" : "";
+          popJumpHint.textContent = "";
+          popJumpHint.dataset.on = "0";
+          popJump.style.display = options.mode === "edit" && options.quote !== "" ? "" : "none";
+          popJump.dataset.disabled = options.item?.source?.kind === "file" ? "1" : "0";
           popSource.textContent = options.sourceText;
           setNoteContent(options.note);
           updateSuggestion();
           resetPopImages(options.images);
           popoverMode = options.mode;
           popoverTargetId = options.targetId ?? null;
+          popoverItem = options.item ?? null;
           popoverSnapshot = options.mode === "edit" && popoverTargetId !== null ? {
             id: popoverTargetId,
             note: typeof options.note === "string" ? options.note : "",
@@ -6487,7 +6609,8 @@ ${PICK_SCRIPT}<\/script>`;
             rect,
             mode: "edit",
             targetId: id,
-            source
+            source,
+            item
           });
         }
         function closePopover(options = {}) {
@@ -6508,8 +6631,135 @@ ${PICK_SCRIPT}<\/script>`;
           popoverAnchor = null;
           popoverTargetId = null;
           popoverSnapshot = null;
+          popoverItem = null;
           popoverMode = "create";
           hideSuggestion();
+        }
+        let popJumpHintTimer = 0;
+        let jumpToast = null;
+        let jumpToastTimer = 0;
+        function flashPopoverJumpHint(message) {
+          popJumpHint.textContent = message;
+          popJumpHint.dataset.on = "1";
+          if (popJumpHintTimer !== 0) window.clearTimeout(popJumpHintTimer);
+          popJumpHintTimer = window.setTimeout(() => {
+            popJumpHintTimer = 0;
+            popJumpHint.dataset.on = "0";
+            popJumpHint.textContent = "";
+          }, 2400);
+        }
+        function flashJumpToast(message) {
+          if (jumpToast !== null) jumpToast.remove();
+          if (jumpToastTimer !== 0) window.clearTimeout(jumpToastTimer);
+          const toast = document.createElement("div");
+          toast.className = "sa-toast";
+          toast.setAttribute("role", "status");
+          toast.textContent = message;
+          document.body.appendChild(toast);
+          jumpToast = toast;
+          jumpToastTimer = window.setTimeout(() => {
+            jumpToastTimer = 0;
+            if (jumpToast === toast) jumpToast = null;
+            toast.remove();
+          }, 2200);
+        }
+        function jumpFailure(message, root) {
+          const host = root === void 0 || root === null ? null : safe(() => root.closest("[data-sa-ui]")) ?? null;
+          if (host !== null && host.getAttribute("data-sa-ui") === "popover") {
+            flashPopoverJumpHint(message);
+            return;
+          }
+          if (host !== null && (host.getAttribute("data-sa-ui") === "panel" || host.getAttribute("data-sa-ui") === "side")) {
+            flashPanelHint(message, host);
+            return;
+          }
+          flashJumpToast(message);
+        }
+        function scrollRowToCenter(row) {
+          const box = safe(() => row.getBoundingClientRect()) ?? null;
+          if (box === null) return;
+          const containers = scrollAncestorsOf(row);
+          const container = containers.length > 0 ? containers[0] : null;
+          if (container === null) {
+            safe(() => row.scrollIntoView({ block: "center", behavior: "smooth" }));
+            return;
+          }
+          const frame = safe(() => container.getBoundingClientRect()) ?? null;
+          if (frame === null) return;
+          const top = container.scrollTop + (box.top - frame.top) - (container.clientHeight - box.height) / 2;
+          scrollTrace.watch(container);
+          scrollTrace.markWrite(container, "jump-quote", top);
+          safe(() => container.scrollTo({ top: Math.max(0, top), behavior: "smooth" }));
+        }
+        function findTurnNavButton(turn) {
+          const digit = new RegExp(`(^|[^0-9])${turn}([^0-9]|$)`);
+          for (const rail of document.querySelectorAll("nav[aria-label]")) {
+            const marks = rail.querySelectorAll("button[data-index]");
+            if (marks.length < 2) continue;
+            for (const mark of marks) {
+              const label = mark.getAttribute("aria-label") ?? "";
+              if (!/轮|turn|ターン|tour|turno/i.test(label)) continue;
+              if (digit.test(label)) return mark;
+            }
+          }
+          return null;
+        }
+        function flashQuote(item) {
+          if (item === void 0 || item === null) return;
+          if (flashTimer !== 0) window.clearTimeout(flashTimer);
+          flashEntry = { ...item, liveRange: void 0 };
+          highlightDirty = true;
+          scheduleRepaint("jump-quote");
+          flashTimer = window.setTimeout(() => {
+            flashTimer = 0;
+            flashEntry = null;
+            highlightDirty = true;
+            scheduleRepaint("jump-quote");
+          }, JUMP_FLASH_MS);
+        }
+        function jumpToQuote(item, turnHint, root) {
+          const source = item === void 0 || item === null ? null : item.source;
+          if (source === void 0 || source === null) {
+            jumpFailure(t("jump.noAnchor"), root);
+            return;
+          }
+          if (source.kind === "file") {
+            jumpFailure(t("jump.file"), root);
+            return;
+          }
+          if (source.kind !== "message") {
+            jumpFailure(t("jump.noAnchor"), root);
+            return;
+          }
+          const turn = Number.isFinite(turnHint) ? turnHint : Number.isFinite(source.turn) ? source.turn : null;
+          const land = () => {
+            const row = safe(() => anchorRoot(source)) ?? null;
+            if (row === null) return false;
+            scrollRowToCenter(row);
+            window.requestAnimationFrame(() => flashQuote(item));
+            return true;
+          };
+          if (land()) return;
+          if (turn === null) {
+            jumpFailure(t("jump.noAnchor"), root);
+            return;
+          }
+          const mark = findTurnNavButton(turn);
+          if (mark === null) {
+            jumpFailure(t("jump.notLoaded", { n: turn }), root);
+            return;
+          }
+          mark.click();
+          const deadline = Date.now() + JUMP_NAV_TIMEOUT_MS;
+          const retry = () => {
+            if (land()) return;
+            if (Date.now() < deadline) {
+              window.setTimeout(retry, JUMP_NAV_POLL_MS);
+              return;
+            }
+            jumpFailure(t("jump.notLoaded", { n: turn }), root);
+          };
+          window.setTimeout(retry, JUMP_NAV_POLL_MS);
         }
         function markRefineReason(id, reason) {
           let hit = false;
@@ -7549,6 +7799,7 @@ ${PICK_SCRIPT}`;
           copyItem: (item, root) => copyAnnotationsToClipboard([item], root),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
+          jumpToQuote: (item, root) => jumpToQuote(item, void 0, root),
           removeAnnotation: (id) => removeAnnotation(id),
           sourceSummary: (item) => sourceSummary(item),
           openImageViewer: (url, name) => openImageViewer(url, name),

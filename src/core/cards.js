@@ -87,6 +87,24 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return button
   }
 
+  /** 「跳到出处」小按钮：挂在引文标题右侧，不占正文位置。*/
+  function jumpButton(item, onClick, hint) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'sa-jump'
+    button.textContent = t('jump.label')
+    button.setAttribute('aria-label', t('jump.label'))
+    button.title = typeof hint === 'string' && hint !== '' ? hint : t('jump.hint')
+    // 工作区文件这版不打开，置灰；点了仍走一次提示，避免静默。
+    if (item?.source?.kind === 'file') button.setAttribute('data-disabled', '1')
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onClick(item, button)
+    })
+    return button
+  }
+
   /** 可折展容器：0fr↔1fr 撑开内容，收起时不占高度。 */
   function collapsible(body, open) {
     const wrap = document.createElement('div')
@@ -138,11 +156,15 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       num.textContent = Number.isFinite(item.index) ? String(item.index) : ''
       const text = document.createElement('div')
       text.className = 'sa-sent-text'
+      const quoteRow = document.createElement('div')
+      quoteRow.className = 'sa-sent-quote-row'
       const quote = document.createElement('div')
       quote.className = 'sa-sent-quote'
       quote.setAttribute('data-sa-field', 'quote')
       quote.textContent = truncateQuote(item.quote)
-      text.appendChild(quote)
+      quoteRow.appendChild(quote)
+      if (typeof options.onJumpQuote === 'function') quoteRow.appendChild(jumpButton(item, options.onJumpQuote))
+      text.appendChild(quoteRow)
       if (typeof item.note === 'string' && item.note.trim() !== '') {
         const note = document.createElement('div')
         note.className = 'sa-sent-note'
@@ -266,7 +288,12 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           const qLabel = document.createElement('div')
           qLabel.className = 'sa-q-label'
           qLabel.textContent = t('label.quote')
-          q.appendChild(qLabel)
+          // 标题与跳转按钮同一行：按钮靠右，失败提示贴着它出现。
+          const qHead = document.createElement('div')
+          qHead.className = 'sa-q-head'
+          qHead.appendChild(qLabel)
+          if (typeof options.onJumpQuote === 'function') qHead.appendChild(jumpButton(displayItem, options.onJumpQuote))
+          q.appendChild(qHead)
           const quote = document.createElement('div')
           quote.className = 'sa-q-quote'
           if (isAdopt(displayItem.note)) quote.dataset.adopt = '1'

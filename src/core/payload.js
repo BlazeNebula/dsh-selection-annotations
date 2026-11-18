@@ -84,6 +84,8 @@ export function createPayload({ t, instructionOf, uuidOfSent }) {
       out.role = source.role ?? (source.flowKind === 'user' || source.flowKind === 'steering' ? 'user' : 'assistant')
       if (typeof source.anchorKey === 'string' && source.anchorKey !== '') out.anchorKey = source.anchorKey
       if (typeof source.flowKind === 'string' && source.flowKind !== '') out.flowKind = source.flowKind
+      // 轮次跟着条目走：宿主把那一轮卸下后，「跳到出处」还能拿它去点轮次导航。
+      if (Number.isFinite(source.turn)) out.turn = source.turn
     } else if (source?.kind === 'file') {
       if (typeof source.path === 'string' && source.path !== '') out.path = source.path
       if (Number.isFinite(source.lineStart)) out.lineStart = source.lineStart

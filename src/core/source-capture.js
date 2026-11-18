@@ -104,6 +104,9 @@ export function createSourceCapture() {
     const row = startEl.closest('[data-chat-anchor-key]')
     if (row !== null) {
       const chars = offsetRange(row, range)
+      // 记下所属轮次：之后那一行可能被宿主卸载，靠轮次号才能让导航按钮把它加载回来。
+      const turnText = row.closest('[data-chat-turn]')?.getAttribute('data-chat-turn') ?? ''
+      const turn = turnText === '' ? null : Number(turnText)
       return {
         kind: 'message',
         role: (row.getAttribute('data-chat-flow-kind') ?? '') === 'user' ? 'user' : 'assistant',
@@ -111,6 +114,7 @@ export function createSourceCapture() {
         flowKind: row.getAttribute('data-chat-flow-kind') ?? '',
         charStart: chars.start,
         charEnd: chars.end,
+        ...(Number.isFinite(turn) ? { turn } : {}),
       }
     }
 

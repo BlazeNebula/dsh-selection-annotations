@@ -5,6 +5,29 @@ export const CSS = `
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
 .sa-hl[data-adopt="1"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
+/* 跳转闪现：同一个覆盖层矩形，加重底色加一圈描边；2 秒后条目被撤掉，自然消失。*/
+.sa-hl.sa-flash { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 90%, transparent);
+  animation: sa-flash-fade 2000ms ease-out forwards; }
+@keyframes sa-flash-fade {
+  0% { opacity: 1; }
+  65% { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* 引用标题旁的跳转小按钮：不占正文位置，和卡内其他小按钮同一套观感。*/
+.sa-jump { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: 6px;
+  padding: 0 4px; border: 0; border-radius: 4px; background: transparent; cursor: pointer;
+  font: inherit; font-size: 11px; line-height: 18px; color: var(--dsw-alias-label-secondary, #8b949e);
+  opacity: 0.75; }
+.sa-jump:hover { opacity: 1; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,0.12)); }
+.sa-jump[data-disabled="1"] { opacity: 0.45; cursor: default; }
+.sa-jump[data-disabled="1"]:hover { background: transparent; }
+/* 跳转失败提示：会话区没有面板提示位，短暂浮一条，不挡操作。*/
+.sa-toast { position: fixed; left: 50%; bottom: 48px; z-index: 960; transform: translateX(-50%);
+  padding: 6px 12px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2, #2b2b2b);
+  color: var(--dsw-alias-label-primary, #f0f0f0); font-size: 12px; line-height: 18px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.28); pointer-events: none; animation: sa-toast-in 160ms ease-out; }
+@keyframes sa-toast-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 /* 批注文字的墨色从主题前景色派生（同 dsh-todo-notes 的优先级着色）：普通批注走 warn 色相，采纳走 success 色相。*/
 .sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-token {
   color: var(--dsw-alias-state-warn-primary, #d29922); }
@@ -77,6 +100,12 @@ export const CSS = `
 .sa-pop-input[data-empty="1"]::before { content: attr(data-placeholder); color: var(--dsw-alias-label-tertiary, GrayText); pointer-events: none; }
 .sa-pop-label { margin: 8px 0 4px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
   letter-spacing: .02em; color: var(--dsw-alias-label-secondary, GrayText); }
+/* 「引用原文」标题行：左标题、右跳转按钮，失败提示接在按钮后面。*/
+.sa-pop-quote-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
+.sa-pop-quote-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
+.sa-pop-jump-hint { flex: 0 1 auto; max-width: 60%; text-align: right; font-size: 11px; line-height: 16px;
+  color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }
+.sa-pop-jump-hint[data-on="1"] { opacity: 1; }
 .sa-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   margin: 0 0 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1, ButtonBorder);
   cursor: move; user-select: none; touch-action: none; }
@@ -215,6 +244,8 @@ export const CSS = `
 .sa-item-action.sa-danger:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-item-q { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder); }
 .sa-item-label { font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); letter-spacing: 0.06em; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-item-q-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.sa-item-q-head .sa-item-label { flex: 1 1 auto; min-width: 0; }
 .sa-item-quote { margin: 3px 0 0; font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.7; white-space: pre-wrap; word-break: break-word;
   color: var(--dsw-alias-label-secondary, GrayText); display: -webkit-box; -webkit-box-orient: vertical;
   -webkit-line-clamp: 3; overflow: hidden; cursor: pointer; }
@@ -359,6 +390,8 @@ export const CSS = `
   background: var(--dsw-alias-bg-layer-2, #ffffff08); }
 .sa-q-label { font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600; letter-spacing: 0.08em;
   color: var(--dsw-alias-label-tertiary, #6e7681); }
+.sa-q-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.sa-q-head .sa-q-label { flex: 1 1 auto; min-width: 0; }
 .sa-q-quote { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.6; color: var(--dsw-alias-label-secondary, #8b949e);
   white-space: pre-wrap; word-break: break-word; cursor: pointer; }
@@ -406,6 +439,8 @@ export const CSS = `
 .sa-sent-item:first-child { border-top: none; padding-top: 0; }
 .sa-sent-num { flex: none; min-width: 14px; font-weight: 600; color: var(--dsw-alias-brand-primary, #247bbf); }
 .sa-sent-text { min-width: 0; }
+.sa-sent-quote-row { display: flex; align-items: flex-start; gap: 2px; min-width: 0; }
+.sa-sent-quote-row .sa-sent-quote { flex: 1 1 auto; min-width: 0; }
 .sa-sent-quote { padding-left: 8px; border-left: 2px solid var(--dsw-alias-border-l1, ButtonBorder);
   font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); color: var(--dsw-alias-label-secondary, GrayText); white-space: pre-wrap; word-break: break-word; }
 .sa-sent-note { margin-top: 4px; font-size: calc(14px + var(--dsh-content-font-delta, 0px) * 1); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }

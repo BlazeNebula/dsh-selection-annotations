@@ -28,6 +28,9 @@ import {
   CONSUME_POLL_MS,
   DRAFT_MAX_BYTES,
   HOVER_OPEN_DELAY_MS,
+  JUMP_FLASH_MS,
+  JUMP_NAV_POLL_MS,
+  JUMP_NAV_TIMEOUT_MS,
   ORPHAN_SWEEP_MS,
   POP_AUTO_SAVE_MS,
   REFINE_WAIT_MS,
@@ -1527,6 +1530,7 @@ const rewindHandled = new Map()
             const cardOptions = {
               onReuse: () => reuseSentItems(record.items),
               onReplayItem: (item) => reuseSentItems([item]),
+              onJumpQuote: (item, root) => jumpToQuote(item, turn, root),
             }
             let card = existing
             const sentSignature = hashString({
@@ -1815,6 +1819,9 @@ const rewindHandled = new Map()
           safe(() => {
             popQuoteLabel.textContent = t('label.quote')
             popNoteLabel.textContent = t('pop.noteLabel')
+            popJump.textContent = t('jump.label')
+            popJump.setAttribute('aria-label', t('jump.label'))
+            popJump.title = t('jump.hint')
           })
           safe(() => {
             popImagesHint.textContent = t('pop.imagesHint')
@@ -1961,6 +1968,7 @@ const rewindHandled = new Map()
               const fresh = buildReplySection(list, items, {
                 onReuseAll: () => reuseSentItems(items),
                 onReplayItem: (item) => reuseSentItems([item]),
+                onJumpQuote: (item, root) => jumpToQuote(item, turn, root),
               })
               fresh.setAttribute('data-anchor', anchorKey)
               fresh.dataset.signature = signature
@@ -1982,6 +1990,7 @@ const rewindHandled = new Map()
             const section = buildReplySection(list, items, {
               onReuseAll: () => reuseSentItems(items),
               onReplayItem: (item) => reuseSentItems([item]),
+              onJumpQuote: (item, root) => jumpToQuote(item, turn, root),
             })
             section.setAttribute('data-anchor', anchorKey)
             section.dataset.signature = signature
@@ -2486,27 +2495,35 @@ const rewindHandled = new Map()
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, 'collectHighlightNodes', error),
             )
           }
+          // 跳转闪现是临时条目，只画不登记：不进命中缓存，也不进批注数据。
+          if (flashEntry !== null) {
+            safe(
+              () => collectHighlightOf(flashEntry, nodes, null, true),
+              (error) => reportRepaintFailure('collectHighlightNodes:flash', 'collectHighlightNodes', error),
+            )
+          }
         }
 
-        function collectHighlightOf(item, nodes, target) {
+        function collectHighlightOf(item, nodes, target, flash = false) {
           const range = locateRange(item)
           if (range === undefined) return
           const rects = safe(() => [...range.getClientRects()]) ?? []
-          if (rects.length > 0) target.push({ id: item.id, rects })
+          if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects })
           // 采纳判定要读设置项：它只决定配色，读不到也必须照常把这条划线画出来。
           const adopt = safe(() => hasAdoptNote(item.note)) === true
           let badged = false
           for (const rect of rects) {
             if (rect.width <= 0 || rect.height <= 0) continue
             const box = document.createElement('div')
-            box.className = 'sa-hl'
+            box.className = flash ? 'sa-hl sa-flash' : 'sa-hl'
             if (adopt) box.dataset.adopt = '1'
             box.style.left = `${rect.left}px`
             box.style.top = `${rect.top}px`
             box.style.width = `${rect.width}px`
             box.style.height = `${rect.height}px`
             nodes.push(box)
-            if (!badged) {
+            // 闪现不挂角标：那会让用户以为这儿多了一条批注。
+            if (!badged && !flash) {
               badged = true
               // 角标是唯一的「从正文直接回到这条批注」的入口，必须可点击。
               const badge = document.createElement('button')
@@ -2777,6 +2794,26 @@ const rewindHandled = new Map()
         const popQuoteLabel = document.createElement('div')
         popQuoteLabel.className = 'sa-pop-label'
         popQuoteLabel.textContent = t('label.quote')
+        /** 「引用原文」标题行：右侧的跳转按钮与它自己的失败提示。*/
+        const popJumpHint = document.createElement('span')
+        popJumpHint.className = 'sa-pop-jump-hint'
+        popJumpHint.dataset.on = '0'
+        const popJump = document.createElement('button')
+        popJump.type = 'button'
+        popJump.className = 'sa-jump'
+        popJump.textContent = t('jump.label')
+        popJump.setAttribute('aria-label', t('jump.label'))
+        popJump.title = t('jump.hint')
+        popJump.style.display = 'none'
+        popJump.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          if (popoverItem === null) return
+          jumpToQuote(popoverItem, undefined, popJump)
+        })
+        const popQuoteHead = document.createElement('div')
+        popQuoteHead.className = 'sa-pop-quote-head'
+        popQuoteHead.append(popQuoteLabel, popJumpHint, popJump)
         const popQuote = document.createElement('div')
         popQuote.className = 'sa-pop-quote'
         const popDivider = document.createElement('div')
@@ -2809,6 +2846,9 @@ const rewindHandled = new Map()
         popInput.dataset.empty = '1'
         /** 已批注原文的高亮矩形缓存，供鼠标悬停命中检测。*/
         let highlightHits = []
+        /** 「跳到出处」的临时条目：只走绘制，不进 annotations、不触发保存；到时清掉。*/
+        let flashEntry = null
+        let flashTimer = 0
         /** 悬停打开编辑框的定时器与目标。*/
         let hoverOpenTimer = null
         let hoverTargetId = null
@@ -3016,7 +3056,7 @@ const rewindHandled = new Map()
         popSave.textContent = t('pop.save')
         popActions.append(popDelete, popSpacer, popCancel, popSave)
         // 只有标题固定在顶部；来源、引用原文、备注、图片、按钮行同住正文区一起滚。
-        popBody.append(popSource, popQuoteLabel, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions)
+        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions)
         popover.append(popHead, popBody)
 
         /* ------------------------------------------------------------------ 弹层尺寸调整*/
@@ -3488,6 +3528,8 @@ const rewindHandled = new Map()
         let popoverTargetId = null
         /** 打开编辑弹层那一刻的条目内容；「取消」用它把自动存写的改动回滚掉。*/
         let popoverSnapshot = null
+        /** 当前弹层对应的条目：编辑态才有，「跳到出处」据此拿锚点。*/
+        let popoverItem = null
         /** 编辑中自动存写的去抖计时器：停手一小段再落盘，崩溃时最多丢这一段。*/
         let popAutoSaveTimer = null
 
@@ -3685,13 +3727,19 @@ const rewindHandled = new Map()
           popTitle.textContent = options.title
           popQuote.textContent = options.quote.length > 400 ? `${options.quote.slice(0, 400)}…` : options.quote
           popQuote.style.display = options.quote === '' ? 'none' : ''
-          popQuoteLabel.style.display = options.quote === '' ? 'none' : ''
+          popQuoteHead.style.display = options.quote === '' ? 'none' : ''
+          popJumpHint.textContent = ''
+          popJumpHint.dataset.on = '0'
+          // 跳转只在编辑既有批注时有意义：新建弹层的引文还在选区里，没有可回访的条目。
+          popJump.style.display = options.mode === 'edit' && options.quote !== '' ? '' : 'none'
+          popJump.dataset.disabled = options.item?.source?.kind === 'file' ? '1' : '0'
           popSource.textContent = options.sourceText
           setNoteContent(options.note)
           updateSuggestion()
           resetPopImages(options.images)
           popoverMode = options.mode
           popoverTargetId = options.targetId ?? null
+          popoverItem = options.item ?? null
           // 编辑态先留一份快照：之后每敲一下都即时写进条目，只有「取消」才回到这一份。
           popoverSnapshot =
             options.mode === 'edit' && popoverTargetId !== null
@@ -3784,6 +3832,7 @@ const rewindHandled = new Map()
             mode: 'edit',
             targetId: id,
             source,
+            item,
           })
         }
 
@@ -3820,8 +3869,161 @@ const rewindHandled = new Map()
           popoverAnchor = null
           popoverTargetId = null
           popoverSnapshot = null
+          popoverItem = null
           popoverMode = 'create'
           hideSuggestion()
+        }
+
+        /** 跳转失败提示的计时器与浮条：同一个时刻只留一条提示。*/
+        let popJumpHintTimer = 0
+        let jumpToast = null
+        let jumpToastTimer = 0
+
+        function flashPopoverJumpHint(message) {
+          popJumpHint.textContent = message
+          popJumpHint.dataset.on = '1'
+          if (popJumpHintTimer !== 0) window.clearTimeout(popJumpHintTimer)
+          popJumpHintTimer = window.setTimeout(() => {
+            popJumpHintTimer = 0
+            popJumpHint.dataset.on = '0'
+            popJumpHint.textContent = ''
+          }, 2400)
+        }
+
+        function flashJumpToast(message) {
+          if (jumpToast !== null) jumpToast.remove()
+          if (jumpToastTimer !== 0) window.clearTimeout(jumpToastTimer)
+          const toast = document.createElement('div')
+          toast.className = 'sa-toast'
+          toast.setAttribute('role', 'status')
+          toast.textContent = message
+          document.body.appendChild(toast)
+          jumpToast = toast
+          jumpToastTimer = window.setTimeout(() => {
+            jumpToastTimer = 0
+            if (jumpToast === toast) jumpToast = null
+            toast.remove()
+          }, 2200)
+        }
+
+        function jumpFailure(message, root) {
+          const host = root === undefined || root === null
+            ? null
+            : (safe(() => root.closest('[data-sa-ui]')) ?? null)
+          if (host !== null && host.getAttribute('data-sa-ui') === 'popover') {
+            flashPopoverJumpHint(message)
+            return
+          }
+          if (host !== null && (host.getAttribute('data-sa-ui') === 'panel' || host.getAttribute('data-sa-ui') === 'side')) {
+            flashPanelHint(message, host)
+            return
+          }
+          flashJumpToast(message)
+        }
+
+        /** 把目标行滚到会话区中间；用 scrollTrace 记一笔，重绘保护不会把它当用户滚动。*/
+        function scrollRowToCenter(row) {
+          const box = safe(() => row.getBoundingClientRect()) ?? null
+          if (box === null) return
+          const containers = scrollAncestorsOf(row)
+          const container = containers.length > 0 ? containers[0] : null
+          if (container === null) {
+            safe(() => row.scrollIntoView({ block: 'center', behavior: 'smooth' }))
+            return
+          }
+          const frame = safe(() => container.getBoundingClientRect()) ?? null
+          if (frame === null) return
+          const top = container.scrollTop + (box.top - frame.top) - (container.clientHeight - box.height) / 2
+          scrollTrace.watch(container)
+          scrollTrace.markWrite(container, 'jump-quote', top)
+          safe(() => container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' }))
+        }
+
+        /**
+         * 官方轮次导航里对应轮次的按钮。按钮是虚拟化的，只能遍历当前在 DOM 里的
+         * `button[data-index]`，用 aria-label 里的独立数字匹配；data-index 是列表下标，不能用。
+         */
+        function findTurnNavButton(turn) {
+          const digit = new RegExp(`(^|[^0-9])${turn}([^0-9]|$)`)
+          for (const rail of document.querySelectorAll('nav[aria-label]')) {
+            const marks = rail.querySelectorAll('button[data-index]')
+            if (marks.length < 2) continue
+            for (const mark of marks) {
+              const label = mark.getAttribute('aria-label') ?? ''
+              if (!/轮|turn|ターン|tour|turno/i.test(label)) continue
+              if (digit.test(label)) return mark
+            }
+          }
+          return null
+        }
+
+        /** 闪现：临时条目走同一条绘制路径，2 秒后撤掉，不进批注数据、不触发保存。*/
+        function flashQuote(item) {
+          if (item === undefined || item === null) return
+          if (flashTimer !== 0) window.clearTimeout(flashTimer)
+          // 用副本：locateRange 会把 liveRange 写回条目，闪现不能污染真实数据。
+          flashEntry = { ...item, liveRange: undefined }
+          highlightDirty = true
+          scheduleRepaint('jump-quote')
+          flashTimer = window.setTimeout(() => {
+            flashTimer = 0
+            flashEntry = null
+            highlightDirty = true
+            scheduleRepaint('jump-quote')
+          }, JUMP_FLASH_MS)
+        }
+
+        /**
+         * 「跳到出处」的落点：优先用锚点找到正文行；行被宿主卸下时，拿轮次号点官方
+         * 轮次导航把它加载回来。两步行不通就明确提示，不静默无反应。
+         * @param item - 带 source 的批注条目。
+         * @param turnHint - 已知的轮次号（已发送卡/答复区手里有）。
+         * @param root - 触发按钮，用来把提示落在对应的界面层里。
+         */
+        function jumpToQuote(item, turnHint, root) {
+          const source = item === undefined || item === null ? null : item.source
+          if (source === undefined || source === null) {
+            jumpFailure(t('jump.noAnchor'), root)
+            return
+          }
+          if (source.kind === 'file') {
+            jumpFailure(t('jump.file'), root)
+            return
+          }
+          if (source.kind !== 'message') {
+            jumpFailure(t('jump.noAnchor'), root)
+            return
+          }
+          const turn = Number.isFinite(turnHint) ? turnHint : Number.isFinite(source.turn) ? source.turn : null
+          const land = () => {
+            const row = safe(() => anchorRoot(source)) ?? null
+            if (row === null) return false
+            scrollRowToCenter(row)
+            // 行刚挂载时正文可能还在排版，下一帧再量矩形，免得量到 0×0。
+            window.requestAnimationFrame(() => flashQuote(item))
+            return true
+          }
+          if (land()) return
+          if (turn === null) {
+            jumpFailure(t('jump.noAnchor'), root)
+            return
+          }
+          const mark = findTurnNavButton(turn)
+          if (mark === null) {
+            jumpFailure(t('jump.notLoaded', { n: turn }), root)
+            return
+          }
+          mark.click()
+          const deadline = Date.now() + JUMP_NAV_TIMEOUT_MS
+          const retry = () => {
+            if (land()) return
+            if (Date.now() < deadline) {
+              window.setTimeout(retry, JUMP_NAV_POLL_MS)
+              return
+            }
+            jumpFailure(t('jump.notLoaded', { n: turn }), root)
+          }
+          window.setTimeout(retry, JUMP_NAV_POLL_MS)
         }
 
         /**
@@ -5090,6 +5292,7 @@ const rewindHandled = new Map()
           copyItem: (item, root) => copyAnnotationsToClipboard([item], root),
           moveAnnotation: (from, to) => moveAnnotation(from, to),
           openEditPopover: (id, head) => openEditPopover(id, head),
+          jumpToQuote: (item, root) => jumpToQuote(item, undefined, root),
           removeAnnotation: (id) => removeAnnotation(id),
           sourceSummary: (item) => sourceSummary(item),
           openImageViewer: (url, name) => openImageViewer(url, name),
