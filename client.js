@@ -6619,7 +6619,7 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function showPopover(options) {
           popTitle.textContent = options.title;
-          popQuote.textContent = options.quote.length > 400 ? `${options.quote.slice(0, 400)}…` : options.quote;
+          popQuote.textContent = options.quote;
           popQuote.style.display = options.quote === "" ? "none" : "";
           popQuoteHead.style.display = options.quote === "" ? "none" : "";
           popJumpHint.textContent = "";

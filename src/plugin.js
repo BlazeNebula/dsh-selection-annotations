@@ -3786,7 +3786,8 @@ const rewindHandled = new Map()
 
         function showPopover(options) {
           popTitle.textContent = options.title
-          popQuote.textContent = options.quote.length > 400 ? `${options.quote.slice(0, 400)}…` : options.quote
+          // 引文框自己会滚（max-height 120px + overflow auto），不再截断原文。
+          popQuote.textContent = options.quote
           popQuote.style.display = options.quote === '' ? 'none' : ''
           popQuoteHead.style.display = options.quote === '' ? 'none' : ''
           popJumpHint.textContent = ''
