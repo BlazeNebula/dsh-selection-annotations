@@ -13,6 +13,8 @@ export const JUMP_FLASH_MS = 2000
 export const JUMP_NAV_TIMEOUT_MS = 3000
     /** 等挂载期间的重试间隔；按宿主重绘节奏给两帧左右。*/
 export const JUMP_NAV_POLL_MS = 120
+    /** 跳转滚动后的保护窗口：这段时间内重绘不做位置补偿，避免把刚滚到的目标拽回去。*/
+export const JUMP_SCROLL_GRACE_MS = 1500
     /** 等草稿附件上传就绪的上限；超时就本次不挂，绝不制造发送失败。*/
 export const UPLOAD_READY_TIMEOUT_MS = 10000
     /** 装饰重绘合并窗口。*/

@@ -650,6 +650,7 @@
   var POP_AUTO_SAVE_MS = 300;
   var JUMP_NAV_TIMEOUT_MS = 3e3;
   var JUMP_NAV_POLL_MS = 120;
+  var JUMP_SCROLL_GRACE_MS = 1500;
   var UPLOAD_READY_TIMEOUT_MS = 1e4;
   var REPAINT_MS = 120;
   var CONSUME_POLL_MS = 1e3;
@@ -4327,6 +4328,7 @@ ${PICK_SCRIPT}<\/script>`;
         let placementPending = false;
         let highlightDirty = true;
         let scrollGuardCapture = null;
+        let jumpScrollUntil = 0;
         let settleTimer = null;
         let pendingSelection = null;
         let lastPointerUp = null;
@@ -6172,6 +6174,15 @@ ${PICK_SCRIPT}<\/script>`;
           }
         }
         function keepScrollStable(mutate) {
+          if (performance.now() < jumpScrollUntil) {
+            const previousCapture2 = scrollGuardCapture;
+            scrollGuardCapture = null;
+            try {
+              return safe(mutate) === true;
+            } finally {
+              scrollGuardCapture = previousCapture2;
+            }
+          }
           const saved = [];
           const seen = /* @__PURE__ */ new Set();
           const anchorRowOf = (container) => {
@@ -8066,6 +8077,7 @@ ${PICK_SCRIPT}<\/script>`;
           const container = containers.length > 0 ? containers[0] : null;
           if (container === null) {
             safe(() => row.scrollIntoView({ block: "center", behavior: "smooth" }));
+            jumpScrollUntil = performance.now() + JUMP_SCROLL_GRACE_MS;
             return;
           }
           const frame = safe(() => container.getBoundingClientRect()) ?? null;
@@ -8074,6 +8086,7 @@ ${PICK_SCRIPT}<\/script>`;
           scrollTrace.watch(container);
           scrollTrace.markWrite(container, "jump-quote", top);
           safe(() => container.scrollTo({ top: Math.max(0, top), behavior: "smooth" }));
+          jumpScrollUntil = performance.now() + JUMP_SCROLL_GRACE_MS;
         }
         function findTurnNavButton(turn) {
           const digit = new RegExp(`(^|[^0-9])${turn}([^0-9]|$)`);

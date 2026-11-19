@@ -31,6 +31,7 @@ import {
   HOVER_OPEN_DELAY_MS,
   JUMP_NAV_POLL_MS,
   JUMP_NAV_TIMEOUT_MS,
+  JUMP_SCROLL_GRACE_MS,
   ORPHAN_SWEEP_MS,
   POP_AUTO_SAVE_MS,
   REFINE_WAIT_MS,
@@ -175,6 +176,12 @@ export function createPlugin(React, extras = {}) {
         let highlightDirty = true
         /** 非空表示正在受保护的这一遍重绘里：渲染函数在真要摘挂节点前调它记下滚动位置。*/
         let scrollGuardCapture = null
+        /**
+         * 跳转滚动的保护截止时间：在此之前重绘不做位置补偿，
+         * 否则 scrollRowToCenter 刚滚到的目标会被同一拍的重绘保护改写回去。
+         * 只按时间窗生效，不手动清零。
+         */
+        let jumpScrollUntil = 0
         let settleTimer = null
         let pendingSelection = null
         /** 划线结束（pointerup）的位置：工具条贴着它出现，而不是跟着 range 的末尾矩形。*/
@@ -2626,6 +2633,17 @@ const rewindHandled = new Map()
          * 这里收到回调才量一遍。空闲重绘（没有新卡、没有新答复）不读也不写 scrollTop。
          */
         function keepScrollStable(mutate) {
+          // 跳转刚把视口滚到目标：窗口内照常渲染，但不采集锚点、不读也不写 scrollTop，
+          // 也不排下一帧的补写，避免同一拍就把刚滚到的目标拽回去。
+          if (performance.now() < jumpScrollUntil) {
+            const previousCapture = scrollGuardCapture
+            scrollGuardCapture = null
+            try {
+              return safe(mutate) === true
+            } finally {
+              scrollGuardCapture = previousCapture
+            }
+          }
           const saved = []
           const seen = new Set()
           /** 视口顶部那条消息行：消息行按文档顺序排列，取第一条底边越过容器顶边的。*/
@@ -5082,6 +5100,7 @@ const rewindHandled = new Map()
           const container = containers.length > 0 ? containers[0] : null
           if (container === null) {
             safe(() => row.scrollIntoView({ block: 'center', behavior: 'smooth' }))
+            jumpScrollUntil = performance.now() + JUMP_SCROLL_GRACE_MS
             return
           }
           const frame = safe(() => container.getBoundingClientRect()) ?? null
@@ -5090,6 +5109,7 @@ const rewindHandled = new Map()
           scrollTrace.watch(container)
           scrollTrace.markWrite(container, 'jump-quote', top)
           safe(() => container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' }))
+          jumpScrollUntil = performance.now() + JUMP_SCROLL_GRACE_MS
         }
 
         /**
