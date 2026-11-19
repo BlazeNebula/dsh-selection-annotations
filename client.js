@@ -150,6 +150,9 @@
 /* 「引用原文」标题行：左标题、右跳转按钮，失败提示接在按钮后面。*/
 .sa-pop-quote-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-quote-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
+/* 「批注」标题行：同一套左标题右跳转，只读态用它放第二个「查看出处」。*/
+.sa-pop-note-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
+.sa-pop-note-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
 .sa-pop-jump-hint { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }
@@ -335,6 +338,8 @@
 .sa-pop-image-remove { position: absolute; top: 0; right: 0; width: 16px; height: 16px; padding: 0; line-height: 1;
   cursor: pointer; border: none; border-radius: 0 0 0 6px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); color: #fff; background: rgb(0 0 0 / 0.55); }
 .sa-pop-images-hint { font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); color: var(--dsw-alias-label-secondary, GrayText); }
+/* 只读面板的图片只展示，不给移除入口。*/
+.sa-pop-images[data-readonly="1"] .sa-pop-image-remove { display: none; }
 .sa-item-images { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
 .sa-item-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
@@ -666,7 +671,7 @@
       "pop.save": "保存",
       "pop.createTitle": "新建批注",
       "pop.editTitle": "修改批注 #{n}",
-      "pop.sentTitle": "已发送批注 · 第 {n} 条",
+      "pop.sentTitle": "已发送批注",
       "pop.noNote": "无备注",
       "pop.resize": "调整面板大小",
       "panel.empty": "选中回复、消息或文件预览里的文字，点浮动的「批注反馈」即可。",
@@ -734,6 +739,7 @@
       "sent.title": "已发送批注 ×{n}",
       "sent.reuse": "回放所有批注",
       "sent.replayItem": "回放批注",
+      "sent.replayCopied": "因批注已被答复，当前仅将重放数据写入剪贴板，必要时可自主粘贴",
       "reuse.hint": "按原样添加到待发送的批注队列",
       "replies.title": "批注答复 ×{n}",
       "replies.replay": "回放批注",
@@ -808,7 +814,7 @@
       "pop.save": "Save",
       "pop.createTitle": "New annotation",
       "pop.editTitle": "Edit annotation #{n}",
-      "pop.sentTitle": "Sent annotation · #{n}",
+      "pop.sentTitle": "Sent annotation",
       "pop.noNote": "No note",
       "pop.resize": "Resize panel",
       "panel.empty": "Select text in a reply, message, or file preview, then click the floating “Feedback”.",
@@ -876,6 +882,7 @@
       "sent.title": "Sent annotations ×{n}",
       "sent.reuse": "Replay all annotations",
       "sent.replayItem": "Replay annotation",
+      "sent.replayCopied": "This annotation has already been answered, so the replay data was copied to the clipboard only — paste it yourself if needed",
       "reuse.hint": "Add to the pending annotation queue as-is",
       "replies.title": "Annotation replies ×{n}",
       "replies.replay": "Replay annotation",
@@ -4746,11 +4753,16 @@ ${PICK_SCRIPT}<\/script>`;
             if (live !== null) swapHintText(live, t("panel.foot"), true);
           }, 1600);
         }
-        async function copyAnnotationsToClipboard(items, root) {
+        async function copyAnnotationsToClipboard(items, root, doneMessage) {
           const list = Array.isArray(items) ? items : [];
           if (list.length === 0) return false;
           const copied = await writeClipboardText(serializeAnnotations(list));
-          flashPanelHint(copied ? t("panel.copyDone", { n: list.length }) : t("panel.copyFailed"), root);
+          const done = typeof doneMessage === "string" && doneMessage !== "" ? doneMessage : t("panel.copyDone", { n: list.length });
+          const message = copied ? done : t("panel.copyFailed");
+          const surface = hintSurfaceOf(root);
+          flashPanelHint(message, root);
+          const hint = livePanelHint(surface);
+          if (hint === null || hint.getClientRects().length === 0) flashJumpToast(message);
           return copied;
         }
         function addUniqueAnnotations(list) {
@@ -5342,8 +5354,8 @@ ${PICK_SCRIPT}<\/script>`;
             }
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
             const cardOptions = {
-              onReuse: () => reuseSentItems(record.items),
-              onReplayItem: (item) => reuseSentItems([item]),
+              onReuse: () => reuseSentItems(record.items, record),
+              onReplayItem: (item) => reuseSentItems([item], record),
               onJumpQuote: (item, root) => jumpToQuote(item, turn, root)
             };
             let card = existing;
@@ -5575,9 +5587,11 @@ ${PICK_SCRIPT}<\/script>`;
           safe(() => {
             popQuoteLabel.textContent = t("label.quote");
             popNoteLabel.textContent = t("pop.noteLabel");
-            popJumpText.textContent = t("jump.label");
-            popJump.setAttribute("aria-label", t("jump.label"));
-            popJump.title = t("jump.hint");
+            for (const node of jumpButtonNodes) {
+              node.firstElementChild.textContent = t("jump.label");
+              node.setAttribute("aria-label", t("jump.label"));
+              node.title = t("jump.hint");
+            }
           });
           safe(() => {
             popImagesHint.textContent = t("pop.imagesHint");
@@ -5680,6 +5694,7 @@ ${PICK_SCRIPT}<\/script>`;
             const sentCards = document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${escaped}"]`);
             const sentCard = sentCards[sentCards.length - 1];
             const items = byAnchor.get(anchorKey)?.record.items ?? [];
+            const record = byAnchor.get(anchorKey)?.record ?? null;
             const turn = byAnchor.get(anchorKey)?.turn ?? null;
             const signature = hashString({
               v: 4,
@@ -5693,8 +5708,8 @@ ${PICK_SCRIPT}<\/script>`;
                 continue;
               }
               const fresh = buildReplySection(list, items, {
-                onReuseAll: () => reuseSentItems(items),
-                onReplayItem: (item) => reuseSentItems([item]),
+                onReuseAll: () => reuseSentItems(items, record),
+                onReplayItem: (item) => reuseSentItems([item], record),
                 onJumpQuote: (item, root) => jumpToQuote(item, turn, root)
               });
               fresh.setAttribute("data-anchor", anchorKey);
@@ -5712,8 +5727,8 @@ ${PICK_SCRIPT}<\/script>`;
               continue;
             }
             const section = buildReplySection(list, items, {
-              onReuseAll: () => reuseSentItems(items),
-              onReplayItem: (item) => reuseSentItems([item]),
+              onReuseAll: () => reuseSentItems(items, record),
+              onReplayItem: (item) => reuseSentItems([item], record),
               onJumpQuote: (item, root) => jumpToQuote(item, turn, root)
             });
             section.setAttribute("data-anchor", anchorKey);
@@ -6304,14 +6319,85 @@ ${PICK_SCRIPT}<\/script>`;
             );
           }
         }
+        function elementVisibleNow(element) {
+          if (element === null || element === void 0 || element.isConnected !== true) return false;
+          if (safe(() => element.closest("[hidden]")) !== null) return false;
+          if (safe(() => element.closest('[data-chat-motion="collapse"]')) !== null) return false;
+          const rects = safe(() => element.getClientRects()) ?? [];
+          return rects.length > 0;
+        }
+        function foldHeaderLabelOf(button3) {
+          const first = button3.firstElementChild;
+          if (first !== null && first.tagName === "SPAN" && first.getAttribute("aria-hidden") !== "true") return first;
+          const last = button3.lastElementChild;
+          if (last !== null && last.tagName === "SPAN" && last.getAttribute("aria-hidden") !== "true") return last;
+          return button3;
+        }
+        function foldHeaderRectsOfButton(button3) {
+          if (button3 === null || button3 === void 0) return null;
+          if (!elementVisibleNow(button3)) return null;
+          const rects = safe(() => {
+            const range = document.createRange();
+            range.selectNodeContents(foldHeaderLabelOf(button3));
+            return [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
+          }) ?? [];
+          return rects.length > 0 ? rects : null;
+        }
+        function processGroupHeaderButton(group) {
+          const header = group.firstElementChild;
+          if (header === null) return null;
+          return header.querySelector("button[aria-expanded]") ?? header.querySelector("button");
+        }
+        function foldHeaderRectsOfRow(row, turn) {
+          let group = row.closest("[data-step-process]");
+          while (group !== null) {
+            const rects = foldHeaderRectsOfButton(processGroupHeaderButton(group));
+            if (rects !== null) return rects;
+            group = group.parentElement === null ? null : group.parentElement.closest("[data-step-process]");
+          }
+          if (!Number.isFinite(turn)) return null;
+          let button3 = document.querySelector(`[data-turn-process="${turn}"]`);
+          while (button3 !== null) {
+            const rects = foldHeaderRectsOfButton(button3);
+            if (rects !== null) return rects;
+            const outer = button3.parentElement === null ? null : button3.parentElement.closest("[data-step-process]");
+            button3 = outer === null ? null : processGroupHeaderButton(outer);
+          }
+          return null;
+        }
+        function foldedHeaderRectsOfItem(item) {
+          const source = item?.source;
+          if (source === null || typeof source !== "object" || source.kind !== "message") return null;
+          let turn = Number.isFinite(source.turn) ? source.turn : null;
+          const row = safe(() => findSourceRow(source, item, turn)) ?? null;
+          if (row === null || row === void 0) return null;
+          if (elementVisibleNow(row)) return null;
+          if (turn === null) {
+            const holder = safe(() => row.closest("[data-chat-turn]")) ?? null;
+            const fromRow = holder === null ? NaN : Number(holder.getAttribute("data-chat-turn"));
+            if (Number.isFinite(fromRow)) turn = fromRow;
+          }
+          return foldHeaderRectsOfRow(row, turn);
+        }
         function collectHighlightOf(item, nodes, target) {
           const sent = item.sentHighlight === true;
           const blinking = flashPhaseOn(item);
           let rects = locateSegmentsOf(item);
           if (rects === null) {
             const range = blinking && flashRange !== null && safe(() => flashRange.startContainer.isConnected === true) === true ? flashRange : locateHighlightRange(item);
-            if (range === void 0 || range === null) return;
-            rects = safe(() => [...range.getClientRects()]) ?? [];
+            if (range === void 0 || range === null) {
+              const foldedRects = foldedHeaderRectsOfItem(item);
+              if (foldedRects === null) return;
+              rects = foldedRects;
+            } else {
+              rects = safe(() => [...range.getClientRects()]) ?? [];
+            }
+          }
+          rects = rects.filter((rect) => rect.width > 0 && rect.height > 0);
+          if (rects.length === 0) {
+            const foldedRects = foldedHeaderRectsOfItem(item);
+            if (foldedRects === null) return;
+            rects = foldedRects;
           }
           if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects, item });
           const adopt = safe(() => hasAdoptNote(item.note)) === true;
@@ -6572,27 +6658,33 @@ ${PICK_SCRIPT}<\/script>`;
         const popJumpHint = document.createElement("span");
         popJumpHint.className = "sa-pop-jump-hint";
         popJumpHint.dataset.on = "0";
-        const popJump = document.createElement("span");
-        popJump.className = "sa-reuse sa-jump";
-        popJump.setAttribute("role", "button");
-        popJump.setAttribute("tabindex", "0");
-        popJump.setAttribute("aria-label", t("jump.label"));
-        popJump.title = t("jump.hint");
-        popJump.style.display = "none";
-        const popJumpText = document.createElement("span");
-        popJumpText.className = "sa-reuse-text";
-        popJumpText.textContent = t("jump.label");
-        popJump.append(popJumpText, jumpIcon());
-        const popJumpRun = (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (popoverItem === null) return;
-          jumpToQuote(popoverItem, void 0, popJump);
+        const jumpButtonNodes = [];
+        const createJumpButton = () => {
+          const node = document.createElement("span");
+          node.className = "sa-reuse sa-jump";
+          node.setAttribute("role", "button");
+          node.setAttribute("tabindex", "0");
+          node.setAttribute("aria-label", t("jump.label"));
+          node.title = t("jump.hint");
+          node.style.display = "none";
+          const text = document.createElement("span");
+          text.className = "sa-reuse-text";
+          text.textContent = t("jump.label");
+          node.append(text, jumpIcon());
+          const run = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (popoverItem === null) return;
+            jumpToQuote(popoverItem, void 0, node);
+          };
+          node.addEventListener("click", run);
+          node.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") run(event);
+          });
+          jumpButtonNodes.push(node);
+          return node;
         };
-        popJump.addEventListener("click", popJumpRun);
-        popJump.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") popJumpRun(event);
-        });
+        const popJump = createJumpButton();
         const popQuoteHead = document.createElement("div");
         popQuoteHead.className = "sa-pop-quote-head";
         popQuoteHead.append(popQuoteLabel, popJumpHint, popJump);
@@ -6608,6 +6700,10 @@ ${PICK_SCRIPT}<\/script>`;
         const popNoteLabel = document.createElement("div");
         popNoteLabel.className = "sa-pop-label";
         popNoteLabel.textContent = t("pop.noteLabel");
+        const popNoteJump = createJumpButton();
+        const popNoteHead = document.createElement("div");
+        popNoteHead.className = "sa-pop-note-head";
+        popNoteHead.append(popNoteLabel, popNoteJump);
         const popSuggest = document.createElement("button");
         popSuggest.type = "button";
         popSuggest.className = "sa-suggest";
@@ -6816,7 +6912,7 @@ ${PICK_SCRIPT}<\/script>`;
         popSave.className = "sa-btn sa-pop-primary";
         popSave.textContent = t("pop.save");
         popActions.append(popDelete, popSpacer, popCancel, popSave);
-        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteLabel, popReadNote, popInput, popImages, popActions);
+        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteHead, popReadNote, popInput, popImages, popActions);
         popover.append(popHead, popBody);
         const POPOVER_MIN_WIDTH = 260;
         const POPOVER_MIN_HEIGHT = 160;
@@ -6881,33 +6977,39 @@ ${PICK_SCRIPT}<\/script>`;
           if (height !== void 0) popover.style.height = `${Math.round(Math.max(POPOVER_MIN_HEIGHT, Math.min(height, bounds.maxHeight)))}px`;
           popoverSized = true;
         }
-        const SENT_POPOVER_MIN_WIDTH = 280;
-        const SENT_POPOVER_MAX_WIDTH = 420;
-        const SENT_POPOVER_HEIGHT_RATIO = 0.7;
+        function sentPopoverBounds() {
+          return {
+            minWidth: 280,
+            maxWidth: Math.max(280, Math.min(420, window.innerWidth - POPOVER_MARGIN * 2)),
+            maxHeight: Math.floor(window.innerHeight * 0.7)
+          };
+        }
         function sizeSentPopover() {
+          const bounds = sentPopoverBounds();
           popoverSized = false;
           popover.style.height = "";
           popover.style.width = "auto";
-          popover.style.maxWidth = `${SENT_POPOVER_MAX_WIDTH}px`;
+          popover.style.maxWidth = `${bounds.maxWidth}px`;
           const previousLeft = popover.style.left;
           popover.style.left = "0px";
           const naturalWidth = popover.offsetWidth;
           popover.style.left = previousLeft;
           const width = Math.round(
-            Math.min(SENT_POPOVER_MAX_WIDTH, Math.max(SENT_POPOVER_MIN_WIDTH, naturalWidth || 0))
+            Math.min(bounds.maxWidth, Math.max(bounds.minWidth, naturalWidth || 0))
           );
           popover.style.width = `${width}px`;
           popover.style.maxWidth = "";
-          popover.style.maxHeight = `${Math.floor(window.innerHeight * SENT_POPOVER_HEIGHT_RATIO)}px`;
+          popover.style.maxHeight = `${bounds.maxHeight}px`;
         }
         function sentPopoverHeightLimit() {
-          return Math.floor(window.innerHeight * SENT_POPOVER_HEIGHT_RATIO);
+          return sentPopoverBounds().maxHeight;
         }
         function clampSizedPopoverToViewport() {
           if (!popoverSized || popover.dataset.open !== "1") return;
           const bounds = popoverSizeBounds();
-          applyPopoverSize(popover.offsetWidth, popover.offsetHeight);
-          popover.style.maxHeight = `${bounds.maxHeight}px`;
+          const limit = popoverMode === "sent" && popover.dataset.dragged !== "1" ? Math.min(bounds.maxHeight, sentPopoverHeightLimit()) : bounds.maxHeight;
+          applyPopoverSize(popover.offsetWidth, Math.min(popover.offsetHeight, limit));
+          popover.style.maxHeight = `${limit}px`;
           const width = popover.offsetWidth;
           const height = popover.offsetHeight;
           const rect = popover.getBoundingClientRect();
@@ -6988,7 +7090,7 @@ ${PICK_SCRIPT}<\/script>`;
           applyPopoverSize(width, height);
           popover.style.maxHeight = `${Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)}px`;
           popover.dataset.dragged = "1";
-          savePopoverSize(width, height);
+          if (popoverMode !== "sent") savePopoverSize(width, height);
         }
         function createPopoverResizer(edge, extraClass, label) {
           const handle = document.createElement("div");
@@ -7403,25 +7505,31 @@ ${PICK_SCRIPT}<\/script>`;
           popQuoteHead.style.display = options.quote === "" ? "none" : "";
           popJumpHint.textContent = "";
           popJumpHint.dataset.on = "0";
-          popJump.style.display = options.mode === "edit" && options.quote !== "" ? "" : "none";
+          const canJump = options.mode === "sent" || options.mode === "edit" && options.quote !== "";
+          popJump.style.display = canJump ? "" : "none";
           popJump.dataset.disabled = options.item?.source?.kind === "file" ? "1" : "0";
           popSource.textContent = options.sourceText;
           const readonly = options.mode === "sent";
+          popoverMode = options.mode;
           if (readonly) {
             const noteText = typeof options.note === "string" && options.note !== "" ? options.note : t("pop.noNote");
             paintNote(popReadNote, noteText, noteViewOf(options.note));
           }
           popReadNote.style.display = readonly ? "" : "none";
-          popSource.style.display = readonly ? "none" : "";
-          popDivider.style.display = readonly ? "none" : "";
-          popNoteLabel.style.display = readonly ? "none" : "";
+          popSource.style.display = "";
+          popDivider.style.display = "";
+          popNoteLabel.style.display = "";
+          popNoteJump.style.display = readonly && canJump ? "" : "none";
+          popNoteJump.dataset.disabled = popJump.dataset.disabled;
           popInput.style.display = readonly ? "none" : "";
-          popImages.style.display = readonly ? "none" : "";
+          popImages.style.display = "";
           popActions.style.display = readonly ? "none" : "";
           setNoteContent(readonly ? "" : options.note);
           updateSuggestion();
-          resetPopImages(readonly ? [] : options.images);
-          popoverMode = options.mode;
+          popImages.dataset.readonly = readonly ? "1" : "0";
+          popImagesHint.style.display = readonly ? "none" : "";
+          resetPopImages(Array.isArray(options.images) ? options.images : []);
+          if (readonly && popInputImages.length === 0) popImages.style.display = "none";
           popoverTargetId = options.targetId ?? null;
           popoverItem = options.item ?? null;
           popoverSnapshot = options.mode === "edit" && popoverTargetId !== null ? {
@@ -7430,8 +7538,8 @@ ${PICK_SCRIPT}<\/script>`;
             images: Array.isArray(options.images) ? options.images.slice() : []
           } : null;
           popDelete.style.display = options.mode === "edit" ? "" : "none";
-          for (const handle of popEdgeHandles) handle.style.display = readonly ? "none" : "";
-          popGrip.style.display = readonly ? "none" : "";
+          for (const handle of popEdgeHandles) handle.style.display = "";
+          popGrip.style.display = "";
           hideToolbar();
           resetPopInputHeight();
           popoverTouched = false;
@@ -7505,14 +7613,13 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function openSentPopover(item, anchor, source = "manual") {
           if (item === null || item === void 0 || item.sentHighlight !== true) return;
-          const number = Number.isFinite(item.index) ? item.index : Number.isFinite(item.number) ? item.number : "?";
           popoverAnchor = null;
           showPopover({
-            title: t("pop.sentTitle", { n: number }),
+            title: t("pop.sentTitle"),
             quote: typeof item.quote === "string" ? item.quote : "",
-            sourceText: "",
+            sourceText: describeSource(item.source),
             note: typeof item.note === "string" ? item.note : "",
-            images: [],
+            images: sentImagesOf(item),
             rect: popoverAnchorRect(anchor),
             mode: "sent",
             // 悬停命中用它判断「指针还停在这条上」，避免同一条划线上反复收起重开。
@@ -7520,6 +7627,15 @@ ${PICK_SCRIPT}<\/script>`;
             source,
             item
           });
+        }
+        function sentImagesOf(item) {
+          if (Array.isArray(item.images) && item.images.length > 0) return item.images;
+          const thumbs = Array.isArray(item.thumbs) ? item.thumbs : [];
+          return thumbs.map((thumb, index) => ({
+            id: `img-sent-${item.id ?? index}-${index}`,
+            name: typeof thumb?.name === "string" ? thumb.name : "",
+            dataUrl: thumb?.dataUrl ?? thumb?.preview ?? thumb?.thumb ?? ""
+          }));
         }
         function closePopover(options = {}) {
           if (options.autoSave === false) cancelPopAutoSave();
@@ -7879,9 +7995,52 @@ ${PICK_SCRIPT}<\/script>`;
           const anchor = selection === null ? void 0 : { getBoundingClientRect: () => selection.range.getBoundingClientRect() };
           openEditPopover(created.id, anchor);
         }
-        function reuseSentItems(items) {
+        function repliedMarksOf(sessionId) {
+          const uuids = /* @__PURE__ */ new Set();
+          const legacy = /* @__PURE__ */ new Set();
+          for (const batch of remoteReplyCache.get(sessionId) ?? []) {
+            for (const reply of Array.isArray(batch?.replies) ? batch.replies : []) {
+              if (typeof reply?.uuid === "string" && reply.uuid !== "") uuids.add(reply.uuid);
+              if (Number.isFinite(reply?.index)) {
+                legacy.add(`${reply.index}\0${typeof reply.quote === "string" ? reply.quote : ""}`);
+              }
+            }
+          }
+          return { uuids, legacy };
+        }
+        function recordHasReplyMark(record) {
+          if (record === null || record === void 0 || typeof record !== "object") return false;
+          return record.replied === true || Number.isFinite(record.repliedAt) || Number.isFinite(record.replyAt);
+        }
+        function itemHasReplyMark(item) {
+          if (item === null || item === void 0 || typeof item !== "object") return false;
+          return item.replied === true || Number.isFinite(item.repliedAt) || Number.isFinite(item.replyAt) || typeof item.verdict === "string" && item.verdict !== "";
+        }
+        function itemWasAnswered(item, record, replied) {
+          if (recordHasReplyMark(record) || itemHasReplyMark(item)) return true;
+          const uuidOf = (candidate) => typeof candidate?.uuid === "string" && candidate.uuid !== "" ? candidate.uuid : "";
+          if (replied.uuids.has(uuidOf(item))) return true;
+          if (uuidOf(item) === "") {
+            const items = Array.isArray(record?.items) ? record.items : [];
+            for (const candidate of items) {
+              if (candidate?.quote !== item?.quote) continue;
+              if (replied.uuids.has(uuidOf(candidate))) return true;
+              if (Number.isFinite(candidate?.index) && typeof item?.quote === "string" && replied.legacy.has(`${candidate.index}\0${item.quote}`)) {
+                return true;
+              }
+            }
+          }
+          if (Number.isFinite(item?.index)) {
+            return replied.legacy.has(`${item.index}\0${typeof item.quote === "string" ? item.quote : ""}`);
+          }
+          return false;
+        }
+        function reuseSentItems(items, record = null, force = false) {
           const list = Array.isArray(items) ? items : [];
-          const normalized = [];
+          const sessionId = currentSessionId();
+          const replied = force || sessionId === void 0 ? null : repliedMarksOf(sessionId);
+          const keep = [];
+          const answered = [];
           for (const item of list) {
             if (typeof item?.quote !== "string" && typeof item?.note !== "string") continue;
             const images = (Array.isArray(item.thumbs) ? item.thumbs : []).filter((thumb) => typeof thumb?.dataUrl === "string" && thumb.dataUrl !== "").map((thumb, index) => {
@@ -7895,14 +8054,19 @@ ${PICK_SCRIPT}<\/script>`;
                 bytes: Math.round(full.length * 3 / 4)
               };
             });
-            normalized.push({
+            const entry = {
               quote: typeof item.quote === "string" ? item.quote : "",
               note: typeof item.note === "string" ? item.note : "",
               images,
               source: item.source
-            });
+            };
+            if (replied !== null && itemWasAnswered(item, record, replied)) answered.push(entry);
+            else keep.push(entry);
           }
-          return addUniqueAnnotations(normalized);
+          if (answered.length > 0) {
+            void copyAnnotationsToClipboard(answered, void 0, t("sent.replayCopied"));
+          }
+          return keep.length === 0 ? 0 : addUniqueAnnotations(keep);
         }
         function deleteFromPopover() {
           const target = popoverTargetId;
@@ -9290,7 +9454,7 @@ ${PICK_SCRIPT}`;
             if (Number.isFinite(turn) && turn >= cutoff) section.remove();
           }
           const items = removed.sort((left, right) => left.record.savedAt - right.record.savedAt).flatMap(({ record }) => Array.isArray(record.items) ? record.items : []);
-          if (items.length > 0) reuseSentItems(items);
+          if (items.length > 0) reuseSentItems(items, null, true);
           if (removed.length > 0) markHighlightsDirty();
           scheduleRepaint("poll");
         }
@@ -9416,7 +9580,9 @@ ${PICK_SCRIPT}`;
               popResize = null;
               popover.classList.remove("sa-pop-resizing");
               const sized = popover.getBoundingClientRect();
-              if (sized.width > 0 && sized.height > 0) savePopoverSize(sized.width, sized.height);
+              if (sized.width > 0 && sized.height > 0 && popoverMode !== "sent") {
+                savePopoverSize(sized.width, sized.height);
+              }
             }
             if (popDrag === null) return;
             popDrag = null;
@@ -9459,6 +9625,31 @@ ${PICK_SCRIPT}`;
           document.addEventListener("pointerdown", onMenuPointerDown, true);
           document.addEventListener("click", onDocumentClick, true);
           document.addEventListener("keydown", onDocumentKeydown, true);
+          let resizeObserver = null;
+          let resizeTargets = /* @__PURE__ */ new Set();
+          const syncResizeTargets = () => {
+            if (typeof ResizeObserver !== "function") return;
+            if (resizeObserver === null) {
+              resizeObserver = new ResizeObserver(() => {
+                highlightDirty = true;
+                scheduleRepaint("mutation");
+              });
+            }
+            const next = /* @__PURE__ */ new Set();
+            const observe = (element) => {
+              if (element === null || element === void 0 || next.has(element)) return;
+              next.add(element);
+              safe(() => resizeObserver.observe(element));
+            };
+            for (const element of document.querySelectorAll("[data-chat-flow]")) {
+              observe(element);
+              for (const container of scrollAncestorsOf(element)) observe(container);
+            }
+            for (const element of resizeTargets) {
+              if (!next.has(element)) safe(() => resizeObserver.unobserve(element));
+            }
+            resizeTargets = next;
+          };
           const onViewport = (event) => {
             highlightDirty = true;
             scheduleRepaint("viewport");
@@ -9468,6 +9659,7 @@ ${PICK_SCRIPT}`;
               markViewportResize();
               clampPanelToViewport();
               clampSizedPopoverToViewport();
+              syncResizeTargets();
             }
           };
           window.addEventListener("scroll", onViewport, true);
@@ -9477,13 +9669,17 @@ ${PICK_SCRIPT}`;
               const target = elementOf2(record.target);
               if (target !== null && target.closest("[data-sa-ui]") !== null) continue;
               if (pendingSent.length > 0) safe(() => scanSentMessages());
-              if (conversationNeedsRender()) scheduleRepaint("mutation");
+              if (conversationNeedsRender()) {
+                syncResizeTargets();
+                scheduleRepaint("mutation");
+              }
               return;
             }
           });
           observer.observe(document.body, { childList: true, subtree: true, characterData: true });
           scheduleRepaint("mount");
           safe(() => watchConversationScroll());
+          syncResizeTargets();
           return () => {
             scrollTrace.dispose();
             markdown.dispose();
@@ -9503,15 +9699,22 @@ ${PICK_SCRIPT}`;
             document.removeEventListener("keydown", onPanelEscapeKeyDown);
             window.removeEventListener("scroll", onViewport, true);
             window.removeEventListener("resize", onViewport);
+            if (resizeObserver !== null) resizeObserver.disconnect();
             observer.disconnect();
           };
         });
         ctx.effect(() => {
           const onTurnProcessClick = (event) => {
             const target = elementOf2(event.target);
-            const button3 = target === null ? null : target.closest("[data-turn-process]");
-            if (button3 === null) return;
-            window.requestAnimationFrame(() => syncReplyCollapse(button3));
+            if (target === null) return;
+            const button3 = target.closest("[data-turn-process]");
+            const groupButton = target.closest("button[aria-expanded]");
+            const groupRoot = groupButton === null ? null : groupButton.closest("[data-step-process]");
+            const groupHeader = groupRoot !== null && groupRoot.firstElementChild?.contains(groupButton) === true ? groupButton : null;
+            if (button3 === null && groupHeader === null) return;
+            highlightDirty = true;
+            scheduleRepaint("mutation");
+            if (button3 !== null) window.requestAnimationFrame(() => syncReplyCollapse(button3));
           };
           document.addEventListener("click", onTurnProcessClick, true);
           return () => {

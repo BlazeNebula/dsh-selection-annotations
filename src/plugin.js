@@ -869,12 +869,24 @@ const rewindHandled = new Map()
           }, 1600)
         }
 
-        /** 拷贝批注：等剪贴板写入有真实结果再给提示，成功与失败各一条文案。*/
-        async function copyAnnotationsToClipboard(items, root) {
+        /**
+         * 拷贝批注：等剪贴板写入有真实结果再给提示，成功与失败各一条文案。
+         * @param doneMessage - 成功提示；不给时用默认的「已拷贝 n 条」。
+         */
+        async function copyAnnotationsToClipboard(items, root, doneMessage) {
           const list = Array.isArray(items) ? items : []
           if (list.length === 0) return false
           const copied = await writeClipboardText(serializeAnnotations(list))
-          flashPanelHint(copied ? t('panel.copyDone', { n: list.length }) : t('panel.copyFailed'), root)
+          const done =
+            typeof doneMessage === 'string' && doneMessage !== ''
+              ? doneMessage
+              : t('panel.copyDone', { n: list.length })
+          const message = copied ? done : t('panel.copyFailed')
+          const surface = hintSurfaceOf(root)
+          flashPanelHint(message, root)
+          // 面板没挂载或不可见时提示位看不见：回放这类从会话里发起的拷贝改用页面提示兜底。
+          const hint = livePanelHint(surface)
+          if (hint === null || hint.getClientRects().length === 0) flashJumpToast(message)
           return copied
         }
 
@@ -1644,8 +1656,8 @@ const rewindHandled = new Map()
             }
             const existing = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
             const cardOptions = {
-              onReuse: () => reuseSentItems(record.items),
-              onReplayItem: (item) => reuseSentItems([item]),
+              onReuse: () => reuseSentItems(record.items, record),
+              onReplayItem: (item) => reuseSentItems([item], record),
               onJumpQuote: (item, root) => jumpToQuote(item, turn, root),
             }
             let card = existing
@@ -1937,9 +1949,11 @@ const rewindHandled = new Map()
           safe(() => {
             popQuoteLabel.textContent = t('label.quote')
             popNoteLabel.textContent = t('pop.noteLabel')
-            popJumpText.textContent = t('jump.label')
-            popJump.setAttribute('aria-label', t('jump.label'))
-            popJump.title = t('jump.hint')
+            for (const node of jumpButtonNodes) {
+              node.firstElementChild.textContent = t('jump.label')
+              node.setAttribute('aria-label', t('jump.label'))
+              node.title = t('jump.hint')
+            }
           })
           safe(() => {
             popImagesHint.textContent = t('pop.imagesHint')
@@ -2069,6 +2083,7 @@ const rewindHandled = new Map()
             const sentCards = document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${escaped}"]`)
             const sentCard = sentCards[sentCards.length - 1]
             const items = byAnchor.get(anchorKey)?.record.items ?? []
+            const record = byAnchor.get(anchorKey)?.record ?? null
             const turn = byAnchor.get(anchorKey)?.turn ?? null
             const signature = hashString({
               v: 4,
@@ -2084,8 +2099,8 @@ const rewindHandled = new Map()
                 continue
               }
               const fresh = buildReplySection(list, items, {
-                onReuseAll: () => reuseSentItems(items),
-                onReplayItem: (item) => reuseSentItems([item]),
+                onReuseAll: () => reuseSentItems(items, record),
+                onReplayItem: (item) => reuseSentItems([item], record),
                 onJumpQuote: (item, root) => jumpToQuote(item, turn, root),
               })
               fresh.setAttribute('data-anchor', anchorKey)
@@ -2106,8 +2121,8 @@ const rewindHandled = new Map()
               continue
             }
             const section = buildReplySection(list, items, {
-              onReuseAll: () => reuseSentItems(items),
-              onReplayItem: (item) => reuseSentItems([item]),
+              onReuseAll: () => reuseSentItems(items, record),
+              onReplayItem: (item) => reuseSentItems([item], record),
               onJumpQuote: (item, root) => jumpToQuote(item, turn, root),
             })
             section.setAttribute('data-anchor', anchorKey)
@@ -2919,6 +2934,87 @@ const rewindHandled = new Map()
           }
         }
 
+        /** 元素此刻是否真的可见：脱离文档、hidden 属性、折叠动画或零尺寸都算不可见。*/
+        function elementVisibleNow(element) {
+          if (element === null || element === undefined || element.isConnected !== true) return false
+          if (safe(() => element.closest('[hidden]')) !== null) return false
+          if (safe(() => element.closest('[data-chat-motion="collapse"]')) !== null) return false
+          const rects = safe(() => element.getClientRects()) ?? []
+          return rects.length > 0
+        }
+
+        /** 折叠标题行里承载文字的那一段：轮次标题取 span.label，分组标题取 leading 之后的标签。*/
+        function foldHeaderLabelOf(button) {
+          const first = button.firstElementChild
+          if (first !== null && first.tagName === 'SPAN' && first.getAttribute('aria-hidden') !== 'true') return first
+          const last = button.lastElementChild
+          if (last !== null && last.tagName === 'SPAN' && last.getAttribute('aria-hidden') !== 'true') return last
+          return button
+        }
+
+        /** 量标题文字本身的范围，不铺满整行，避免盖住展开箭头与计数。*/
+        function foldHeaderRectsOfButton(button) {
+          if (button === null || button === undefined) return null
+          if (!elementVisibleNow(button)) return null
+          const rects =
+            safe(() => {
+              const range = document.createRange()
+              range.selectNodeContents(foldHeaderLabelOf(button))
+              return [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0)
+            }) ?? []
+          return rects.length > 0 ? rects : null
+        }
+
+        /** 分组头按钮：根的第一个子 div 里那把 aria-expanded 按钮。*/
+        function processGroupHeaderButton(group) {
+          const header = group.firstElementChild
+          if (header === null) return null
+          return header.querySelector('button[aria-expanded]') ?? header.querySelector('button')
+        }
+
+        /**
+         * 找到最近的「可见」折叠标题：从目标行向上找分组头（可能多级嵌套），
+         * 分组都在整轮里折叠时再退到这一轮的 turn-process 标题；标题自己也不可见就继续向上。
+         * 一个可见标题都没有时返回 null —— 宁可不画，也不画到错误位置。
+         */
+        function foldHeaderRectsOfRow(row, turn) {
+          let group = row.closest('[data-step-process]')
+          while (group !== null) {
+            const rects = foldHeaderRectsOfButton(processGroupHeaderButton(group))
+            if (rects !== null) return rects
+            group = group.parentElement === null ? null : group.parentElement.closest('[data-step-process]')
+          }
+          if (!Number.isFinite(turn)) return null
+          let button = document.querySelector(`[data-turn-process="${turn}"]`)
+          while (button !== null) {
+            const rects = foldHeaderRectsOfButton(button)
+            if (rects !== null) return rects
+            const outer = button.parentElement === null ? null : button.parentElement.closest('[data-step-process]')
+            button = outer === null ? null : processGroupHeaderButton(outer)
+          }
+          return null
+        }
+
+        /**
+         * 目标行已经被折叠时，把高亮落到它最近的可见折叠标题上。
+         * 行还能看见却定位不到文字时不冒名顶替：那说明引文对不上，画标题反而是错的位置。
+         */
+        function foldedHeaderRectsOfItem(item) {
+          const source = item?.source
+          if (source === null || typeof source !== 'object' || source.kind !== 'message') return null
+          let turn = Number.isFinite(source.turn) ? source.turn : null
+          const row = safe(() => findSourceRow(source, item, turn)) ?? null
+          if (row === null || row === undefined) return null
+          if (elementVisibleNow(row)) return null
+          // 条目没带轮次时用行自己的 data-chat-turn 定位整轮标题，避免退不到那一轮。
+          if (turn === null) {
+            const holder = safe(() => row.closest('[data-chat-turn]')) ?? null
+            const fromRow = holder === null ? NaN : Number(holder.getAttribute('data-chat-turn'))
+            if (Number.isFinite(fromRow)) turn = fromRow
+          }
+          return foldHeaderRectsOfRow(row, turn)
+        }
+
         function collectHighlightOf(item, nodes, target) {
           const sent = item.sentHighlight === true
           const blinking = flashPhaseOn(item)
@@ -2930,8 +3026,22 @@ const rewindHandled = new Map()
               blinking && flashRange !== null && (safe(() => flashRange.startContainer.isConnected === true) === true)
                 ? flashRange
                 : locateHighlightRange(item)
-            if (range === undefined || range === null) return
-            rects = safe(() => [...range.getClientRects()]) ?? []
+            if (range === undefined || range === null) {
+              // 正文被卸载（不只是被 hidden 收起）时连 Range 都建不出来：目标行不可见就退到折叠标题。
+              const foldedRects = foldedHeaderRectsOfItem(item)
+              if (foldedRects === null) return
+              rects = foldedRects
+            } else {
+              rects = safe(() => [...range.getClientRects()]) ?? []
+            }
+          }
+          // 折叠的正文可能仍返回 0×0 的矩形：先滤掉不可画的，再决定是否退到折叠标题行。
+          rects = rects.filter((rect) => rect.width > 0 && rect.height > 0)
+          // 目标行被折叠（可能多级）时 rects 为空：改画在最近的可见折叠标题行文字上。
+          if (rects.length === 0) {
+            const foldedRects = foldedHeaderRectsOfItem(item)
+            if (foldedRects === null) return
+            rects = foldedRects
           }
           // 命中表带上条目本身：已发送条目不在 annotations 里，悬停时只能靠它找到对应记录。
           if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects, item })
@@ -3256,28 +3366,34 @@ const rewindHandled = new Map()
         const popJumpHint = document.createElement('span')
         popJumpHint.className = 'sa-pop-jump-hint'
         popJumpHint.dataset.on = '0'
-        // 与「回放」同一套：图标常驻、文字悬停出现，作为标题行的普通子元素贴右。
-        const popJump = document.createElement('span')
-        popJump.className = 'sa-reuse sa-jump'
-        popJump.setAttribute('role', 'button')
-        popJump.setAttribute('tabindex', '0')
-        popJump.setAttribute('aria-label', t('jump.label'))
-        popJump.title = t('jump.hint')
-        popJump.style.display = 'none'
-        const popJumpText = document.createElement('span')
-        popJumpText.className = 'sa-reuse-text'
-        popJumpText.textContent = t('jump.label')
-        popJump.append(popJumpText, jumpIcon())
-        const popJumpRun = (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          if (popoverItem === null) return
-          jumpToQuote(popoverItem, undefined, popJump)
+        /** 与「回放」同一套：图标常驻、文字悬停出现，作为标题行的普通子元素贴右。*/
+        const jumpButtonNodes = []
+        const createJumpButton = () => {
+          const node = document.createElement('span')
+          node.className = 'sa-reuse sa-jump'
+          node.setAttribute('role', 'button')
+          node.setAttribute('tabindex', '0')
+          node.setAttribute('aria-label', t('jump.label'))
+          node.title = t('jump.hint')
+          node.style.display = 'none'
+          const text = document.createElement('span')
+          text.className = 'sa-reuse-text'
+          text.textContent = t('jump.label')
+          node.append(text, jumpIcon())
+          const run = (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (popoverItem === null) return
+            jumpToQuote(popoverItem, undefined, node)
+          }
+          node.addEventListener('click', run)
+          node.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') run(event)
+          })
+          jumpButtonNodes.push(node)
+          return node
         }
-        popJump.addEventListener('click', popJumpRun)
-        popJump.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter' || event.key === ' ') popJumpRun(event)
-        })
+        const popJump = createJumpButton()
         const popQuoteHead = document.createElement('div')
         popQuoteHead.className = 'sa-pop-quote-head'
         popQuoteHead.append(popQuoteLabel, popJumpHint, popJump)
@@ -3294,6 +3410,11 @@ const rewindHandled = new Map()
         const popNoteLabel = document.createElement('div')
         popNoteLabel.className = 'sa-pop-label'
         popNoteLabel.textContent = t('pop.noteLabel')
+        // 只读态在「批注」标题行右侧再放一个「查看出处」，与「引用原文」行上下对称。
+        const popNoteJump = createJumpButton()
+        const popNoteHead = document.createElement('div')
+        popNoteHead.className = 'sa-pop-note-head'
+        popNoteHead.append(popNoteLabel, popNoteJump)
         /** 输入前缀时的补全提示：回车/Tab 换成采纳 token。*/
         const popSuggest = document.createElement('button')
         popSuggest.type = 'button'
@@ -3539,7 +3660,7 @@ const rewindHandled = new Map()
         popSave.textContent = t('pop.save')
         popActions.append(popDelete, popSpacer, popCancel, popSave)
         // 只有标题固定在顶部；来源、引用原文、备注、图片、按钮行同住正文区一起滚。
-        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteLabel, popReadNote, popInput, popImages, popActions)
+        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteHead, popReadNote, popInput, popImages, popActions)
         popover.append(popHead, popBody)
 
         /* ------------------------------------------------------------------ 弹层尺寸调整*/
@@ -3624,44 +3745,58 @@ const rewindHandled = new Map()
           popoverSized = true
         }
 
-        const SENT_POPOVER_MIN_WIDTH = 280
-        const SENT_POPOVER_MAX_WIDTH = 420
-        const SENT_POPOVER_HEIGHT_RATIO = 0.7
+        /**
+         * 只读面板的尺寸边界：宽 280–420（视口更窄时让步），高最多视口 70%。
+         * 规则只写在这一处，打开、窗口缩放与拖拽都从这里取。
+         */
+        function sentPopoverBounds() {
+          return {
+            minWidth: 280,
+            maxWidth: Math.max(280, Math.min(420, window.innerWidth - POPOVER_MARGIN * 2)),
+            maxHeight: Math.floor(window.innerHeight * 0.7),
+          }
+        }
 
         /**
          * 只读面板按内容定尺寸，不沿用会话里记住的编辑尺寸：
          * 宽度取自然宽夹在 280–420，高度由内容决定、最多到视口 70%；定位仍交给 placePopover。
          */
         function sizeSentPopover() {
+          const bounds = sentPopoverBounds()
           popoverSized = false
           popover.style.height = ''
           popover.style.width = 'auto'
-          popover.style.maxWidth = `${SENT_POPOVER_MAX_WIDTH}px`
+          popover.style.maxWidth = `${bounds.maxWidth}px`
           // 量自然宽时把 left 归零：上一轮弹层停在屏幕右侧会把可用宽压小，量出来偏窄。
           const previousLeft = popover.style.left
           popover.style.left = '0px'
           const naturalWidth = popover.offsetWidth
           popover.style.left = previousLeft
           const width = Math.round(
-            Math.min(SENT_POPOVER_MAX_WIDTH, Math.max(SENT_POPOVER_MIN_WIDTH, naturalWidth || 0)),
+            Math.min(bounds.maxWidth, Math.max(bounds.minWidth, naturalWidth || 0)),
           )
           popover.style.width = `${width}px`
           // 清掉 inline max-width，回到 CSS 的 calc(100vw - 16px)，窗口很窄时仍能收住。
           popover.style.maxWidth = ''
-          popover.style.maxHeight = `${Math.floor(window.innerHeight * SENT_POPOVER_HEIGHT_RATIO)}px`
+          popover.style.maxHeight = `${bounds.maxHeight}px`
         }
 
         /** 只读面板的高度上限：视口 70%。*/
         function sentPopoverHeightLimit() {
-          return Math.floor(window.innerHeight * SENT_POPOVER_HEIGHT_RATIO)
+          return sentPopoverBounds().maxHeight
         }
 
         /** 窗口缩小时把已定尺寸的浮层夹回视口；夹取结果不写回存储，放大窗口后还能恢复原尺寸。*/
         function clampSizedPopoverToViewport() {
           if (!popoverSized || popover.dataset.open !== '1') return
           const bounds = popoverSizeBounds()
-          applyPopoverSize(popover.offsetWidth, popover.offsetHeight)
-          popover.style.maxHeight = `${bounds.maxHeight}px`
+          // 只读面板没拖过时按 70% 上限夹；拖过之后以用户拖出的尺寸为准，只夹回视口。
+          const limit =
+            popoverMode === 'sent' && popover.dataset.dragged !== '1'
+              ? Math.min(bounds.maxHeight, sentPopoverHeightLimit())
+              : bounds.maxHeight
+          applyPopoverSize(popover.offsetWidth, Math.min(popover.offsetHeight, limit))
+          popover.style.maxHeight = `${limit}px`
           const width = popover.offsetWidth
           const height = popover.offsetHeight
           const rect = popover.getBoundingClientRect()
@@ -3751,7 +3886,8 @@ const rewindHandled = new Map()
           applyPopoverSize(width, height)
           popover.style.maxHeight = `${Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)}px`
           popover.dataset.dragged = '1'
-          savePopoverSize(width, height)
+          // 只读面板的拖拽尺寸只在本会话内存里生效，不写编辑面板记住的那一份。
+          if (popoverMode !== 'sent') savePopoverSize(width, height)
         }
 
         /** 边缘与把手：四条边只吃指针，右下角把手额外可键盘聚焦。*/
@@ -4287,28 +4423,37 @@ const rewindHandled = new Map()
           popQuoteHead.style.display = options.quote === '' ? 'none' : ''
           popJumpHint.textContent = ''
           popJumpHint.dataset.on = '0'
-          // 跳转只在编辑既有批注时有意义：新建弹层的引文还在选区里，没有可回访的条目。
-          popJump.style.display = options.mode === 'edit' && options.quote !== '' ? '' : 'none'
+          // 跳转对编辑与只读都有意义：新建时引文还在选区里，没有可回访的条目。
+          const canJump = options.mode === 'sent' || (options.mode === 'edit' && options.quote !== '')
+          popJump.style.display = canJump ? '' : 'none'
           popJump.dataset.disabled = options.item?.source?.kind === 'file' ? '1' : '0'
           popSource.textContent = options.sourceText
-          // 已发送批注是只读的：正文换成一段文字，输入框、图片和操作行都收起来。
+          // 只读与编辑共用同一套底座：只把备注输入框换成只读文本，操作行整行收起。
           const readonly = options.mode === 'sent'
+          popoverMode = options.mode
           if (readonly) {
             const noteText =
               typeof options.note === 'string' && options.note !== '' ? options.note : t('pop.noNote')
             paintNote(popReadNote, noteText, noteViewOf(options.note))
           }
           popReadNote.style.display = readonly ? '' : 'none'
-          popSource.style.display = readonly ? 'none' : ''
-          popDivider.style.display = readonly ? 'none' : ''
-          popNoteLabel.style.display = readonly ? 'none' : ''
+          popSource.style.display = ''
+          popDivider.style.display = ''
+          popNoteLabel.style.display = ''
+          // 只读态在「批注」行右侧补一个「查看出处」，与「引用原文」行上下对称。
+          popNoteJump.style.display = readonly && canJump ? '' : 'none'
+          popNoteJump.dataset.disabled = popJump.dataset.disabled
           popInput.style.display = readonly ? 'none' : ''
-          popImages.style.display = readonly ? 'none' : ''
+          popImages.style.display = ''
           popActions.style.display = readonly ? 'none' : ''
           setNoteContent(readonly ? '' : options.note)
           updateSuggestion()
-          resetPopImages(readonly ? [] : options.images)
-          popoverMode = options.mode
+          // 图片区照常渲染；只读态只藏掉每张图上的移除按钮，不允许删改。
+          popImages.dataset.readonly = readonly ? '1' : '0'
+          popImagesHint.style.display = readonly ? 'none' : ''
+          resetPopImages(Array.isArray(options.images) ? options.images : [])
+          // 只读态没有可粘贴的入口：没有图片时整块收起，免得留一段空白。
+          if (readonly && popInputImages.length === 0) popImages.style.display = 'none'
           popoverTargetId = options.targetId ?? null
           popoverItem = options.item ?? null
           // 编辑态先留一份快照：之后每敲一下都即时写进条目，只有「取消」才回到这一份。
@@ -4321,9 +4466,9 @@ const rewindHandled = new Map()
                 }
               : null
           popDelete.style.display = options.mode === 'edit' ? '' : 'none'
-          // 只读面板不提供尺寸把手：尺寸随内容走。
-          for (const handle of popEdgeHandles) handle.style.display = readonly ? 'none' : ''
-          popGrip.style.display = readonly ? 'none' : ''
+          // 两种模式共用尺寸把手；只读面板拖出来的尺寸只留在内存里，不写编辑面板的偏好。
+          for (const handle of popEdgeHandles) handle.style.display = ''
+          popGrip.style.display = ''
           hideToolbar()
           resetPopInputHeight()
           popoverTouched = false
@@ -4417,23 +4562,21 @@ const rewindHandled = new Map()
         }
 
         /**
-         * 已发送批注的只读弹层：复用编辑弹层的底座、标题行、关闭按钮与 placePopover 定位，
-         * 只显示引文与备注正文，不出现输入框、图片与保存/删除。
+         * 已发送批注的只读弹层：与编辑弹层同一套底座（标题、来源、引用、备注、图片），
+         * 只把备注输入框换成只读正文，并去掉保存与删除按钮。
          * @param item - collectSentHighlightItems 产出的绘制副本（带 sentHighlight 与 id）。
          * @param anchor - 定位元素或矩形提供者。
          * @param source - 'hover' 表示悬停预览，其它值表示手动打开。
          */
         function openSentPopover(item, anchor, source = 'manual') {
           if (item === null || item === undefined || item.sentHighlight !== true) return
-          // 台账条目的 index 就是发送时的条目序号（buildPayload 用批注 number 写入）；老记录没有时退回 number。
-          const number = Number.isFinite(item.index) ? item.index : Number.isFinite(item.number) ? item.number : '?'
           popoverAnchor = null
           showPopover({
-            title: t('pop.sentTitle', { n: number }),
+            title: t('pop.sentTitle'),
             quote: typeof item.quote === 'string' ? item.quote : '',
-            sourceText: '',
+            sourceText: describeSource(item.source),
             note: typeof item.note === 'string' ? item.note : '',
-            images: [],
+            images: sentImagesOf(item),
             rect: popoverAnchorRect(anchor),
             mode: 'sent',
             // 悬停命中用它判断「指针还停在这条上」，避免同一条划线上反复收起重开。
@@ -4441,6 +4584,17 @@ const rewindHandled = new Map()
             source,
             item,
           })
+        }
+
+        /** 只读面板的图片：优先用台账里的原图，老记录只有缩略图时退回缩略图。*/
+        function sentImagesOf(item) {
+          if (Array.isArray(item.images) && item.images.length > 0) return item.images
+          const thumbs = Array.isArray(item.thumbs) ? item.thumbs : []
+          return thumbs.map((thumb, index) => ({
+            id: `img-sent-${item.id ?? index}-${index}`,
+            name: typeof thumb?.name === 'string' ? thumb.name : '',
+            dataUrl: thumb?.dataUrl ?? thumb?.preview ?? thumb?.thumb ?? '',
+          }))
         }
 
         function closePopover(options = {}) {
@@ -4939,10 +5093,81 @@ const rewindHandled = new Map()
           openEditPopover(created.id, anchor)
         }
 
-        /** 把一条已发送记录里的批注原样追加回待发送列表（图片也带上）。*/
-        function reuseSentItems(items) {
+        /** 当前会话里所有答复的 uuid 与老数据的「序号 + 引文」签名：回放时判断条目是否已经答过。*/
+        function repliedMarksOf(sessionId) {
+          const uuids = new Set()
+          const legacy = new Set()
+          for (const batch of remoteReplyCache.get(sessionId) ?? []) {
+            for (const reply of Array.isArray(batch?.replies) ? batch.replies : []) {
+              if (typeof reply?.uuid === 'string' && reply.uuid !== '') uuids.add(reply.uuid)
+              if (Number.isFinite(reply?.index)) {
+                legacy.add(`${reply.index}\u0000${typeof reply.quote === 'string' ? reply.quote : ''}`)
+              }
+            }
+          }
+          return { uuids, legacy }
+        }
+
+        /** 台账记录自带的答复标记（宿主新版本可能写入，老数据没有）。*/
+        function recordHasReplyMark(record) {
+          if (record === null || record === undefined || typeof record !== 'object') return false
+          return record.replied === true || Number.isFinite(record.repliedAt) || Number.isFinite(record.replyAt)
+        }
+
+        /** 条目自带的答复标记：直接写回在条目上的 verdict / repliedAt 也算已答。*/
+        function itemHasReplyMark(item) {
+          if (item === null || item === undefined || typeof item !== 'object') return false
+          return (
+            item.replied === true ||
+            Number.isFinite(item.repliedAt) ||
+            Number.isFinite(item.replyAt) ||
+            (typeof item.verdict === 'string' && item.verdict !== '')
+          )
+        }
+
+        /**
+         * 一条台账条目是否已经被答复：记录/条目标记优先，其后按 uuid 查答复；
+         * 答复卡回放的是答复自身的副本（没有 uuid），按引文在同一批条目里找回原条目再查。
+         * 老数据没有 uuid 时退回「序号 + 引文」。
+         */
+        function itemWasAnswered(item, record, replied) {
+          if (recordHasReplyMark(record) || itemHasReplyMark(item)) return true
+          const uuidOf = (candidate) =>
+            typeof candidate?.uuid === 'string' && candidate.uuid !== '' ? candidate.uuid : ''
+          if (replied.uuids.has(uuidOf(item))) return true
+          if (uuidOf(item) === '') {
+            const items = Array.isArray(record?.items) ? record.items : []
+            for (const candidate of items) {
+              // 引文是答复与原条目之间最稳的对应关系；备注可能被服务端整理过，不能要求逐字相等。
+              if (candidate?.quote !== item?.quote) continue
+              if (replied.uuids.has(uuidOf(candidate))) return true
+              if (
+                Number.isFinite(candidate?.index) &&
+                typeof item?.quote === 'string' &&
+                replied.legacy.has(`${candidate.index}\u0000${item.quote}`)
+              ) {
+                return true
+              }
+            }
+          }
+          if (Number.isFinite(item?.index)) {
+            return replied.legacy.has(`${item.index}\u0000${typeof item.quote === 'string' ? item.quote : ''}`)
+          }
+          return false
+        }
+
+        /**
+         * 把一条已发送记录里的批注原样追加回待发送列表（图片也带上）。
+         * 已经被答复过的条目不进队列，只把重放数据写进剪贴板，避免重复提交。
+         * @param record - 这批条目所属的台账记录；用来读批次级答复标记。
+         * @param force - 会话回退恢复等场景强制入列，不再判断答复。
+         */
+        function reuseSentItems(items, record = null, force = false) {
           const list = Array.isArray(items) ? items : []
-          const normalized = []
+          const sessionId = currentSessionId()
+          const replied = force || sessionId === undefined ? null : repliedMarksOf(sessionId)
+          const keep = []
+          const answered = []
           for (const item of list) {
             if (typeof item?.quote !== 'string' && typeof item?.note !== 'string') continue
             const images = (Array.isArray(item.thumbs) ? item.thumbs : [])
@@ -4958,14 +5183,20 @@ const rewindHandled = new Map()
                   bytes: Math.round((full.length * 3) / 4),
                 }
               })
-            normalized.push({
+            const entry = {
               quote: typeof item.quote === 'string' ? item.quote : '',
               note: typeof item.note === 'string' ? item.note : '',
               images,
               source: item.source,
-            })
+            }
+            if (replied !== null && itemWasAnswered(item, record, replied)) answered.push(entry)
+            else keep.push(entry)
           }
-          return addUniqueAnnotations(normalized)
+          if (answered.length > 0) {
+            // 不 await：回放本身是同步动作，剪贴板提示由 copyAnnotationsToClipboard 自己收尾。
+            void copyAnnotationsToClipboard(answered, undefined, t('sent.replayCopied'))
+          }
+          return keep.length === 0 ? 0 : addUniqueAnnotations(keep)
         }
 
         function deleteFromPopover() {
@@ -6594,7 +6825,7 @@ const rewindHandled = new Map()
           const items = removed
             .sort((left, right) => left.record.savedAt - right.record.savedAt)
             .flatMap(({ record }) => (Array.isArray(record.items) ? record.items : []))
-          if (items.length > 0) reuseSentItems(items)
+          if (items.length > 0) reuseSentItems(items, null, true)
           // 这里直接摘掉了卡片与答复区，正文位置变了：高亮必须重新量。
           if (removed.length > 0) markHighlightsDirty()
           scheduleRepaint('poll')
@@ -6745,7 +6976,10 @@ const rewindHandled = new Map()
               popResize = null
               popover.classList.remove('sa-pop-resizing')
               const sized = popover.getBoundingClientRect()
-              if (sized.width > 0 && sized.height > 0) savePopoverSize(sized.width, sized.height)
+              // 只读面板的拖拽尺寸只留在内存里，不写编辑面板记住的那一份。
+              if (sized.width > 0 && sized.height > 0 && popoverMode !== 'sent') {
+                savePopoverSize(sized.width, sized.height)
+              }
             }
             if (popDrag === null) return
             popDrag = null
@@ -6791,6 +7025,35 @@ const rewindHandled = new Map()
           document.addEventListener('pointerdown', onMenuPointerDown, true)
           document.addEventListener('click', onDocumentClick, true)
           document.addEventListener('keydown', onDocumentKeydown, true)
+          // 元素尺寸变化（折叠展开/收起、换行重排）不一定改窗口尺寸、也不一定触发滚动：
+          // 观察会话内容列与它外层的滚动容器，尺寸一变就重算高亮。
+          let resizeObserver = null
+          let resizeTargets = new Set()
+          const syncResizeTargets = () => {
+            if (typeof ResizeObserver !== 'function') return
+            if (resizeObserver === null) {
+              resizeObserver = new ResizeObserver(() => {
+                highlightDirty = true
+                scheduleRepaint('mutation')
+              })
+            }
+            // 重绘会重建部分节点：只保留当前这棵树上还在的目标，旧节点及时 unobserve，避免集合一路上涨。
+            const next = new Set()
+            const observe = (element) => {
+              if (element === null || element === undefined || next.has(element)) return
+              next.add(element)
+              safe(() => resizeObserver.observe(element))
+            }
+            for (const element of document.querySelectorAll('[data-chat-flow]')) {
+              observe(element)
+              // 内容列变高变矮时滚动容器不会触发 resize，但列自己的尺寸会变；两层都观察更稳。
+              for (const container of scrollAncestorsOf(element)) observe(container)
+            }
+            for (const element of resizeTargets) {
+              if (!next.has(element)) safe(() => resizeObserver.unobserve(element))
+            }
+            resizeTargets = next
+          }
           const onViewport = (event) => {
             // 滚动与窗口尺寸变化会移动正文：高亮要重新量，但会话区不必重建。
             highlightDirty = true
@@ -6802,6 +7065,8 @@ const rewindHandled = new Map()
               markViewportResize()
               clampPanelToViewport()
               clampSizedPopoverToViewport()
+              // 只在窗口尺寸变化时重建观察目标：滚动事件太密，逐次 querySelectorAll 会拖慢滚动。
+              syncResizeTargets()
             }
           }
           window.addEventListener('scroll', onViewport, true)
@@ -6816,7 +7081,10 @@ const rewindHandled = new Map()
               if (pendingSent.length > 0) safe(() => scanSentMessages())
               // 宿主自己的重排、流式增量、时间刷新都不再排重绘：会话区只在数据真的变了、
               // 或有卡片/答复等着落位时才重建。滚动与窗口尺寸变化走 onViewport，只更新高亮。
-              if (conversationNeedsRender()) scheduleRepaint('mutation')
+              if (conversationNeedsRender()) {
+                syncResizeTargets()
+                scheduleRepaint('mutation')
+              }
               return
             }
           })
@@ -6825,6 +7093,7 @@ const rewindHandled = new Map()
           scheduleRepaint('mount')
           // 追踪监听早一步挂上：挂载后即便没有重建，用户滚动也能记到是谁动的。
           safe(() => watchConversationScroll())
+          syncResizeTargets()
           return () => {
             scrollTrace.dispose()
             markdown.dispose()
@@ -6844,6 +7113,7 @@ const rewindHandled = new Map()
             document.removeEventListener('keydown', onPanelEscapeKeyDown)
             window.removeEventListener('scroll', onViewport, true)
             window.removeEventListener('resize', onViewport)
+            if (resizeObserver !== null) resizeObserver.disconnect()
             observer.disconnect()
           }
         })
@@ -6853,9 +7123,18 @@ const rewindHandled = new Map()
         ctx.effect(() => {
           const onTurnProcessClick = (event) => {
             const target = elementOf(event.target)
-            const button = target === null ? null : target.closest('[data-turn-process]')
-            if (button === null) return
-            window.requestAnimationFrame(() => syncReplyCollapse(button))
+            if (target === null) return
+            const button = target.closest('[data-turn-process]')
+            // 过程分组的折叠头是 aria-expanded 按钮，挂在 [data-step-process] 的第一个子元素里。
+            const groupButton = target.closest('button[aria-expanded]')
+            const groupRoot = groupButton === null ? null : groupButton.closest('[data-step-process]')
+            const groupHeader =
+              groupRoot !== null && groupRoot.firstElementChild?.contains(groupButton) === true ? groupButton : null
+            if (button === null && groupHeader === null) return
+            // 展开/折叠会挪动正文：高亮必须重新量到新的可见标题行。
+            highlightDirty = true
+            scheduleRepaint('mutation')
+            if (button !== null) window.requestAnimationFrame(() => syncReplyCollapse(button))
           }
           document.addEventListener('click', onTurnProcessClick, true)
           return () => {

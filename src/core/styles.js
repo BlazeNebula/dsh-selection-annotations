@@ -148,6 +148,9 @@ export const CSS = `
 /* 「引用原文」标题行：左标题、右跳转按钮，失败提示接在按钮后面。*/
 .sa-pop-quote-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-quote-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
+/* 「批注」标题行：同一套左标题右跳转，只读态用它放第二个「查看出处」。*/
+.sa-pop-note-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
+.sa-pop-note-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
 .sa-pop-jump-hint { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }
@@ -333,6 +336,8 @@ export const CSS = `
 .sa-pop-image-remove { position: absolute; top: 0; right: 0; width: 16px; height: 16px; padding: 0; line-height: 1;
   cursor: pointer; border: none; border-radius: 0 0 0 6px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); color: #fff; background: rgb(0 0 0 / 0.55); }
 .sa-pop-images-hint { font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); color: var(--dsw-alias-label-secondary, GrayText); }
+/* 只读面板的图片只展示，不给移除入口。*/
+.sa-pop-images[data-readonly="1"] .sa-pop-image-remove { display: none; }
 .sa-item-images { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
 .sa-item-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); }
