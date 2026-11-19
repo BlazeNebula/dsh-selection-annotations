@@ -154,5 +154,5 @@ export function createScrollTrace() {
 
   bindPageListeners()
 
-  return { setEnabled, flush, repaint, markWrite, watch, dispose }
+  return { setEnabled, flush, push, repaint, markWrite, watch, dispose }
 }

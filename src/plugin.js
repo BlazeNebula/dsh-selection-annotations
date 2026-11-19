@@ -573,6 +573,7 @@ const rewindHandled = new Map()
                 ...(anchorKey !== undefined ? { anchorKey } : {}),
                 ...(batchUuid !== undefined ? { batchUuid } : {}),
                 ...(batchSeq !== undefined ? { batchSeq } : {}),
+                ...(value.unsynced === true ? { unsynced: true } : {}),
               })
             }
             if (table.size > 0) {
@@ -1078,12 +1079,73 @@ const rewindHandled = new Map()
           return uuids.every((uuid) => uuid !== '') ? uuids : undefined
         }
 
-        /**
-         * 新宿主落账：本地卡片已经出来，这里只补批号与条目 uuid。
-         * 旧宿主、离线、报错都什么都不改，整份快照推送照旧兜底。
-         */
-        function syncSentBatch(sessionId, anchorKey, items, turn, batchAt) {
-          if (typeof sessionId !== 'string' || sessionId === '' || !Array.isArray(items) || items.length === 0) return
+        /** 本次页面生命周期内每条记录最多自动重试 3 次；键带会话，避免同锚点跨会话互相计数。*/
+        const sentBatchRetries = new Map()
+        /** 同一记录同一时间只允许一个 POST 在飞：重绘可能连续排几遍，避免把重试次数一次烧光。*/
+        const sentBatchInflight = new Set()
+        const SENT_BATCH_RETRY_MAX = 3
+
+        function sentRetryKey(sessionId, storedKey) {
+          return `${sessionId}\u0000${storedKey}`
+        }
+
+        /** 只改台账记录里的 unsynced 标记；返回是否真的写回了一次。*/
+        function setSentUnsynced(sessionId, storedKey, unsynced) {
+          const table = sentStore.loadSent(sessionId)
+          const record = table.get(storedKey)
+          if (record === undefined) return false
+          if ((record.unsynced === true) === unsynced) return false
+          const next = { ...record }
+          if (unsynced) next.unsynced = true
+          else delete next.unsynced
+          table.set(storedKey, next)
+          sentStore.saveSent(sessionId, table)
+          return true
+        }
+
+        /** 卡片标题旁的小标记：只加在已发送卡片的标题行，不参与布局计算。*/
+        function paintUnsyncedBadge(card, unsynced) {
+          if (card === null || typeof card?.querySelector !== 'function') return
+          const existing = card.querySelector('.sa-sent-unsynced')
+          if (!unsynced) {
+            if (existing !== null) existing.remove()
+            return
+          }
+          if (existing !== null) return
+          const title = card.querySelector('.sa-section-title')
+          if (title === null || title.parentElement === null) return
+          const badge = el('span', 'sa-sent-unsynced', t('sent.unsynced'))
+          badge.setAttribute('data-sa-field', 'unsynced')
+          title.parentElement.insertBefore(badge, title.nextSibling)
+        }
+
+        /** 批次失败：留一条 trace、把台账标成未同步，并让卡片重画一次把标记露出来。*/
+        function markSentUnsynced(sessionId, storedKey, count, status, reason) {
+          const record = sentStore.loadSent(sessionId).get(storedKey)
+          const anchorKey =
+            typeof record?.anchorKey === 'string' && record.anchorKey !== '' ? record.anchorKey : storedKey
+          scrollTrace.push({
+            t: Date.now(),
+            kind: 'batch-fail',
+            status: Number.isFinite(status) ? status : 0,
+            sessionId,
+            anchorKey,
+            items: count,
+            reason: String(reason ?? ''),
+          })
+          // 旧宿主没有批次接口（404/405）：整份快照仍会落库，标未同步是误报，只留 trace。
+          if (reason === 'unsupported') return
+          setSentUnsynced(sessionId, storedKey, true)
+          if (currentSessionId() === sessionId) {
+            const card = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
+            paintUnsyncedBadge(card, true)
+            markConversationDirty()
+            scheduleRepaint('batch-fail')
+          }
+        }
+
+        /** 发送请求体：锚点优先用台账里解析后的消息行锚点，旧键（time:/turn-process）不会写进宿主。*/
+        function sentBatchBody(sessionId, storedKey, items, turn, batchAt, bodyAnchorKey) {
           // thumbs 是本地缩略图，不进宿主请求：宿主只认 uuid/index/quote/note/source/images。
           const wireItems = items.map((item) => ({
             ...(typeof item.uuid === 'string' && item.uuid !== '' ? { uuid: item.uuid } : {}),
@@ -1095,44 +1157,93 @@ const rewindHandled = new Map()
           }))
           // 批号随台账走：同批重发时重复发送同一个值，宿主才能认成同一批而不是新批次。
           // 老记录没有编号时不发该字段，等宿主返回后再由 updateSentBatch 回填。
-          const storedRecord = sentStore.loadSent(sessionId).get(anchorKey)
+          const storedRecord = sentStore.loadSent(sessionId).get(storedKey)
           const batchUuid =
             typeof storedRecord?.batchUuid === 'string' && storedRecord.batchUuid !== ''
               ? storedRecord.batchUuid
               : undefined
-          const body = {
+          return {
             ...(Number.isFinite(turn) ? { turn } : {}),
-            anchor_key: anchorKey,
+            anchor_key: bodyAnchorKey,
             ...(Number.isFinite(batchAt) ? { batch_at: batchAt } : {}),
             ...(batchUuid !== undefined ? { batch_uuid: batchUuid } : {}),
             items: wireItems,
           }
+        }
+
+        /**
+         * 新宿主落账：本地卡片已经出来，这里只补批号与条目 uuid。
+         * 失败时不再静默：把记录标成未同步并留一条 batch-fail trace，卡片标题旁会显示「未同步」。
+         */
+        function syncSentBatch(sessionId, storedKey, items, turn, batchAt) {
+          if (typeof sessionId !== 'string' || sessionId === '' || !Array.isArray(items) || items.length === 0) return
+          const flightKey = sentRetryKey(sessionId, storedKey)
+          if (sentBatchInflight.has(flightKey)) return
+          sentBatchInflight.add(flightKey)
+          const settle = () => sentBatchInflight.delete(flightKey)
+          const storedRecord = sentStore.loadSent(sessionId).get(storedKey)
+          const bodyAnchorKey =
+            typeof storedRecord?.anchorKey === 'string' && storedRecord.anchorKey !== ''
+              ? storedRecord.anchorKey
+              : storedKey
           void remoteSync
-            .createBatch(sessionId, body)
+            .createBatch(sessionId, sentBatchBody(sessionId, storedKey, items, turn, batchAt, bodyAnchorKey))
             .then((result) => {
-              if (result === undefined) return
+              settle()
+              if (result === undefined || result?.ok !== true) {
+                const status = Number.isFinite(result?.status) ? result.status : 0
+                const reason =
+                  typeof result?.reason === 'string' && result.reason !== '' ? result.reason : 'unknown'
+                markSentUnsynced(sessionId, storedKey, items.length, status, reason)
+                return
+              }
+              sentBatchRetries.delete(sentRetryKey(sessionId, storedKey))
+              // 成功落库：先摘掉未同步标记，再回填批号与条目 uuid。
+              setSentUnsynced(sessionId, storedKey, false)
               const batchUuid =
                 typeof result.batch_uuid === 'string' && result.batch_uuid !== '' ? result.batch_uuid : undefined
               const batchSeq = Number.isSafeInteger(result.batch_seq) ? result.batch_seq : undefined
-              if (batchUuid === undefined && batchSeq === undefined) return
               if (batchUuid !== undefined) {
                 // 创建批次时可能还不知道 turn / 真实锚点：消息行出现后回填，只补空值。
                 void remoteSync
                   .patchBatch(batchUuid, {
                     ...(Number.isFinite(turn) ? { turn } : {}),
-                    ...(typeof anchorKey === 'string' && anchorKey !== '' ? { anchor_key: anchorKey } : {}),
+                    ...(typeof bodyAnchorKey === 'string' && bodyAnchorKey !== ''
+                      ? { anchor_key: bodyAnchorKey }
+                      : {}),
                   })
                   .catch(() => {})
               }
-              updateSentBatch(sessionId, anchorKey, {
-                batchUuid,
-                batchSeq,
-                uuids: batchItemUuids(result, items.length),
-              })
+              if (batchUuid !== undefined || batchSeq !== undefined) {
+                updateSentBatch(sessionId, storedKey, {
+                  batchUuid,
+                  batchSeq,
+                  uuids: batchItemUuids(result, items.length),
+                })
+              }
+              if (currentSessionId() === sessionId) {
+                const card = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
+                paintUnsyncedBadge(card, false)
+              }
               // 回填只发生一次：这时才需要重建一遍会话区，让答复按 uuid 归到这张卡上。
               scheduleRepaint('emit')
             })
-            .catch(() => {})
+            .catch((error) => {
+              settle()
+              const reason = error instanceof Error && error.message !== '' ? error.message : 'network'
+              markSentUnsynced(sessionId, storedKey, items.length, 0, reason)
+            })
+        }
+
+        /** 重绘时补一次失败批次；同一条记录最多 3 次，成功在 syncSentBatch 里清计数。*/
+        function retryUnsyncedSentBatch(sessionId, storedKey, record) {
+          if (record?.unsynced !== true) return
+          const retryKey = sentRetryKey(sessionId, storedKey)
+          if (sentBatchInflight.has(retryKey)) return
+          const used = sentBatchRetries.get(retryKey) ?? 0
+          if (used >= SENT_BATCH_RETRY_MAX) return
+          sentBatchRetries.set(retryKey, used + 1)
+          syncSentBatch(sessionId, storedKey, record.items, turnOfRecord(record, storedKey), record.savedAt)
         }
 
         /**
@@ -1748,6 +1859,8 @@ const rewindHandled = new Map()
               stats.reasons.emptyItems += 1
               continue
             }
+            // 上次没落库的批次：借这次重绘补一次，最多 3 次，成功会在 syncSentBatch 里清标记与计数。
+            if (record.unsynced === true) retryUnsyncedSentBatch(sessionId, storedKey, record)
             let anchorKey = typeof record.anchorKey === 'string' && record.anchorKey !== ''
               ? record.anchorKey
               : resolveLegacyAnchor(storedKey)
@@ -1827,6 +1940,7 @@ const rewindHandled = new Map()
             card.setAttribute('data-anchor', anchorKey)
             if (Number.isFinite(turn)) card.setAttribute('data-sa-turn', String(turn))
             else if (typeof card.removeAttribute === 'function') card.removeAttribute('data-sa-turn')
+            paintUnsyncedBadge(card, record.unsynced === true)
             // 批注优先挂在用户消息气泡下方：插队（steering）消息还没有轮次尾行时也能出现，
             // 位置也贴着「自己这一条」，不必等整轮结束。等待态气泡在上面已跳过。
             const bubbleKind = row === null ? '' : (row.getAttribute('data-chat-flow-kind') ?? '')

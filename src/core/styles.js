@@ -513,6 +513,9 @@ export const CSS = `
 .sa-sent { display: block; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; }
 .sa-sent-body { margin: 0; padding: 6px 8px; box-sizing: border-box; border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: var(--dsw-alias-bg-layer-1, Canvas); }
+/* 批次没落库：标题后跟一个警告色小字，只占文字宽度，不改变标题行布局。*/
+.sa-sent-unsynced { margin-left: 6px; font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
+  color: var(--dsw-alias-state-warn-primary, #f59e0b); }
 /* 跳转落到答复卡/正文行时闪三下：只提亮外圈，尺寸与底色不动，避免落点轻微跳动。*/
 .sa-reply-flash {
   outline: 2px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 70%, transparent);

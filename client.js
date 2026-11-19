@@ -515,6 +515,9 @@
 .sa-sent { display: block; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; }
 .sa-sent-body { margin: 0; padding: 6px 8px; box-sizing: border-box; border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: var(--dsw-alias-bg-layer-1, Canvas); }
+/* 批次没落库：标题后跟一个警告色小字，只占文字宽度，不改变标题行布局。*/
+.sa-sent-unsynced { margin-left: 6px; font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
+  color: var(--dsw-alias-state-warn-primary, #f59e0b); }
 /* 跳转落到答复卡/正文行时闪三下：只提亮外圈，尺寸与底色不动，避免落点轻微跳动。*/
 .sa-reply-flash {
   outline: 2px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 70%, transparent);
@@ -769,6 +772,7 @@
       "chip.label": "批注",
       "chip.count": "批注 ×{n}",
       "sent.title": "已发送批注 ×{n}",
+      "sent.unsynced": "未同步",
       "sent.reuse": "回放所有批注",
       "sent.replayItem": "回放批注",
       "sent.replayCopied": "因批注已被答复，当前仅将重放数据写入剪贴板，必要时可自主粘贴",
@@ -919,6 +923,7 @@
       "chip.label": "Annotate",
       "chip.count": "Annotate ×{n}",
       "sent.title": "Sent annotations ×{n}",
+      "sent.unsynced": "Not synced",
       "sent.reuse": "Replay all annotations",
       "sent.replayItem": "Replay annotation",
       "sent.replayCopied": "This annotation has already been answered, so the replay data was copied to the clipboard only — paste it yourself if needed",
@@ -3566,7 +3571,9 @@ ${PICK_SCRIPT}<\/script>`;
               ...turn !== void 0 ? { turn } : {},
               ...anchorKey !== void 0 ? { anchorKey } : {},
               ...batchUuid !== void 0 ? { batchUuid } : {},
-              ...batchSeq !== void 0 ? { batchSeq } : {}
+              ...batchSeq !== void 0 ? { batchSeq } : {},
+              // 批次没落库的记录要跟着本地台账活到下一次重试，重启后也不能丢。
+              ...value.unsynced === true ? { unsynced: true } : {}
             });
           }
         }
@@ -3783,10 +3790,12 @@ ${PICK_SCRIPT}<\/script>`;
       return data !== null && typeof data === "object" && !Array.isArray(data) ? data : void 0;
     }
     async function createBatch(sessionId, body) {
-      if (typeof sessionId !== "string" || sessionId === "" || batchSupported === false) return void 0;
+      const failed = (status, reason) => ({ ok: false, status, reason });
+      if (typeof sessionId !== "string" || sessionId === "") return failed(0, "no-session");
+      if (batchSupported === false) return failed(0, "unsupported");
       if (typeof fetch !== "function") {
         batchSupported = false;
-        return void 0;
+        return failed(0, "no-fetch");
       }
       const previous = batchInflight.get(sessionId);
       const task = (previous ?? Promise.resolve()).then(async () => {
@@ -3798,14 +3807,15 @@ ${PICK_SCRIPT}<\/script>`;
           });
           if (response.status === 404 || response.status === 405) {
             batchSupported = false;
-            return void 0;
+            return failed(response.status, "unsupported");
           }
-          if (!response.ok) return void 0;
+          if (!response.ok) return failed(response.status, "http");
           const data = await readObject(response);
-          if (data !== void 0) batchSupported = true;
-          return data;
+          if (data === void 0) return failed(response.status, "empty");
+          batchSupported = true;
+          return { ...data, ok: true };
         } catch {
-          return void 0;
+          return failed(0, "network");
         }
       });
       batchInflight.set(sessionId, task);
@@ -3978,7 +3988,7 @@ ${PICK_SCRIPT}<\/script>`;
       flush();
     }
     bindPageListeners();
-    return { setEnabled, flush, repaint, markWrite, watch, dispose };
+    return { setEnabled, flush, push, repaint, markWrite, watch, dispose };
   }
 
   // src/core/image-codec.js
@@ -4606,7 +4616,8 @@ ${PICK_SCRIPT}<\/script>`;
                 ...turn !== void 0 ? { turn } : {},
                 ...anchorKey !== void 0 ? { anchorKey } : {},
                 ...batchUuid !== void 0 ? { batchUuid } : {},
-                ...batchSeq !== void 0 ? { batchSeq } : {}
+                ...batchSeq !== void 0 ? { batchSeq } : {},
+                ...value.unsynced === true ? { unsynced: true } : {}
               });
             }
             if (table.size > 0) {
@@ -4999,8 +5010,60 @@ ${PICK_SCRIPT}<\/script>`;
           );
           return uuids.every((uuid) => uuid !== "") ? uuids : void 0;
         }
-        function syncSentBatch(sessionId, anchorKey, items, turn, batchAt) {
-          if (typeof sessionId !== "string" || sessionId === "" || !Array.isArray(items) || items.length === 0) return;
+        const sentBatchRetries = /* @__PURE__ */ new Map();
+        const sentBatchInflight = /* @__PURE__ */ new Set();
+        const SENT_BATCH_RETRY_MAX = 3;
+        function sentRetryKey(sessionId, storedKey) {
+          return `${sessionId}\0${storedKey}`;
+        }
+        function setSentUnsynced(sessionId, storedKey, unsynced) {
+          const table = sentStore.loadSent(sessionId);
+          const record = table.get(storedKey);
+          if (record === void 0) return false;
+          if (record.unsynced === true === unsynced) return false;
+          const next = { ...record };
+          if (unsynced) next.unsynced = true;
+          else delete next.unsynced;
+          table.set(storedKey, next);
+          sentStore.saveSent(sessionId, table);
+          return true;
+        }
+        function paintUnsyncedBadge(card, unsynced) {
+          if (card === null || typeof card?.querySelector !== "function") return;
+          const existing = card.querySelector(".sa-sent-unsynced");
+          if (!unsynced) {
+            if (existing !== null) existing.remove();
+            return;
+          }
+          if (existing !== null) return;
+          const title = card.querySelector(".sa-section-title");
+          if (title === null || title.parentElement === null) return;
+          const badge = el("span", "sa-sent-unsynced", t("sent.unsynced"));
+          badge.setAttribute("data-sa-field", "unsynced");
+          title.parentElement.insertBefore(badge, title.nextSibling);
+        }
+        function markSentUnsynced(sessionId, storedKey, count, status, reason) {
+          const record = sentStore.loadSent(sessionId).get(storedKey);
+          const anchorKey = typeof record?.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : storedKey;
+          scrollTrace.push({
+            t: Date.now(),
+            kind: "batch-fail",
+            status: Number.isFinite(status) ? status : 0,
+            sessionId,
+            anchorKey,
+            items: count,
+            reason: String(reason ?? "")
+          });
+          if (reason === "unsupported") return;
+          setSentUnsynced(sessionId, storedKey, true);
+          if (currentSessionId() === sessionId) {
+            const card = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
+            paintUnsyncedBadge(card, true);
+            markConversationDirty();
+            scheduleRepaint("batch-fail");
+          }
+        }
+        function sentBatchBody(sessionId, storedKey, items, turn, batchAt, bodyAnchorKey) {
           const wireItems = items.map((item) => ({
             ...typeof item.uuid === "string" && item.uuid !== "" ? { uuid: item.uuid } : {},
             index: item.index,
@@ -5009,35 +5072,69 @@ ${PICK_SCRIPT}<\/script>`;
             source: item.source,
             ...Array.isArray(item.images) ? { images: item.images } : {}
           }));
-          const storedRecord = sentStore.loadSent(sessionId).get(anchorKey);
+          const storedRecord = sentStore.loadSent(sessionId).get(storedKey);
           const batchUuid = typeof storedRecord?.batchUuid === "string" && storedRecord.batchUuid !== "" ? storedRecord.batchUuid : void 0;
-          const body = {
+          return {
             ...Number.isFinite(turn) ? { turn } : {},
-            anchor_key: anchorKey,
+            anchor_key: bodyAnchorKey,
             ...Number.isFinite(batchAt) ? { batch_at: batchAt } : {},
             ...batchUuid !== void 0 ? { batch_uuid: batchUuid } : {},
             items: wireItems
           };
-          void remoteSync.createBatch(sessionId, body).then((result) => {
-            if (result === void 0) return;
-            const batchUuid2 = typeof result.batch_uuid === "string" && result.batch_uuid !== "" ? result.batch_uuid : void 0;
+        }
+        function syncSentBatch(sessionId, storedKey, items, turn, batchAt) {
+          if (typeof sessionId !== "string" || sessionId === "" || !Array.isArray(items) || items.length === 0) return;
+          const flightKey = sentRetryKey(sessionId, storedKey);
+          if (sentBatchInflight.has(flightKey)) return;
+          sentBatchInflight.add(flightKey);
+          const settle = () => sentBatchInflight.delete(flightKey);
+          const storedRecord = sentStore.loadSent(sessionId).get(storedKey);
+          const bodyAnchorKey = typeof storedRecord?.anchorKey === "string" && storedRecord.anchorKey !== "" ? storedRecord.anchorKey : storedKey;
+          void remoteSync.createBatch(sessionId, sentBatchBody(sessionId, storedKey, items, turn, batchAt, bodyAnchorKey)).then((result) => {
+            settle();
+            if (result === void 0 || result?.ok !== true) {
+              const status = Number.isFinite(result?.status) ? result.status : 0;
+              const reason = typeof result?.reason === "string" && result.reason !== "" ? result.reason : "unknown";
+              markSentUnsynced(sessionId, storedKey, items.length, status, reason);
+              return;
+            }
+            sentBatchRetries.delete(sentRetryKey(sessionId, storedKey));
+            setSentUnsynced(sessionId, storedKey, false);
+            const batchUuid = typeof result.batch_uuid === "string" && result.batch_uuid !== "" ? result.batch_uuid : void 0;
             const batchSeq = Number.isSafeInteger(result.batch_seq) ? result.batch_seq : void 0;
-            if (batchUuid2 === void 0 && batchSeq === void 0) return;
-            if (batchUuid2 !== void 0) {
-              void remoteSync.patchBatch(batchUuid2, {
+            if (batchUuid !== void 0) {
+              void remoteSync.patchBatch(batchUuid, {
                 ...Number.isFinite(turn) ? { turn } : {},
-                ...typeof anchorKey === "string" && anchorKey !== "" ? { anchor_key: anchorKey } : {}
+                ...typeof bodyAnchorKey === "string" && bodyAnchorKey !== "" ? { anchor_key: bodyAnchorKey } : {}
               }).catch(() => {
               });
             }
-            updateSentBatch(sessionId, anchorKey, {
-              batchUuid: batchUuid2,
-              batchSeq,
-              uuids: batchItemUuids(result, items.length)
-            });
+            if (batchUuid !== void 0 || batchSeq !== void 0) {
+              updateSentBatch(sessionId, storedKey, {
+                batchUuid,
+                batchSeq,
+                uuids: batchItemUuids(result, items.length)
+              });
+            }
+            if (currentSessionId() === sessionId) {
+              const card = document.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`);
+              paintUnsyncedBadge(card, false);
+            }
             scheduleRepaint("emit");
-          }).catch(() => {
+          }).catch((error) => {
+            settle();
+            const reason = error instanceof Error && error.message !== "" ? error.message : "network";
+            markSentUnsynced(sessionId, storedKey, items.length, 0, reason);
           });
+        }
+        function retryUnsyncedSentBatch(sessionId, storedKey, record) {
+          if (record?.unsynced !== true) return;
+          const retryKey = sentRetryKey(sessionId, storedKey);
+          if (sentBatchInflight.has(retryKey)) return;
+          const used = sentBatchRetries.get(retryKey) ?? 0;
+          if (used >= SENT_BATCH_RETRY_MAX) return;
+          sentBatchRetries.set(retryKey, used + 1);
+          syncSentBatch(sessionId, storedKey, record.items, turnOfRecord(record, storedKey), record.savedAt);
         }
         function collectAnchorRows() {
           const rows = [];
@@ -5508,6 +5605,7 @@ ${PICK_SCRIPT}<\/script>`;
               stats.reasons.emptyItems += 1;
               continue;
             }
+            if (record.unsynced === true) retryUnsyncedSentBatch(sessionId, storedKey, record);
             let anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
             let row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`);
             let turn = turnOfRecord(record, storedKey);
@@ -5573,6 +5671,7 @@ ${PICK_SCRIPT}<\/script>`;
             card.setAttribute("data-anchor", anchorKey);
             if (Number.isFinite(turn)) card.setAttribute("data-sa-turn", String(turn));
             else if (typeof card.removeAttribute === "function") card.removeAttribute("data-sa-turn");
+            paintUnsyncedBadge(card, record.unsynced === true);
             const bubbleKind = row === null ? "" : row.getAttribute("data-chat-flow-kind") ?? "";
             const onBubble = !Number.isFinite(turn) && row !== null && (bubbleKind === "user" || bubbleKind === "steering");
             if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {

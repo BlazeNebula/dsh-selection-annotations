@@ -105,13 +105,16 @@ export function createRemoteSync(getSnapshot) {
 
   /**
    * 新建一批已提交批注。旧宿主（404/405）只判一次，之后直接走整份快照。
-   * 连不上、接口报错都返回 undefined，调用方保持本地记录原样。
+   * 失败统一返回 `{ ok: false, status, reason }`，调用方据此决定是否标记未同步；
+   * 成功返回后端对象并补 `ok: true`，`batch_uuid` / `items` 等字段原样保留。
    */
   async function createBatch(sessionId, body) {
-    if (typeof sessionId !== 'string' || sessionId === '' || batchSupported === false) return undefined
+    const failed = (status, reason) => ({ ok: false, status, reason })
+    if (typeof sessionId !== 'string' || sessionId === '') return failed(0, 'no-session')
+    if (batchSupported === false) return failed(0, 'unsupported')
     if (typeof fetch !== 'function') {
       batchSupported = false
-      return undefined
+      return failed(0, 'no-fetch')
     }
     // 同会话的批次按发送顺序串行：既保证 batch_seq 与页面顺序一致，也让整份快照排在所有 POST 之后。
     const previous = batchInflight.get(sessionId)
@@ -124,14 +127,15 @@ export function createRemoteSync(getSnapshot) {
         })
         if (response.status === 404 || response.status === 405) {
           batchSupported = false
-          return undefined
+          return failed(response.status, 'unsupported')
         }
-        if (!response.ok) return undefined
+        if (!response.ok) return failed(response.status, 'http')
         const data = await readObject(response)
-        if (data !== undefined) batchSupported = true
-        return data
+        if (data === undefined) return failed(response.status, 'empty')
+        batchSupported = true
+        return { ...data, ok: true }
       } catch {
-        return undefined
+        return failed(0, 'network')
       }
     })
     batchInflight.set(sessionId, task)

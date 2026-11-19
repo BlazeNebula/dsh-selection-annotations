@@ -39,6 +39,8 @@ export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxB
             ...(anchorKey !== undefined ? { anchorKey } : {}),
             ...(batchUuid !== undefined ? { batchUuid } : {}),
             ...(batchSeq !== undefined ? { batchSeq } : {}),
+            // 批次没落库的记录要跟着本地台账活到下一次重试，重启后也不能丢。
+            ...(value.unsynced === true ? { unsynced: true } : {}),
           })
         }
       }
