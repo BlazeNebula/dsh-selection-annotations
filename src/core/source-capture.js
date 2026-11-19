@@ -5,16 +5,46 @@ import { offsetRange, pathFromPreviewUrl, lineRangeWithin, rangeFromOffsets } fr
 const MAX_SEGMENTS = 8
 
 /**
- * 会打断阅读顺序的块元素：跨过它们就是另一段。行内元素（strong/em/code/a/span）不切段，
- * 否则一句话被加粗切开就会变成两段，反而更难定位。
+ * 会打断阅读顺序的块级标签：跨过它们就是另一段。
+ * 行内元素（strong/em/code/a/span）不在这里 —— 一句话被加粗、链接或行内代码切开时仍算一段，
+ * 否则同一行会被切成好几段，反而更难定位。
  */
-const BLOCK_SELECTOR = 'p,li,pre,blockquote,h1,h2,h3,h4,h5,h6,td,th,dd,dt,figcaption,div,section,article,tr'
+const BLOCK_TAGS = new Set([
+  'p', 'li', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'td', 'th', 'dd', 'dt', 'figcaption', 'div', 'section', 'article', 'tr',
+])
 
-/** 文本节点所属的块：同一个块里的文本归一段。*/
-function blockOf(element) {
+/**
+ * 行内标签：永不作为切段边界，哪怕它自身带样式（DSH 正文里的行内代码就是
+ * `<code>`，display:inline-flex，左右各 5px padding）。清单与 BLOCK_TAGS 互斥；
+ * 两处都显式检查，以后增删任一侧都不会把行内元素误判成块。
+ */
+const INLINE_TAGS = new Set([
+  'a', 'abbr', 'b', 'code', 'em', 'i', 'kbd', 'mark', 'q', 's', 'samp',
+  'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var',
+])
+
+/**
+ * 文本节点所属的块：从元素自身向上找第一个块级标签，最多找到 root（含 root）。
+ * 只有真的落到块元素才切段；行内元素与自定义标签都跳过，也不允许越过 root
+ * 去认外面更大的块 —— 那会把相邻字段甚至别的消息行并进同一段。
+ * 在 root 内找不到块元素时返回 null：整根按同一段处理，只会少切、不会多切。
+ * @param element - 文本节点的父元素。
+ * @param root - 本次遍历的根，切段边界必须落在它里面。
+ */
+function blockOf(element, root) {
   if (element === null || element === undefined) return null
-  const block = safe(() => element.closest(BLOCK_SELECTOR)) ?? null
-  return block ?? element
+  const limit = root ?? null
+  let node = element
+  while (node !== null && node !== undefined) {
+    if (node.nodeType === 1) {
+      const tag = String(node.tagName ?? '').toLowerCase()
+      if (BLOCK_TAGS.has(tag) && !INLINE_TAGS.has(tag)) return node
+    }
+    if (node === limit) return null
+    node = node.parentElement
+  }
+  return null
 }
 
 function anchorKeyOfNode(node) {
@@ -65,7 +95,7 @@ export function buildSegments(root, range, source) {
       const end = node === range.endContainer ? range.endOffset : value.length
       if (end > start) {
         const anchorKey = anchorKeyOfNode(node) || fallbackAnchorKey
-        const block = blockOf(node.parentElement)
+        const block = blockOf(node.parentElement, root)
         const quoteStart = cursor
         const quoteEnd = cursor + (end - start)
         cursor = quoteEnd

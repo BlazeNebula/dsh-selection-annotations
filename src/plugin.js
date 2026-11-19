@@ -2744,31 +2744,113 @@ const rewindHandled = new Map()
         }
 
         /**
-         * 分段命中的矩形合并：同一行、高度一致、水平间距不超过 4px 的两块并成一块。
-         * 逐段画框时，一段文字被加粗、链接切成多个矩形，不合并会留下断断续续的缝。
+         * 同一视觉行上可合并的几何容差。DSH 正文里的行内代码是 display:inline-flex，
+         * 左右各 5px padding 加 .5px 边框，Range.getClientRects() 会在它两侧各断一次，
+         * 留下 2-6px 的顶边/高度差与 4-8px 的水平间隙；旧容差 2/4/4 吃不掉，
+         * 代码后面的文字就被画成好几截。
          */
-        function mergeRunRects(rects) {
-          const out = []
-          for (const rect of rects) {
-            const last = out[out.length - 1]
-            const joinable =
-              last !== undefined &&
-              Math.abs(rect.top - last.top) <= 2 &&
-              Math.abs(rect.height - last.height) <= 4 &&
-              rect.left - (last.left + last.width) <= 4
-            if (!joinable) {
-              out.push({ left: rect.left, top: rect.top, width: rect.width, height: rect.height })
-              continue
-            }
-            const left = Math.min(last.left, rect.left)
-            const right = Math.max(last.left + last.width, rect.left + rect.width)
-            out[out.length - 1] = {
-              left,
-              top: Math.min(last.top, rect.top),
-              width: right - left,
-              height: Math.max(last.height, rect.height),
+        const RUN_TOP_TOLERANCE = 6
+        const RUN_HEIGHT_TOLERANCE = 6
+        const RUN_GAP_TOLERANCE = 12
+
+        /** 两块矩形是不是同一条视觉行：顶边与高度都落在容差内。*/
+        function sameRunLine(a, b) {
+          return Math.abs(a.top - b.top) <= RUN_TOP_TOLERANCE && Math.abs(a.height - b.height) <= RUN_HEIGHT_TOLERANCE
+        }
+
+        /** 水平间隙：相交时为负数。按左右外包算，不看两块谁先出现。*/
+        function runGap(a, b) {
+          const aRight = a.left + a.width
+          const bRight = b.left + b.width
+          return Math.max(a.left, b.left) - Math.min(aRight, bRight)
+        }
+
+        /**
+         * 并集：四边都取两块的外包，而不是沿用先出现那块的顶边；right/bottom 一并给出，
+         * 命中表里的 unionRects 读这两个值算整段外框（DOMRect 自带这两个字段，合并出来的普通对象也要有）。
+         */
+        function unionRunRect(a, b) {
+          const left = Math.min(a.left, b.left)
+          const right = Math.max(a.left + a.width, b.left + b.width)
+          const top = Math.min(a.top, b.top)
+          const bottom = Math.max(a.top + a.height, b.top + b.height)
+          return { left, top, width: right - left, height: bottom - top, right, bottom }
+        }
+
+        /** 没合上的同一行碎片按「间隙 x 高度差」只报一次：重绘每 120ms 一轮，逐轮打会刷屏。*/
+        const unmergedRunNotes = new Set()
+
+        /**
+         * 诊断只报「差一点就该并上」的情况：差值超过容差两倍的，多半是图、大块空白这类
+         * 本来就不该盖住的东西，报出来只会把真正的问题淹掉。
+         */
+        const UNMERGED_GAP_LIMIT = RUN_GAP_TOLERANCE * 2
+        const UNMERGED_HEIGHT_LIMIT = RUN_HEIGHT_TOLERANCE * 2
+
+        /**
+         * 合并后仍落在同一视觉行上的碎片，说明偏差超出了上面的容差，报一行供实测定位。
+         * 同一行按垂直中心判断，不要求顶边对齐 —— 顶边对不上正是走到这里的原因；
+         * 不同行之间的碎片不算，没有成对碎片时不打任何东西。
+         */
+        function reportUnmergedRun(rects) {
+          let gap = 0
+          let height = 0
+          let found = false
+          for (let i = 0; i < rects.length; i += 1) {
+            for (let j = i + 1; j < rects.length; j += 1) {
+              const a = rects[i]
+              const b = rects[j]
+              const aCenter = a.top + a.height / 2
+              const bCenter = b.top + b.height / 2
+              const sameLine = Math.abs(aCenter - bCenter) <= Math.max(RUN_TOP_TOLERANCE, Math.min(a.height, b.height) / 2)
+              if (!sameLine) continue
+              const pairGap = Math.max(0, runGap(a, b))
+              const pairHeight = Math.abs(a.height - b.height)
+              if (pairGap > UNMERGED_GAP_LIMIT || pairHeight > UNMERGED_HEIGHT_LIMIT) continue
+              found = true
+              gap = Math.max(gap, Math.round(pairGap))
+              height = Math.max(height, Math.round(pairHeight))
             }
           }
+          if (!found) return
+          const note = `${gap}x${height}`
+          if (unmergedRunNotes.has(note)) return
+          if (unmergedRunNotes.size >= 32) return
+          unmergedRunNotes.add(note)
+          warn(`[selection-annotations] 同行高亮未合并: 间隙 ${gap}px 高度差 ${height}px`)
+        }
+
+        /**
+         * 分段命中的矩形合并：同一视觉行、水平间隙不超过 12px 的碎片并成一块。
+         * 逐段画框时，一段文字被加粗、链接、行内代码切成多个矩形，不合并会留下断断续续的缝。
+         * 合并按「任意两块」反复进行，不依赖 getClientRects 的返回顺序；并集会让矩形继续
+         * 长大，并可能和更靠前的矩形接上，所以每并一次都从头再扫一遍，直到没有可并项。
+         */
+        function mergeRunRects(rects) {
+          const out = rects.map((rect) => ({
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+            right: rect.left + rect.width,
+            bottom: rect.top + rect.height,
+          }))
+          let joined = true
+          scan: while (joined) {
+            joined = false
+            for (let i = 0; i < out.length; i += 1) {
+              for (let j = i + 1; j < out.length; j += 1) {
+                const a = out[i]
+                const b = out[j]
+                if (!sameRunLine(a, b) || runGap(a, b) > RUN_GAP_TOLERANCE) continue
+                out[i] = unionRunRect(a, b)
+                out.splice(j, 1)
+                joined = true
+                continue scan
+              }
+            }
+          }
+          reportUnmergedRun(out)
           return out
         }
 

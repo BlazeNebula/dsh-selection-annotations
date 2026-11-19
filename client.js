@@ -1539,11 +1539,61 @@
 
   // src/core/source-capture.js
   var MAX_SEGMENTS = 8;
-  var BLOCK_SELECTOR = "p,li,pre,blockquote,h1,h2,h3,h4,h5,h6,td,th,dd,dt,figcaption,div,section,article,tr";
-  function blockOf(element) {
+  var BLOCK_TAGS = /* @__PURE__ */ new Set([
+    "p",
+    "li",
+    "pre",
+    "blockquote",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "td",
+    "th",
+    "dd",
+    "dt",
+    "figcaption",
+    "div",
+    "section",
+    "article",
+    "tr"
+  ]);
+  var INLINE_TAGS = /* @__PURE__ */ new Set([
+    "a",
+    "abbr",
+    "b",
+    "code",
+    "em",
+    "i",
+    "kbd",
+    "mark",
+    "q",
+    "s",
+    "samp",
+    "small",
+    "span",
+    "strong",
+    "sub",
+    "sup",
+    "time",
+    "u",
+    "var"
+  ]);
+  function blockOf(element, root) {
     if (element === null || element === void 0) return null;
-    const block = safe(() => element.closest(BLOCK_SELECTOR)) ?? null;
-    return block ?? element;
+    const limit = root ?? null;
+    let node = element;
+    while (node !== null && node !== void 0) {
+      if (node.nodeType === 1) {
+        const tag = String(node.tagName ?? "").toLowerCase();
+        if (BLOCK_TAGS.has(tag) && !INLINE_TAGS.has(tag)) return node;
+      }
+      if (node === limit) return null;
+      node = node.parentElement;
+    }
+    return null;
   }
   function anchorKeyOfNode(node) {
     const element = node === null || node === void 0 ? null : node.parentElement;
@@ -1574,7 +1624,7 @@
         const end = node === range.endContainer ? range.endOffset : value.length;
         if (end > start) {
           const anchorKey = anchorKeyOfNode(node) || fallbackAnchorKey;
-          const block = blockOf(node.parentElement);
+          const block = blockOf(node.parentElement, root);
           const quoteStart = cursor;
           const quoteEnd = cursor + (end - start);
           cursor = quoteEnd;
@@ -6174,24 +6224,79 @@ ${PICK_SCRIPT}<\/script>`;
           if (found !== void 0) item.liveRange = found;
           return found;
         }
-        function mergeRunRects(rects) {
-          const out = [];
-          for (const rect of rects) {
-            const last = out[out.length - 1];
-            const joinable = last !== void 0 && Math.abs(rect.top - last.top) <= 2 && Math.abs(rect.height - last.height) <= 4 && rect.left - (last.left + last.width) <= 4;
-            if (!joinable) {
-              out.push({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
-              continue;
+        const RUN_TOP_TOLERANCE = 6;
+        const RUN_HEIGHT_TOLERANCE = 6;
+        const RUN_GAP_TOLERANCE = 12;
+        function sameRunLine(a, b) {
+          return Math.abs(a.top - b.top) <= RUN_TOP_TOLERANCE && Math.abs(a.height - b.height) <= RUN_HEIGHT_TOLERANCE;
+        }
+        function runGap(a, b) {
+          const aRight = a.left + a.width;
+          const bRight = b.left + b.width;
+          return Math.max(a.left, b.left) - Math.min(aRight, bRight);
+        }
+        function unionRunRect(a, b) {
+          const left = Math.min(a.left, b.left);
+          const right = Math.max(a.left + a.width, b.left + b.width);
+          const top = Math.min(a.top, b.top);
+          const bottom = Math.max(a.top + a.height, b.top + b.height);
+          return { left, top, width: right - left, height: bottom - top, right, bottom };
+        }
+        const unmergedRunNotes = /* @__PURE__ */ new Set();
+        const UNMERGED_GAP_LIMIT = RUN_GAP_TOLERANCE * 2;
+        const UNMERGED_HEIGHT_LIMIT = RUN_HEIGHT_TOLERANCE * 2;
+        function reportUnmergedRun(rects) {
+          let gap = 0;
+          let height = 0;
+          let found = false;
+          for (let i = 0; i < rects.length; i += 1) {
+            for (let j = i + 1; j < rects.length; j += 1) {
+              const a = rects[i];
+              const b = rects[j];
+              const aCenter = a.top + a.height / 2;
+              const bCenter = b.top + b.height / 2;
+              const sameLine = Math.abs(aCenter - bCenter) <= Math.max(RUN_TOP_TOLERANCE, Math.min(a.height, b.height) / 2);
+              if (!sameLine) continue;
+              const pairGap = Math.max(0, runGap(a, b));
+              const pairHeight = Math.abs(a.height - b.height);
+              if (pairGap > UNMERGED_GAP_LIMIT || pairHeight > UNMERGED_HEIGHT_LIMIT) continue;
+              found = true;
+              gap = Math.max(gap, Math.round(pairGap));
+              height = Math.max(height, Math.round(pairHeight));
             }
-            const left = Math.min(last.left, rect.left);
-            const right = Math.max(last.left + last.width, rect.left + rect.width);
-            out[out.length - 1] = {
-              left,
-              top: Math.min(last.top, rect.top),
-              width: right - left,
-              height: Math.max(last.height, rect.height)
-            };
           }
+          if (!found) return;
+          const note = `${gap}x${height}`;
+          if (unmergedRunNotes.has(note)) return;
+          if (unmergedRunNotes.size >= 32) return;
+          unmergedRunNotes.add(note);
+          warn(`[selection-annotations] 同行高亮未合并: 间隙 ${gap}px 高度差 ${height}px`);
+        }
+        function mergeRunRects(rects) {
+          const out = rects.map((rect) => ({
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+            right: rect.left + rect.width,
+            bottom: rect.top + rect.height
+          }));
+          let joined = true;
+          scan: while (joined) {
+            joined = false;
+            for (let i = 0; i < out.length; i += 1) {
+              for (let j = i + 1; j < out.length; j += 1) {
+                const a = out[i];
+                const b = out[j];
+                if (!sameRunLine(a, b) || runGap(a, b) > RUN_GAP_TOLERANCE) continue;
+                out[i] = unionRunRect(a, b);
+                out.splice(j, 1);
+                joined = true;
+                continue scan;
+              }
+            }
+          }
+          reportUnmergedRun(out);
           return out;
         }
         function locateSegmentsOf(item) {
