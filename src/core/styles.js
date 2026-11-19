@@ -32,6 +32,22 @@ export const CSS = `
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 30%, transparent); }
 .sa-hl.sa-hl-sent.sa-hl-blink-sent[data-adopt="1"][data-reject="1"] {
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent); }
+/* 分段绘制：首末命中段之间没有命中的段只画下划线、不填底色。
+   下划线沿用该条批注的常态色；已发送条目仍是主题色虚线，草稿按采纳/否决取色。*/
+.sa-hl.sa-hl-part {
+  background: transparent;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
+.sa-hl.sa-hl-part[data-adopt="1"] {
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
+.sa-hl.sa-hl-part[data-reject="1"] {
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 70%, transparent); }
+.sa-hl.sa-hl-part[data-adopt="1"][data-reject="1"] {
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
+/* 已发送的分段下划线放在最后：同权重时主题虚线优先于草稿的成功/警告色。*/
+.sa-hl.sa-hl-sent.sa-hl-part {
+  background: transparent;
+  border-bottom: 1px dashed color-mix(in srgb, var(--dsw-alias-label-primary) 55%, transparent);
+  box-shadow: none; }
 /* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
 .sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }

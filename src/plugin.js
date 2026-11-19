@@ -1140,6 +1140,10 @@ const rewindHandled = new Map()
          *   2. 用户消息行；
          *   3. 折叠组 / 过程行 —— 纯批注消息常被收进 `turn-process` 组，只有组行可锚定。
          * 三者取并集、按锚点键去重，避免同一行被重复插入卡片。
+         *
+         * 工具调用行也带 `data-chat-anchor-key`（`call:*`），但它不是消息：没有
+         * `data-chat-flow-kind`，却被上面的第三类当成「过程行」收进来。拿它当锚点会把
+         * 已发送卡挂到一次工具调用上，台账里也就写进了工具调用 id 而不是消息键。
          */
         function collectAnchorRows() {
           const rows = []
@@ -1168,6 +1172,9 @@ const rewindHandled = new Map()
             const anchorKey = element.getAttribute('data-chat-anchor-key') ?? ''
             // 分组外壳也带 data-chat-turn，但它不是消息：把它当锚点会写出 group:* 这类键。
             if (anchorKey.startsWith('group:')) continue
+            // 工具调用行只有 data-chat-anchor-key 与 data-chat-call-id，没有 data-chat-flow-kind；
+            // 它同样不是消息，不能当锚点（曾把 call_* 记成已发送批注的锚点）。
+            if (anchorKey.startsWith('call:')) continue
             if (element.hasAttribute?.('data-chat-group-key')) continue
             if (kind === '') push(element, anchorKey)
           }
@@ -1294,8 +1301,27 @@ const rewindHandled = new Map()
             typeof pending.sessionId === 'string' && pending.sessionId !== '' ? pending.sessionId : currentSessionId()
           if (sessionId === undefined) return
           // 宿主已把批注附件并进用户正文：这条消息不再「新出现」，附件文件也不会渲染，
-          // 按新行找锚点会一直落空。此时直接用发送时数出的轮次落账，卡片仍按轮次显示。
+          // 按新行找锚点会一直落空。先按正文找回真正承载这条批注的用户消息行，锚点与轮次
+          // 都取该行自己的；找不到才退回发送时数出的轮次，卡片仍按轮次显示。
           const recordWithHint = () => {
+            const known = new Set(pending.known)
+            for (const [key, other] of loadSent(sessionId)) {
+              known.add(key)
+              if (typeof other.anchorKey === 'string' && other.anchorKey !== '') known.add(other.anchorKey)
+            }
+            // 发送时记下的那一屏可能已经切走：退回当前可见的会话，避免认到别的会话的行上。
+            let scope = pending.scope
+            if (scope === null || scope === undefined || !scope.isConnected) {
+              scope = visibleConversationScopes()[0] ?? null
+            }
+            const sentRow = scope === null ? null : findSentAnnotationRow(scope, known, pending.items)
+            if (sentRow !== null) {
+              pendingSent.shift()
+              recordSent(sessionId, sentRow.anchorKey, pending.items, sentRow.turn)
+              syncSentBatch(sessionId, sentRow.anchorKey, pending.items, sentRow.turn, pending.at)
+              scheduleRepaint('emit')
+              return true
+            }
             let hint = pending.turnHint
             if (!Number.isFinite(hint) && pending.scope !== null && pending.scope !== undefined && pending.scope.isConnected) {
               hint = turnHintForScope(pending.scope)
@@ -1531,6 +1557,104 @@ const rewindHandled = new Map()
           return scopes
         }
 
+        /** 正文里是否带着这条批注负载：类型标记 + 某条批注的引文（或备注）前缀。*/
+        function rowCarriesSentAnnotations(row, items) {
+          // 正文里的 JSON 缩进过，先归一空白；引文里的换行在 JSON 里是转义形态，两种都比一次。
+          const text = (row.textContent ?? '').replace(/\s+/g, ' ')
+          if (!text.includes(PAYLOAD_KIND)) return false
+          for (const item of items) {
+            // 引文是主判据；笔记只在引文为空/过短时兜底，阈值放低一档。
+            for (const [raw, minLength] of [[item?.quote, 4], [item?.note, 2]]) {
+              if (typeof raw !== 'string') continue
+              const prefix = raw.trim().slice(0, 24)
+              if (prefix.length < minLength) continue
+              if (text.includes(prefix.replace(/\s+/g, ' '))) return true
+              const escaped = JSON.stringify(prefix).slice(1, -1)
+              if (escaped !== prefix && text.includes(escaped)) return true
+            }
+          }
+          return false
+        }
+
+        /**
+         * 在会话范围里找真正承载已发批注的**用户消息行**：宿主把批注附件并进正文后，
+         * 这条消息不会再作为「新出现的行」被认领，附件行也可能不渲染，只能靠正文识别。
+         */
+        function findSentAnnotationRow(scope, known, items) {
+          const root = scope !== null && scope !== undefined && scope.isConnected ? scope : document
+          let best = null
+          let bestTurn = -1
+          for (const row of root.querySelectorAll('[data-chat-anchor-key][data-chat-flow-kind="user"]')) {
+            const anchorKey = row.getAttribute('data-chat-anchor-key') ?? ''
+            // 台账里已有的锚点不能再认领：同一行会被两条记录同时挂上卡。
+            if (anchorKey === '' || known.has(anchorKey)) continue
+            if (isPendingEchoRow(row)) continue
+            if (typeof row.getClientRects === 'function' && row.getClientRects().length === 0) continue
+            if (!rowCarriesSentAnnotations(row, items)) continue
+            const turn = turnOfRow(row)
+            const score = Number.isFinite(turn) ? turn : 0
+            if (score >= bestTurn) {
+              bestTurn = score
+              best = { row, anchorKey, turn }
+            }
+          }
+          return best
+        }
+
+        /** 老台账里不是「消息锚点」的合成键：工具调用行、发送时刻。*/
+        function isSyntheticSentAnchor(anchorKey, storedKey) {
+          for (const key of [anchorKey, storedKey]) {
+            if (typeof key !== 'string' || key === '') continue
+            if (key.startsWith('call:') || key.startsWith('turn:')) return true
+          }
+          return false
+        }
+
+        /** 老台账重新认领消息行：每条记录只补一次库，远端失败也不重试，避免每遍重绘都发请求。*/
+        const reclaimAttempts = new Set()
+
+        /**
+         * 老记录把工具调用行/发送时刻记成了锚点、轮次也跟着错时，DOM 里既没有那条行也没有那一轮。
+         * 按正文重新认领真正的用户消息行，写回台账，并给已有批次补一次 turn/anchor_key。
+         */
+        function reclaimSentRecord(record, storedKey, sessionId, table) {
+          const batchId =
+            typeof record.batchUuid === 'string' && record.batchUuid !== '' ? record.batchUuid : storedKey
+          const attemptKey = `${sessionId}\u0000${batchId}`
+          if (reclaimAttempts.has(attemptKey)) return null
+          // 其他记录已经占用的锚点不再认领：同一行不能挂两张卡。
+          const taken = new Set()
+          for (const [key, other] of table) {
+            taken.add(key)
+            if (typeof other.anchorKey === 'string' && other.anchorKey !== '') taken.add(other.anchorKey)
+          }
+          let best = null
+          let bestTurn = -1
+          for (const scope of visibleConversationScopes()) {
+            const found = findSentAnnotationRow(scope, taken, record.items)
+            if (found === null) continue
+            const score = Number.isFinite(found.turn) ? found.turn : 0
+            if (score >= bestTurn) {
+              bestTurn = score
+              best = found
+            }
+          }
+          if (best === null) return null
+          reclaimAttempts.add(attemptKey)
+          record.anchorKey = best.anchorKey
+          if (Number.isFinite(best.turn)) record.turn = best.turn
+          saveSent(sessionId, table)
+          if (typeof record.batchUuid === 'string' && record.batchUuid !== '') {
+            void remoteSync
+              .patchBatch(record.batchUuid, {
+                ...(Number.isFinite(best.turn) ? { turn: best.turn } : {}),
+                anchor_key: best.anchorKey,
+              })
+              .catch(() => {})
+          }
+          return best
+        }
+
         /**
          * 清扫旧卡的作用范围：只取本次台账里的卡片和锚点行所在的会话容器。
          * 页面同时留着另一个会话的 DOM 时，按全页面扫会把那边的卡一起删掉。
@@ -1617,10 +1741,10 @@ const rewindHandled = new Map()
               stats.reasons.emptyItems += 1
               continue
             }
-            const anchorKey = typeof record.anchorKey === 'string' && record.anchorKey !== ''
+            let anchorKey = typeof record.anchorKey === 'string' && record.anchorKey !== ''
               ? record.anchorKey
               : resolveLegacyAnchor(storedKey)
-            const row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`)
+            let row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`)
             let turn = turnOfRecord(record, storedKey)
             // 旧记录第一次看到「已完成」时把轮次记下来，之后即使消息行没加载也能定位。
             if (!Number.isFinite(turn) && row !== null) {
@@ -1631,7 +1755,19 @@ const rewindHandled = new Map()
                 learnedTurn = true
               }
             }
-            const footer = footerBlockForTurn(turn)
+            let footer = footerBlockForTurn(turn)
+            // 老台账：锚点记成了工具调用行/发送时刻，轮次也跟着错，DOM 里既没有那条行也没有那一轮。
+            // 按正文里的批注 JSON 与引文前缀重新认领真正的用户消息行；认到后锚点与轮次一起写回，
+            // 答复区在同一次重绘里就能跟上（renderSentCards 先于 renderReplySections 跑）。
+            if (footer === null && Number.isFinite(turn) && isSyntheticSentAnchor(anchorKey, storedKey)) {
+              const claimed = reclaimSentRecord(record, storedKey, sessionId, table)
+              if (claimed !== null) {
+                anchorKey = claimed.anchorKey
+                row = claimed.row
+                turn = Number.isFinite(claimed.turn) ? claimed.turn : turn
+                footer = footerBlockForTurn(turn)
+              }
+            }
             if (row === null && footer === null) {
               stats.skipped += 1
               if (!Number.isFinite(turn)) stats.reasons.noTurn += 1
@@ -2707,12 +2843,25 @@ const rewindHandled = new Map()
               // 老记录/turn 记账换了锚点键时 source 与 record 可能不同，这里不能各算各的。
               const key = highlightKeyOf(item) ?? sentHighlightKey(anchorKey, item)
               alive.add(key)
+              // 轮次属于整批记录：条目自己的 source 可能没带 turn，不能只从 item 上找。
+              const turn = Number.isFinite(record.turn)
+                ? record.turn
+                : Number.isFinite(item.source?.turn)
+                  ? item.source.turn
+                  : null
               const cached = sentHighlightCache.get(key)
               if (cached !== undefined && cached.savedAt === record.savedAt) {
-                items.push(cached.entry)
+                // 轮次可能是后来从行上补学的（savedAt 不变），缓存也要跟着补，否则悬停拿到的副本永远没轮次。
+                if (cached.entry.turn !== turn) {
+                  const entry = { ...cached.entry, turn }
+                  sentHighlightCache.set(key, { savedAt: record.savedAt, entry })
+                  items.push(entry)
+                } else {
+                  items.push(cached.entry)
+                }
                 continue
               }
-              const entry = { ...item, id: key, sentHighlight: true }
+              const entry = { ...item, id: key, sentHighlight: true, turn }
               sentHighlightCache.set(key, { savedAt: record.savedAt, entry })
               items.push(entry)
             }
@@ -2856,35 +3005,65 @@ const rewindHandled = new Map()
 
         /**
          * 按段定位：每段回自己的锚点行（没有锚点时退到这条批注的根），
-         * 用空白折叠后的匹配找那一小截。命中不足一半就不算数 —— 那更像是误配，
-         * 交给整段兜底（仍要求前后指纹对得上）。
-         * @returns 命中矩形；没有可用段、全部失配或不足一半时返回 null。
+         * 用空白折叠后的匹配找那一小截。命中一段就算定位成功：跨多段的选区
+         * 只有部分段落还能在 DOM 里找到是常态，不能因为比例不够把整条放弃。
+         * 绘制范围取首命中段到末命中段；命中段带色块，区间内未命中的段只用
+         * 保存的偏移量画下划线，不填底色。
+         * @returns 带 hit 标记的矩形；没有可用段或全部失配时返回 null。
          */
         function locateSegmentsOf(item) {
           const segments = segmentsFor(item)
           if (segments === null) return null
           const quote = typeof item?.quote === 'string' ? item.quote : ''
           const source = item?.source ?? {}
-          const rects = []
-          let loaded = 0
-          let matched = 0
-          for (const segment of segments) {
+          // 段在保存时本来有序，这里再按引文偏移排一次：首末命中段决定绘制区间。
+          const ordered = segments
+            .map((segment, index) => ({ segment, index }))
+            .sort((a, b) => a.segment.quoteStart - b.segment.quoteStart || a.index - b.index)
+          const located = []
+          for (const { segment } of ordered) {
             const root = rootByAnchorKey(segment.anchorKey) ?? anchorRoot(source)
             if (root === null || root === undefined) continue
             const slice = quote.slice(segment.quoteStart, segment.quoteEnd)
-            if (flatText(slice).length < 2) continue
-            loaded += 1
-            const found = safe(() => matchInRootNormalized(root, slice, savedOffsetOf(segment))) ?? undefined
-            if (found === undefined) continue
-            matched += 1
-            const boxes = safe(() => [...found.getClientRects()]) ?? []
+            const found =
+              flatText(slice).length < 2
+                ? undefined
+                : (safe(() => matchInRootNormalized(root, slice, savedOffsetOf(segment))) ?? undefined)
+            const boxes = found === undefined ? [] : (safe(() => [...found.getClientRects()]) ?? [])
+            located.push({
+              segment,
+              root,
+              slice,
+              hit: found !== undefined,
+              boxes: boxes.filter((box) => box.width > 0 && box.height > 0),
+            })
+          }
+          const firstHit = located.findIndex((entry) => entry.hit)
+          if (firstHit < 0) return null
+          let lastHit = located.length - 1
+          while (lastHit > firstHit && !located[lastHit].hit) lastHit -= 1
+          const hitRects = []
+          const partRects = []
+          for (let i = firstHit; i <= lastHit; i += 1) {
+            const entry = located[i]
+            if (entry.hit) {
+              for (const box of entry.boxes) hitRects.push(box)
+              continue
+            }
+            const start = savedOffsetOf(entry.segment)
+            if (!Number.isFinite(start)) continue
+            const length = entry.segment.quoteEnd - entry.segment.quoteStart
+            const range = safe(() => rangeFromOffsets(entry.root, start, length))
+            if (range === undefined || range === null) continue
+            const boxes = safe(() => [...range.getClientRects()]) ?? []
             for (const box of boxes) {
-              if (box.width > 0 && box.height > 0) rects.push(box)
+              if (box.width > 0 && box.height > 0) partRects.push(box)
             }
           }
-          if (loaded === 0 || matched === 0) return null
-          if (matched * 2 < loaded) return null
-          return mergeRunRects(rects)
+          return [
+            ...mergeRunRects(hitRects).map((rect) => ({ ...rect, hit: true })),
+            ...mergeRunRects(partRects).map((rect) => ({ ...rect, hit: false })),
+          ]
         }
 
         /** 读回段；旧条目先试一次懒迁移（每会话每条最多一次）。*/
@@ -3136,7 +3315,13 @@ const rewindHandled = new Map()
             const box = document.createElement('div')
             // 草稿用改版前的成功/警告底色；已发送用主题前景色。闪烁时两边都换成对方那一套。
             const base = sent ? 'sa-hl sa-hl-sent' : 'sa-hl'
-            box.className = blinking ? `${base}${sent ? ' sa-hl-blink-sent' : ' sa-hl-blink'}` : base
+            // 区间内未命中的段只保留下划线，不填色；闪烁也只闪命中段。
+            const part = rect.hit === false
+            let className = base
+            if (part) className = `${base} sa-hl-part`
+            else if (blinking) className = `${base}${sent ? ' sa-hl-blink-sent' : ' sa-hl-blink'}`
+            box.className = className
+            box.dataset.saHit = part ? '0' : '1'
             if (adopt) box.dataset.adopt = '1'
             if (reject) box.dataset.reject = '1'
             box.style.left = `${rect.left}px`
@@ -3466,7 +3651,8 @@ const rewindHandled = new Map()
             event.preventDefault()
             event.stopPropagation()
             if (popoverItem === null) return
-            jumpToQuote(popoverItem, undefined, node)
+            // 只读面板用台账里的批次轮次；编辑/新建态没有轮次，仍让 jumpToQuote 自己从 source 里找。
+            jumpToQuote(popoverItem, popoverTurn === null ? undefined : popoverTurn, node)
           }
           node.addEventListener('click', run)
           node.addEventListener('keydown', (event) => {
@@ -4270,6 +4456,8 @@ const rewindHandled = new Map()
         let popoverSnapshot = null
         /** 当前弹层对应的条目：编辑态才有，「跳到出处」据此拿锚点。*/
         let popoverItem = null
+        /** 只读面板对应的已发送批次轮次：条目自己的 source 不一定带 turn，导航时要用台账记下的轮次。*/
+        let popoverTurn = null
         /** 编辑中自动存写的去抖计时器：停手一小段再落盘，崩溃时最多丢这一段。*/
         let popAutoSaveTimer = null
 
@@ -4503,8 +4691,7 @@ const rewindHandled = new Map()
           popQuote.textContent = options.quote
           popQuote.style.display = options.quote === '' ? 'none' : ''
           popQuoteHead.style.display = options.quote === '' ? 'none' : ''
-          popJumpHint.textContent = ''
-          popJumpHint.dataset.on = '0'
+          resetPopoverJumpHints()
           // 跳转对编辑与只读都有意义：新建时引文还在选区里，没有可回访的条目。
           const canJump = options.mode === 'sent' || (options.mode === 'edit' && options.quote !== '')
           popJump.style.display = canJump ? '' : 'none'
@@ -4538,6 +4725,15 @@ const rewindHandled = new Map()
           if (readonly && popInputImages.length === 0) popImages.style.display = 'none'
           popoverTargetId = options.targetId ?? null
           popoverItem = options.item ?? null
+          // 只读面板的轮次取自台账：collectSentHighlightItems 已把 record.turn 抄到条目上。
+          popoverTurn =
+            options.mode === 'sent'
+              ? Number.isFinite(options.item?.turn)
+                ? options.item.turn
+                : Number.isFinite(options.item?.source?.turn)
+                  ? options.item.source.turn
+                  : null
+              : null
           // 编辑态先留一份快照：之后每敲一下都即时写进条目，只有「取消」才回到这一份。
           popoverSnapshot =
             options.mode === 'edit' && popoverTargetId !== null
@@ -4713,24 +4909,58 @@ const rewindHandled = new Map()
           popoverTargetId = null
           popoverSnapshot = null
           popoverItem = null
+          popoverTurn = null
           popoverMode = 'create'
           hideSuggestion()
         }
 
-        /** 跳转失败提示的计时器与浮条：同一个时刻只留一条提示。*/
-        let popJumpHintTimer = 0
+        /** 跳转失败提示的计时器与浮条：同一行只留一条提示，不同行各自计时。*/
+        const jumpHintTimers = new WeakMap()
         let jumpToast = null
         let jumpToastTimer = 0
 
-        function flashPopoverJumpHint(message) {
-          popJumpHint.textContent = message
-          popJumpHint.dataset.on = '1'
-          if (popJumpHintTimer !== 0) window.clearTimeout(popJumpHintTimer)
-          popJumpHintTimer = window.setTimeout(() => {
-            popJumpHintTimer = 0
-            popJumpHint.dataset.on = '0'
-            popJumpHint.textContent = ''
-          }, 2400)
+        /**
+         * 触发按钮所在行的提示节点：有就复用，没有就插在标签与按钮之间。
+         * 找不到父元素时退回「引用原文」行那个单例，保证提示总有地方落。
+         */
+        function jumpHintFor(button) {
+          const parent = button?.parentElement ?? null
+          if (parent === null) return popJumpHint
+          const existing = safe(() => parent.querySelector(':scope > .sa-pop-jump-hint')) ?? null
+          if (existing !== null) return existing
+          const hint = document.createElement('span')
+          hint.className = 'sa-pop-jump-hint'
+          hint.dataset.on = '0'
+          parent.insertBefore(hint, button)
+          return hint
+        }
+
+        function flashPopoverJumpHint(message, button) {
+          const hint = jumpHintFor(button)
+          hint.textContent = message
+          hint.dataset.on = '1'
+          const timer = jumpHintTimers.get(hint)
+          if (timer !== undefined) window.clearTimeout(timer)
+          jumpHintTimers.set(
+            hint,
+            window.setTimeout(() => {
+              jumpHintTimers.delete(hint)
+              hint.dataset.on = '0'
+              hint.textContent = ''
+            }, 2400),
+          )
+        }
+
+        /** 打开弹层时清掉上一次残留的提示（只清位置，不重建节点）。*/
+        function resetPopoverJumpHints() {
+          const hints = safe(() => [...popover.querySelectorAll('.sa-pop-jump-hint')]) ?? []
+          for (const hint of hints) {
+            const timer = jumpHintTimers.get(hint)
+            if (timer !== undefined) window.clearTimeout(timer)
+            jumpHintTimers.delete(hint)
+            hint.textContent = ''
+            hint.dataset.on = '0'
+          }
         }
 
         function flashJumpToast(message) {
@@ -4754,7 +4984,7 @@ const rewindHandled = new Map()
             ? null
             : (safe(() => root.closest('[data-sa-ui]')) ?? null)
           if (host !== null && host.getAttribute('data-sa-ui') === 'popover') {
-            flashPopoverJumpHint(message)
+            flashPopoverJumpHint(message, root)
             return
           }
           if (host !== null && (host.getAttribute('data-sa-ui') === 'panel' || host.getAttribute('data-sa-ui') === 'side')) {
@@ -4959,19 +5189,29 @@ const rewindHandled = new Map()
          */
         function jumpToQuote(item, turnHint, root) {
           const source = item === undefined || item === null ? null : item.source
+          // 轮次提前算：失败日志要区分「没轮次」与「轮次不在导航里」，早退分支也要能记。
+          const turn = Number.isFinite(turnHint) ? turnHint : Number.isFinite(source?.turn) ? source.turn : null
+          const fail = (message) => {
+            warn('[selection-annotations] 跳转失败:', {
+              turn,
+              kind: source?.kind,
+              anchorKey: source?.anchorKey,
+              reason: message,
+            })
+            jumpFailure(message, root)
+          }
           if (source === undefined || source === null) {
-            jumpFailure(t('jump.noAnchor'), root)
+            fail(t('jump.noAnchor'))
             return
           }
           if (source.kind === 'file') {
-            jumpFailure(t('jump.file'), root)
+            fail(t('jump.file'))
             return
           }
           if (source.kind !== 'message') {
-            jumpFailure(t('jump.noAnchor'), root)
+            fail(t('jump.noAnchor'))
             return
           }
-          const turn = Number.isFinite(turnHint) ? turnHint : Number.isFinite(source.turn) ? source.turn : null
           const land = () => {
             const row = safe(() => findSourceRow(source, item, turn)) ?? null
             if (row === null) return false
@@ -4983,12 +5223,12 @@ const rewindHandled = new Map()
           }
           if (land()) return
           if (turn === null) {
-            jumpFailure(t('jump.noAnchor'), root)
+            fail(t('jump.noAnchor'))
             return
           }
           const mark = findTurnNavButton(turn)
           if (mark === null) {
-            jumpFailure(t('jump.notLoaded', { n: turn }), root)
+            fail(t('jump.notLoaded', { n: turn }))
             return
           }
           mark.click()
@@ -4999,7 +5239,7 @@ const rewindHandled = new Map()
               window.setTimeout(retry, JUMP_NAV_POLL_MS)
               return
             }
-            jumpFailure(t('jump.notLoaded', { n: turn }), root)
+            fail(t('jump.notLoaded', { n: turn }))
           }
           window.setTimeout(retry, JUMP_NAV_POLL_MS)
         }

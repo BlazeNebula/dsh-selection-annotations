@@ -34,6 +34,22 @@
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 30%, transparent); }
 .sa-hl.sa-hl-sent.sa-hl-blink-sent[data-adopt="1"][data-reject="1"] {
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent); }
+/* 分段绘制：首末命中段之间没有命中的段只画下划线、不填底色。
+   下划线沿用该条批注的常态色；已发送条目仍是主题色虚线，草稿按采纳/否决取色。*/
+.sa-hl.sa-hl-part {
+  background: transparent;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
+.sa-hl.sa-hl-part[data-adopt="1"] {
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
+.sa-hl.sa-hl-part[data-reject="1"] {
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 70%, transparent); }
+.sa-hl.sa-hl-part[data-adopt="1"][data-reject="1"] {
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
+/* 已发送的分段下划线放在最后：同权重时主题虚线优先于草稿的成功/警告色。*/
+.sa-hl.sa-hl-sent.sa-hl-part {
+  background: transparent;
+  border-bottom: 1px dashed color-mix(in srgb, var(--dsw-alias-label-primary) 55%, transparent);
+  box-shadow: none; }
 /* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
 .sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }
@@ -5021,6 +5037,7 @@ ${PICK_SCRIPT}<\/script>`;
             const kind = element.getAttribute("data-chat-flow-kind") ?? "";
             const anchorKey = element.getAttribute("data-chat-anchor-key") ?? "";
             if (anchorKey.startsWith("group:")) continue;
+            if (anchorKey.startsWith("call:")) continue;
             if (element.hasAttribute?.("data-chat-group-key")) continue;
             if (kind === "") push(element, anchorKey);
           }
@@ -5118,6 +5135,23 @@ ${PICK_SCRIPT}<\/script>`;
           const sessionId = typeof pending.sessionId === "string" && pending.sessionId !== "" ? pending.sessionId : currentSessionId();
           if (sessionId === void 0) return;
           const recordWithHint = () => {
+            const known = new Set(pending.known);
+            for (const [key, other] of loadSent(sessionId)) {
+              known.add(key);
+              if (typeof other.anchorKey === "string" && other.anchorKey !== "") known.add(other.anchorKey);
+            }
+            let scope = pending.scope;
+            if (scope === null || scope === void 0 || !scope.isConnected) {
+              scope = visibleConversationScopes()[0] ?? null;
+            }
+            const sentRow = scope === null ? null : findSentAnnotationRow(scope, known, pending.items);
+            if (sentRow !== null) {
+              pendingSent.shift();
+              recordSent(sessionId, sentRow.anchorKey, pending.items, sentRow.turn);
+              syncSentBatch(sessionId, sentRow.anchorKey, pending.items, sentRow.turn, pending.at);
+              scheduleRepaint("emit");
+              return true;
+            }
             let hint = pending.turnHint;
             if (!Number.isFinite(hint) && pending.scope !== null && pending.scope !== void 0 && pending.scope.isConnected) {
               hint = turnHintForScope(pending.scope);
@@ -5305,6 +5339,82 @@ ${PICK_SCRIPT}<\/script>`;
           }
           return scopes;
         }
+        function rowCarriesSentAnnotations(row, items) {
+          const text = (row.textContent ?? "").replace(/\s+/g, " ");
+          if (!text.includes(PAYLOAD_KIND)) return false;
+          for (const item of items) {
+            for (const [raw, minLength] of [[item?.quote, 4], [item?.note, 2]]) {
+              if (typeof raw !== "string") continue;
+              const prefix = raw.trim().slice(0, 24);
+              if (prefix.length < minLength) continue;
+              if (text.includes(prefix.replace(/\s+/g, " "))) return true;
+              const escaped = JSON.stringify(prefix).slice(1, -1);
+              if (escaped !== prefix && text.includes(escaped)) return true;
+            }
+          }
+          return false;
+        }
+        function findSentAnnotationRow(scope, known, items) {
+          const root = scope !== null && scope !== void 0 && scope.isConnected ? scope : document;
+          let best = null;
+          let bestTurn = -1;
+          for (const row of root.querySelectorAll('[data-chat-anchor-key][data-chat-flow-kind="user"]')) {
+            const anchorKey = row.getAttribute("data-chat-anchor-key") ?? "";
+            if (anchorKey === "" || known.has(anchorKey)) continue;
+            if (isPendingEchoRow(row)) continue;
+            if (typeof row.getClientRects === "function" && row.getClientRects().length === 0) continue;
+            if (!rowCarriesSentAnnotations(row, items)) continue;
+            const turn = turnOfRow(row);
+            const score = Number.isFinite(turn) ? turn : 0;
+            if (score >= bestTurn) {
+              bestTurn = score;
+              best = { row, anchorKey, turn };
+            }
+          }
+          return best;
+        }
+        function isSyntheticSentAnchor(anchorKey, storedKey) {
+          for (const key of [anchorKey, storedKey]) {
+            if (typeof key !== "string" || key === "") continue;
+            if (key.startsWith("call:") || key.startsWith("turn:")) return true;
+          }
+          return false;
+        }
+        const reclaimAttempts = /* @__PURE__ */ new Set();
+        function reclaimSentRecord(record, storedKey, sessionId, table) {
+          const batchId = typeof record.batchUuid === "string" && record.batchUuid !== "" ? record.batchUuid : storedKey;
+          const attemptKey = `${sessionId}\0${batchId}`;
+          if (reclaimAttempts.has(attemptKey)) return null;
+          const taken = /* @__PURE__ */ new Set();
+          for (const [key, other] of table) {
+            taken.add(key);
+            if (typeof other.anchorKey === "string" && other.anchorKey !== "") taken.add(other.anchorKey);
+          }
+          let best = null;
+          let bestTurn = -1;
+          for (const scope of visibleConversationScopes()) {
+            const found = findSentAnnotationRow(scope, taken, record.items);
+            if (found === null) continue;
+            const score = Number.isFinite(found.turn) ? found.turn : 0;
+            if (score >= bestTurn) {
+              bestTurn = score;
+              best = found;
+            }
+          }
+          if (best === null) return null;
+          reclaimAttempts.add(attemptKey);
+          record.anchorKey = best.anchorKey;
+          if (Number.isFinite(best.turn)) record.turn = best.turn;
+          saveSent(sessionId, table);
+          if (typeof record.batchUuid === "string" && record.batchUuid !== "") {
+            void remoteSync.patchBatch(record.batchUuid, {
+              ...Number.isFinite(best.turn) ? { turn: best.turn } : {},
+              anchor_key: best.anchorKey
+            }).catch(() => {
+            });
+          }
+          return best;
+        }
         function sentSweepScopes(table) {
           const scopes = /* @__PURE__ */ new Set();
           const collect = (node) => {
@@ -5373,8 +5483,8 @@ ${PICK_SCRIPT}<\/script>`;
               stats.reasons.emptyItems += 1;
               continue;
             }
-            const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
-            const row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`);
+            let anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : resolveLegacyAnchor(storedKey);
+            let row = document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`);
             let turn = turnOfRecord(record, storedKey);
             if (!Number.isFinite(turn) && row !== null) {
               const found = turnOfRow(row);
@@ -5384,7 +5494,16 @@ ${PICK_SCRIPT}<\/script>`;
                 learnedTurn = true;
               }
             }
-            const footer = footerBlockForTurn(turn);
+            let footer = footerBlockForTurn(turn);
+            if (footer === null && Number.isFinite(turn) && isSyntheticSentAnchor(anchorKey, storedKey)) {
+              const claimed = reclaimSentRecord(record, storedKey, sessionId, table);
+              if (claimed !== null) {
+                anchorKey = claimed.anchorKey;
+                row = claimed.row;
+                turn = Number.isFinite(claimed.turn) ? claimed.turn : turn;
+                footer = footerBlockForTurn(turn);
+              }
+            }
             if (row === null && footer === null) {
               stats.skipped += 1;
               if (!Number.isFinite(turn)) stats.reasons.noTurn += 1;
@@ -6191,12 +6310,19 @@ ${PICK_SCRIPT}<\/script>`;
               if (typeof item.quote !== "string" || item.quote === "") continue;
               const key = highlightKeyOf(item) ?? sentHighlightKey(anchorKey, item);
               alive.add(key);
+              const turn = Number.isFinite(record.turn) ? record.turn : Number.isFinite(item.source?.turn) ? item.source.turn : null;
               const cached = sentHighlightCache.get(key);
               if (cached !== void 0 && cached.savedAt === record.savedAt) {
-                items.push(cached.entry);
+                if (cached.entry.turn !== turn) {
+                  const entry2 = { ...cached.entry, turn };
+                  sentHighlightCache.set(key, { savedAt: record.savedAt, entry: entry2 });
+                  items.push(entry2);
+                } else {
+                  items.push(cached.entry);
+                }
                 continue;
               }
-              const entry = { ...item, id: key, sentHighlight: true };
+              const entry = { ...item, id: key, sentHighlight: true, turn };
               sentHighlightCache.set(key, { savedAt: record.savedAt, entry });
               items.push(entry);
             }
@@ -6304,26 +6430,48 @@ ${PICK_SCRIPT}<\/script>`;
           if (segments === null) return null;
           const quote = typeof item?.quote === "string" ? item.quote : "";
           const source = item?.source ?? {};
-          const rects = [];
-          let loaded = 0;
-          let matched = 0;
-          for (const segment of segments) {
+          const ordered = segments.map((segment, index) => ({ segment, index })).sort((a, b) => a.segment.quoteStart - b.segment.quoteStart || a.index - b.index);
+          const located = [];
+          for (const { segment } of ordered) {
             const root = rootByAnchorKey(segment.anchorKey) ?? anchorRoot(source);
             if (root === null || root === void 0) continue;
             const slice = quote.slice(segment.quoteStart, segment.quoteEnd);
-            if (flatText(slice).length < 2) continue;
-            loaded += 1;
-            const found = safe(() => matchInRootNormalized(root, slice, savedOffsetOf(segment))) ?? void 0;
-            if (found === void 0) continue;
-            matched += 1;
-            const boxes = safe(() => [...found.getClientRects()]) ?? [];
+            const found = flatText(slice).length < 2 ? void 0 : safe(() => matchInRootNormalized(root, slice, savedOffsetOf(segment))) ?? void 0;
+            const boxes = found === void 0 ? [] : safe(() => [...found.getClientRects()]) ?? [];
+            located.push({
+              segment,
+              root,
+              slice,
+              hit: found !== void 0,
+              boxes: boxes.filter((box) => box.width > 0 && box.height > 0)
+            });
+          }
+          const firstHit = located.findIndex((entry) => entry.hit);
+          if (firstHit < 0) return null;
+          let lastHit = located.length - 1;
+          while (lastHit > firstHit && !located[lastHit].hit) lastHit -= 1;
+          const hitRects = [];
+          const partRects = [];
+          for (let i = firstHit; i <= lastHit; i += 1) {
+            const entry = located[i];
+            if (entry.hit) {
+              for (const box of entry.boxes) hitRects.push(box);
+              continue;
+            }
+            const start = savedOffsetOf(entry.segment);
+            if (!Number.isFinite(start)) continue;
+            const length = entry.segment.quoteEnd - entry.segment.quoteStart;
+            const range = safe(() => rangeFromOffsets2(entry.root, start, length));
+            if (range === void 0 || range === null) continue;
+            const boxes = safe(() => [...range.getClientRects()]) ?? [];
             for (const box of boxes) {
-              if (box.width > 0 && box.height > 0) rects.push(box);
+              if (box.width > 0 && box.height > 0) partRects.push(box);
             }
           }
-          if (loaded === 0 || matched === 0) return null;
-          if (matched * 2 < loaded) return null;
-          return mergeRunRects(rects);
+          return [
+            ...mergeRunRects(hitRects).map((rect) => ({ ...rect, hit: true })),
+            ...mergeRunRects(partRects).map((rect) => ({ ...rect, hit: false }))
+          ];
         }
         function segmentsFor(item) {
           const valid = segmentsOf(item?.source, item?.quote);
@@ -6512,7 +6660,12 @@ ${PICK_SCRIPT}<\/script>`;
             if (rect.width <= 0 || rect.height <= 0) continue;
             const box = document.createElement("div");
             const base = sent ? "sa-hl sa-hl-sent" : "sa-hl";
-            box.className = blinking ? `${base}${sent ? " sa-hl-blink-sent" : " sa-hl-blink"}` : base;
+            const part = rect.hit === false;
+            let className = base;
+            if (part) className = `${base} sa-hl-part`;
+            else if (blinking) className = `${base}${sent ? " sa-hl-blink-sent" : " sa-hl-blink"}`;
+            box.className = className;
+            box.dataset.saHit = part ? "0" : "1";
             if (adopt) box.dataset.adopt = "1";
             if (reject) box.dataset.reject = "1";
             box.style.left = `${rect.left}px`;
@@ -6780,7 +6933,7 @@ ${PICK_SCRIPT}<\/script>`;
             event.preventDefault();
             event.stopPropagation();
             if (popoverItem === null) return;
-            jumpToQuote(popoverItem, void 0, node);
+            jumpToQuote(popoverItem, popoverTurn === null ? void 0 : popoverTurn, node);
           };
           node.addEventListener("click", run);
           node.addEventListener("keydown", (event) => {
@@ -7429,6 +7582,7 @@ ${PICK_SCRIPT}<\/script>`;
         let popoverTargetId = null;
         let popoverSnapshot = null;
         let popoverItem = null;
+        let popoverTurn = null;
         let popAutoSaveTimer = null;
         function schedulePopAutoSave() {
           if (popoverMode !== "edit" && popoverMode !== "create") return;
@@ -7608,8 +7762,7 @@ ${PICK_SCRIPT}<\/script>`;
           popQuote.textContent = options.quote;
           popQuote.style.display = options.quote === "" ? "none" : "";
           popQuoteHead.style.display = options.quote === "" ? "none" : "";
-          popJumpHint.textContent = "";
-          popJumpHint.dataset.on = "0";
+          resetPopoverJumpHints();
           const canJump = options.mode === "sent" || options.mode === "edit" && options.quote !== "";
           popJump.style.display = canJump ? "" : "none";
           popJump.dataset.disabled = options.item?.source?.kind === "file" ? "1" : "0";
@@ -7637,6 +7790,7 @@ ${PICK_SCRIPT}<\/script>`;
           if (readonly && popInputImages.length === 0) popImages.style.display = "none";
           popoverTargetId = options.targetId ?? null;
           popoverItem = options.item ?? null;
+          popoverTurn = options.mode === "sent" ? Number.isFinite(options.item?.turn) ? options.item.turn : Number.isFinite(options.item?.source?.turn) ? options.item.source.turn : null : null;
           popoverSnapshot = options.mode === "edit" && popoverTargetId !== null ? {
             id: popoverTargetId,
             note: typeof options.note === "string" ? options.note : "",
@@ -7761,21 +7915,48 @@ ${PICK_SCRIPT}<\/script>`;
           popoverTargetId = null;
           popoverSnapshot = null;
           popoverItem = null;
+          popoverTurn = null;
           popoverMode = "create";
           hideSuggestion();
         }
-        let popJumpHintTimer = 0;
+        const jumpHintTimers = /* @__PURE__ */ new WeakMap();
         let jumpToast = null;
         let jumpToastTimer = 0;
-        function flashPopoverJumpHint(message) {
-          popJumpHint.textContent = message;
-          popJumpHint.dataset.on = "1";
-          if (popJumpHintTimer !== 0) window.clearTimeout(popJumpHintTimer);
-          popJumpHintTimer = window.setTimeout(() => {
-            popJumpHintTimer = 0;
-            popJumpHint.dataset.on = "0";
-            popJumpHint.textContent = "";
-          }, 2400);
+        function jumpHintFor(button3) {
+          const parent = button3?.parentElement ?? null;
+          if (parent === null) return popJumpHint;
+          const existing = safe(() => parent.querySelector(":scope > .sa-pop-jump-hint")) ?? null;
+          if (existing !== null) return existing;
+          const hint = document.createElement("span");
+          hint.className = "sa-pop-jump-hint";
+          hint.dataset.on = "0";
+          parent.insertBefore(hint, button3);
+          return hint;
+        }
+        function flashPopoverJumpHint(message, button3) {
+          const hint = jumpHintFor(button3);
+          hint.textContent = message;
+          hint.dataset.on = "1";
+          const timer = jumpHintTimers.get(hint);
+          if (timer !== void 0) window.clearTimeout(timer);
+          jumpHintTimers.set(
+            hint,
+            window.setTimeout(() => {
+              jumpHintTimers.delete(hint);
+              hint.dataset.on = "0";
+              hint.textContent = "";
+            }, 2400)
+          );
+        }
+        function resetPopoverJumpHints() {
+          const hints = safe(() => [...popover.querySelectorAll(".sa-pop-jump-hint")]) ?? [];
+          for (const hint of hints) {
+            const timer = jumpHintTimers.get(hint);
+            if (timer !== void 0) window.clearTimeout(timer);
+            jumpHintTimers.delete(hint);
+            hint.textContent = "";
+            hint.dataset.on = "0";
+          }
         }
         function flashJumpToast(message) {
           if (jumpToast !== null) jumpToast.remove();
@@ -7795,7 +7976,7 @@ ${PICK_SCRIPT}<\/script>`;
         function jumpFailure(message, root) {
           const host = root === void 0 || root === null ? null : safe(() => root.closest("[data-sa-ui]")) ?? null;
           if (host !== null && host.getAttribute("data-sa-ui") === "popover") {
-            flashPopoverJumpHint(message);
+            flashPopoverJumpHint(message, root);
             return;
           }
           if (host !== null && (host.getAttribute("data-sa-ui") === "panel" || host.getAttribute("data-sa-ui") === "side")) {
@@ -7942,19 +8123,28 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function jumpToQuote(item, turnHint, root) {
           const source = item === void 0 || item === null ? null : item.source;
+          const turn = Number.isFinite(turnHint) ? turnHint : Number.isFinite(source?.turn) ? source.turn : null;
+          const fail = (message) => {
+            warn("[selection-annotations] 跳转失败:", {
+              turn,
+              kind: source?.kind,
+              anchorKey: source?.anchorKey,
+              reason: message
+            });
+            jumpFailure(message, root);
+          };
           if (source === void 0 || source === null) {
-            jumpFailure(t("jump.noAnchor"), root);
+            fail(t("jump.noAnchor"));
             return;
           }
           if (source.kind === "file") {
-            jumpFailure(t("jump.file"), root);
+            fail(t("jump.file"));
             return;
           }
           if (source.kind !== "message") {
-            jumpFailure(t("jump.noAnchor"), root);
+            fail(t("jump.noAnchor"));
             return;
           }
-          const turn = Number.isFinite(turnHint) ? turnHint : Number.isFinite(source.turn) ? source.turn : null;
           const land = () => {
             const row = safe(() => findSourceRow(source, item, turn)) ?? null;
             if (row === null) return false;
@@ -7965,12 +8155,12 @@ ${PICK_SCRIPT}<\/script>`;
           };
           if (land()) return;
           if (turn === null) {
-            jumpFailure(t("jump.noAnchor"), root);
+            fail(t("jump.noAnchor"));
             return;
           }
           const mark = findTurnNavButton(turn);
           if (mark === null) {
-            jumpFailure(t("jump.notLoaded", { n: turn }), root);
+            fail(t("jump.notLoaded", { n: turn }));
             return;
           }
           mark.click();
@@ -7981,7 +8171,7 @@ ${PICK_SCRIPT}<\/script>`;
               window.setTimeout(retry, JUMP_NAV_POLL_MS);
               return;
             }
-            jumpFailure(t("jump.notLoaded", { n: turn }), root);
+            fail(t("jump.notLoaded", { n: turn }));
           };
           window.setTimeout(retry, JUMP_NAV_POLL_MS);
         }
