@@ -1,5 +1,6 @@
 import { el, button } from './util.js'
 import { PLUGIN_BUILD } from './config.js'
+import { paintNote } from './note-tone.js'
 
 /**
  * 批注总览面板：固定头（标题、说明、条数、清空）、可在其中拖拽排序的列表、
@@ -24,7 +25,7 @@ export function createPanelRenderer({
   closePanel = () => {},
   openSideTab = () => {},
   isSideTabOpen = () => false, // true 时按钮变成「关闭」，图标与提示同步切换
-  isAdopt = () => false,
+  noteView = () => null,
   getHintText = () => '',
 }) {
   function render(panelEl) {
@@ -213,8 +214,8 @@ export function createPanelRenderer({
       if (item.note !== '') {
         const a = el('div', 'sa-item-a')
         a.appendChild(el('div', 'sa-item-label', t('panel.note')))
-        const noteEl = el('div', 'sa-item-note', item.note)
-        if (isAdopt(item.note)) noteEl.dataset.adopt = '1'
+        const noteEl = el('div', 'sa-item-note')
+        paintNote(noteEl, item.note, noteView(item.note))
         // 单击批注正文等同「编辑」按钮：打开同一条批注的编辑弹层。
         noteEl.addEventListener('click', (event) => {
           event.preventDefault()

@@ -6,6 +6,7 @@ import {
   DEFAULT_FALLBACK_TEXT,
   DEFAULT_IMAGE_SETTINGS,
   DEFAULT_INSTRUCTION,
+  DEFAULT_REJECT_TEXT,
   IMAGE_SETTINGS_KEY,
   MAX_IMAGE_BYTES,
   MAX_IMAGES_PER_ANNOTATION,
@@ -52,6 +53,7 @@ import { createCards, VERDICT_LABELS } from './core/cards.js'
 import { jumpIcon } from './core/jump-icon.js'
 import { createMarkdown } from './core/markdown.js'
 import { createPanelRenderer } from './core/panel-render.js'
+import { noteFlags, noteSegments, noteView, paintNote } from './core/note-tone.js'
 import {
   serializeAnnotations,
   parseAnnotations,
@@ -467,10 +469,16 @@ const rewindHandled = new Map()
         const persistInstructionSettings = (text) => settings.persistInstructionSettings(text)
         const adoptTextOf = () => settings.adoptTextOf()
         const persistAdoptText = (text) => settings.persistAdoptText(text)
+        const rejectTextOf = () => settings.rejectTextOf()
+        const persistRejectText = (text) => settings.persistRejectText(text)
         const fallbackTextOf = () => settings.fallbackTextOf()
         const persistFallbackText = (text) => settings.persistFallbackText(text)
         /** 批注正文里出现「采纳」预填文本时，整条批注改用绿色标识。 */
         const hasAdoptNote = (note) => typeof note === 'string' && note.includes(adoptTextOf())
+        /** 批注正文里出现「否决」预填文本时，整条批注改用红色标识。 */
+        const hasRejectNote = (note) => typeof note === 'string' && note.includes(rejectTextOf())
+        /** 备注的采纳/否决判定与逐句着色数据；两个布尔互相独立，一条备注可以同时命中。 */
+        const noteViewOf = (note) => noteView(note, adoptTextOf(), rejectTextOf())
 
         /** 已载入会话的草稿（sessionId → 可序列化条目），切换会话时先在内存里换入换出。 */
         const remoteReplyCache = new Map()
@@ -1304,7 +1312,7 @@ const rewindHandled = new Map()
             footnotes: t('markdown.footnotes'),
           }),
         })
-        const cards = createCards({ t, openImageViewer, markdown, isAdopt: hasAdoptNote })
+        const cards = createCards({ t, openImageViewer, markdown, isAdopt: hasAdoptNote, noteView: noteViewOf })
         const sectionChevron = () => cards.sectionChevron()
         const buildSectionHead = (label, meta) => cards.buildSectionHead(label, meta)
         const collapsible = (body, open) => cards.collapsible(body, open)
@@ -1856,11 +1864,13 @@ const rewindHandled = new Map()
           safe(() => {
             annotateLabel.textContent = t('annotate')
             adoptLabel.textContent = t('annotate.adopt')
+            rejectLabel.textContent = t('annotate.reject')
             copyLabel.textContent = t('annotate.copy')
           })
           safe(() => {
             menuAnnotate.textContent = t('menu.annotate')
             menuAdopt.textContent = t('menu.adopt')
+            menuReject.textContent = t('menu.reject')
             menuCopy.textContent = t('menu.copy')
           })
           safe(() => {
@@ -2699,8 +2709,9 @@ const rewindHandled = new Map()
           const rects = safe(() => [...range.getClientRects()]) ?? []
           // 命中表带上条目本身：已发送条目不在 annotations 里，悬停时只能靠它找到对应记录。
           if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects, item })
-          // 采纳判定要读设置项：草稿据此选常驻色、已发送据此选闪烁时的旧底色，读不到也必须照常画。
+          // 采纳与否决判定各读一次设置项：草稿据此选常驻色、已发送据此选闪烁时的旧底色，读不到也必须照常画。
           const adopt = safe(() => hasAdoptNote(item.note)) === true
+          const reject = safe(() => hasRejectNote(item.note)) === true
           let badged = false
           for (const rect of rects) {
             if (rect.width <= 0 || rect.height <= 0) continue
@@ -2709,6 +2720,7 @@ const rewindHandled = new Map()
             const base = sent ? 'sa-hl sa-hl-sent' : 'sa-hl'
             box.className = blinking ? `${base}${sent ? ' sa-hl-blink-sent' : ' sa-hl-blink'}` : base
             if (adopt) box.dataset.adopt = '1'
+            if (reject) box.dataset.reject = '1'
             box.style.left = `${rect.left}px`
             box.style.top = `${rect.top}px`
             box.style.width = `${rect.width}px`
@@ -2866,6 +2878,9 @@ const rewindHandled = new Map()
           }
           if (kind === 'check') {
             path('M2.25 8.5L5.49732 11.7473C5.90519 12.1552 6.57263 12.1344 6.95426 11.7018L13.75 4')
+          } else if (kind === 'reject') {
+            path('M3.75 3.75 12.25 12.25')
+            path('M12.25 3.75 3.75 12.25')
           } else if (kind === 'copy') {
             path('M5.6 5.6H12.4V12.4H5.6V5.6Z')
             path('M3.6 3.6H9.4V5.6')
@@ -2882,6 +2897,13 @@ const rewindHandled = new Map()
         const annotateLabel = document.createElement('span')
         annotateLabel.textContent = t('annotate')
         annotateButton.append(dshIconSvg('edit'), annotateLabel)
+        // 「批注否决」与采纳对称：复用同一条落条目事务，只在正文里预填「否决」，随后打开编辑面板。
+        const rejectButton = document.createElement('button')
+        rejectButton.type = 'button'
+        rejectButton.className = 'sa-btn sa-btn-reject'
+        const rejectLabel = document.createElement('span')
+        rejectLabel.textContent = t('annotate.reject')
+        rejectButton.append(dshIconSvg('reject'), rejectLabel)
         // 「批注采纳」复用同一个创建流程，只在批注正文里预填「采纳」。
         const adoptButton = document.createElement('button')
         adoptButton.type = 'button'
@@ -2889,15 +2911,15 @@ const rewindHandled = new Map()
         const adoptLabel = document.createElement('span')
         adoptLabel.textContent = t('annotate.adopt')
         adoptButton.append(dshIconSvg('check'), adoptLabel)
-        // 「复制」放在最左，先复制再决定批注还是采纳。
+        // 「复制」放在最右，先复制再决定批注、采纳与否决。
         const copyButton = document.createElement('button')
         copyButton.type = 'button'
         copyButton.className = 'sa-btn'
         const copyLabel = document.createElement('span')
         copyLabel.textContent = t('annotate.copy')
         copyButton.append(dshIconSvg('copy'), copyLabel)
-        // 左边采纳、中间反馈、右边复制。
-        toolbar.append(adoptButton, annotateButton, copyButton)
+        // 左边否决、采纳、中间反馈、右边复制。
+        toolbar.append(rejectButton, adoptButton, annotateButton, copyButton)
 
         /* ------------------------------------------------------------------ 右键菜单*/
 
@@ -2915,11 +2937,15 @@ const rewindHandled = new Map()
         menuAdopt.type = 'button'
         menuAdopt.className = 'sa-menu-item'
         menuAdopt.textContent = t('menu.adopt')
+        const menuReject = document.createElement('button')
+        menuReject.type = 'button'
+        menuReject.className = 'sa-menu-item'
+        menuReject.textContent = t('menu.reject')
         const menuCopy = document.createElement('button')
         menuCopy.type = 'button'
         menuCopy.className = 'sa-menu-item'
         menuCopy.textContent = t('menu.copy')
-        contextMenu.append(menuAnnotate, menuAdopt, menuCopy)
+        contextMenu.append(menuAnnotate, menuAdopt, menuReject, menuCopy)
         /** 打开菜单时的那份选区：菜单点下去时 document 的选区可能已经变了。*/
         let contextMenuSelection = null
 
@@ -3105,7 +3131,7 @@ const rewindHandled = new Map()
 
         function refreshNoteState() {
           popInput.dataset.empty = noteValue() === '' ? '1' : '0'
-          syncAdoptTone()
+          syncNoteTone()
           // 文字变了：编辑态按去抖自动存写；新建态由 schedulePopAutoSave 自己跳过。
           schedulePopAutoSave()
         }
@@ -3121,29 +3147,29 @@ const rewindHandled = new Map()
           }
         }
 
-        function adoptTokenNode(phrase) {
+        function noteTokenNode(phrase, tone) {
           const token = document.createElement('span')
-          token.className = 'sa-token'
+          token.className = tone === 'reject' ? 'sa-token sa-token-reject' : 'sa-token'
           token.setAttribute('contenteditable', 'false')
           token.textContent = phrase
           return token
         }
 
-        /** 用编辑器内容重建备注：第一次出现的采纳句换成不可编辑 token。*/
+        /** 参与备注着色的关键句：采纳句与否决句，设置成空串的那一条不参与。*/
+        function notePhrases() {
+          return [adoptTextOf(), rejectTextOf()].filter((phrase) => typeof phrase === 'string' && phrase !== '')
+        }
+
+        /** 用编辑器内容重建备注：采纳句与否决句各自换成不可编辑 token，按出现顺序排列。*/
         function setNoteContent(value) {
           popInput.textContent = ''
           if (value === '') {
             refreshNoteState()
             return
           }
-          const phrase = adoptTextOf()
-          const at = value.indexOf(phrase)
-          if (at === -1) {
-            appendNoteText(value)
-          } else {
-            appendNoteText(value.slice(0, at))
-            popInput.appendChild(adoptTokenNode(phrase))
-            appendNoteText(value.slice(at + phrase.length))
+          for (const segment of noteSegments(value, adoptTextOf(), rejectTextOf())) {
+            if (segment.tone === '') appendNoteText(segment.text)
+            else popInput.appendChild(noteTokenNode(segment.text, segment.tone))
           }
           refreshNoteState()
         }
@@ -3188,17 +3214,21 @@ const rewindHandled = new Map()
         }
 
         function updateSuggestion() {
-          const phrase = adoptTextOf()
+          const phrases = notePhrases()
           const ctx = caretLine()
           if (ctx === null) {
             hideSuggestion()
             return
           }
-          if (ctx.line === '' || ctx.line === phrase || !phrase.includes(ctx.line)) {
+          // 两个关键句各自参与补全；同一行只可能是一个前缀，取第一个匹配的。
+          const phrase = phrases.find(
+            (candidate) => candidate !== '' && ctx.line !== '' && ctx.line !== candidate && candidate.includes(ctx.line),
+          )
+          if (phrase === undefined) {
             hideSuggestion()
             return
           }
-          suggested = { prefix: ctx.line, node: ctx.node, offset: ctx.offset }
+          suggested = { phrase, prefix: ctx.line, node: ctx.node, offset: ctx.offset }
           ghostTip.textContent = phrase
           const left = Math.min(ctx.rect.right + 1, window.innerWidth - 40)
           ghostTip.style.left = `${Math.max(8, left)}px`
@@ -3208,7 +3238,7 @@ const rewindHandled = new Map()
 
         function acceptSuggestion() {
           if (suggested === null) return false
-          const phrase = adoptTextOf()
+          const phrase = suggested.phrase
           const { prefix, node, offset } = suggested
           if (typeof node.data !== 'string' || node.data.slice(offset - prefix.length, offset) !== prefix) {
             hideSuggestion()
@@ -3220,7 +3250,7 @@ const rewindHandled = new Map()
           range.setStart(node, offset - prefix.length)
           range.setEnd(node, offset)
           range.deleteContents()
-          const token = adoptTokenNode(phrase)
+          const token = noteTokenNode(phrase, phrase === adoptTextOf() ? 'adopt' : 'reject')
           range.insertNode(token)
           const after = document.createRange()
           after.setStartAfter(token)
@@ -4016,8 +4046,11 @@ const rewindHandled = new Map()
           }
         }
 
-        function syncAdoptTone() {
-          popInput.dataset.adopt = hasAdoptNote(noteValue()) ? '1' : '0'
+        /** 采纳与否决是两条独立标记：备注可以同时含两句，颜色由这两个布尔推导。 */
+        function syncNoteTone() {
+          const flags = noteFlags(noteValue(), adoptTextOf(), rejectTextOf())
+          popInput.dataset.adopt = flags.adopt ? '1' : '0'
+          popInput.dataset.reject = flags.reject ? '1' : '0'
         }
 
         function showPopover(options) {
@@ -4035,9 +4068,9 @@ const rewindHandled = new Map()
           // 已发送批注是只读的：正文换成一段文字，输入框、图片和操作行都收起来。
           const readonly = options.mode === 'sent'
           if (readonly) {
-            popReadNote.textContent =
+            const noteText =
               typeof options.note === 'string' && options.note !== '' ? options.note : t('pop.noNote')
-            popReadNote.dataset.adopt = hasAdoptNote(options.note) ? '1' : '0'
+            paintNote(popReadNote, noteText, noteViewOf(options.note))
           }
           popReadNote.style.display = readonly ? '' : 'none'
           popSource.style.display = readonly ? 'none' : ''
@@ -4637,16 +4670,21 @@ const rewindHandled = new Map()
           closePopover({ autoSave: false })
         }
 
-        /** 采纳不走弹层：直接按当前选区落一条带「采纳」字样的批注。*/
-        function adoptSelectionDirectly() {
+        /**
+         * 采纳与否决共用这一条落条目事务：不走弹层，直接按当前选区落一条带关键句的批注。
+         * 差异只有正文预填的字面，所以调用方传进来，别在这里分叉。
+         * @param noteText - 预填到批注正文的关键句。
+         * @returns 新建的批注对象；没有落成时为 undefined。
+         */
+        function adoptSelectionDirectly(noteText = adoptTextOf()) {
           const selection = pendingSelection
-          if (selection === null) return
+          if (selection === null) return undefined
           hideToolbar()
           closeContextMenu()
           const source = captureSource(selection.range)
           const created = addAnnotation({
             quote: selection.quote,
-            note: adoptTextOf(),
+            note: noteText,
             images: [],
             source,
             liveRange: selection.range,
@@ -4657,6 +4695,19 @@ const rewindHandled = new Map()
               warn('[selection-annotations] 位置精修失败（不影响这条批注）：', err)
             })
           }
+          return created
+        }
+
+        /** 否决：落条目时预填「否决」字样，紧接着打开编辑面板让人补理由。*/
+        function rejectSelectionDirectly() {
+          const selection = pendingSelection
+          const created = adoptSelectionDirectly(rejectTextOf())
+          if (created === undefined || created === null) return
+          const anchor =
+            selection === null
+              ? undefined
+              : { getBoundingClientRect: () => selection.range.getBoundingClientRect() }
+          openEditPopover(created.id, anchor)
         }
 
         /** 把一条已发送记录里的批注原样追加回待发送列表（图片也带上）。*/
@@ -4702,6 +4753,13 @@ const rewindHandled = new Map()
           event.preventDefault()
           openCreatePopover()
         })
+        rejectButton.addEventListener('mousedown', (event) => {
+          event.preventDefault()
+        })
+        rejectButton.addEventListener('click', (event) => {
+          event.preventDefault()
+          rejectSelectionDirectly()
+        })
         adoptButton.addEventListener('mousedown', (event) => {
           event.preventDefault()
         })
@@ -4743,6 +4801,16 @@ const rewindHandled = new Map()
           closeContextMenu()
           adoptSelectionDirectly()
         })
+        menuReject.addEventListener('mousedown', (event) => {
+          event.preventDefault()
+        })
+        menuReject.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          if (contextMenuSelection !== null) pendingSelection = contextMenuSelection
+          closeContextMenu()
+          rejectSelectionDirectly()
+        })
         menuCopy.addEventListener('mousedown', (event) => {
           event.preventDefault()
         })
@@ -4759,16 +4827,18 @@ const rewindHandled = new Map()
         popDelete.addEventListener('click', () => deleteFromPopover())
         popClose.addEventListener('click', () => closePopover())
         popInput.addEventListener('keydown', (event) => {
-          const phrase = adoptTextOf()
-          // 采纳 token 是 contenteditable=false，退格与选中由浏览器按整块处理；
-          // 手打前几个字时，Tab 把当前内容换成完整的采纳 token。
+          // 关键句 token 是 contenteditable=false，退格与选中由浏览器按整块处理；
+          // 手打前几个字时，Tab 把当前内容换成完整的关键句 token（采纳、否决都认）。
           if (event.key === 'Tab' && !event.shiftKey) {
             if (acceptSuggestion()) {
               event.preventDefault()
               return
             }
             const value = noteValue()
-            if (value !== '' && phrase.startsWith(value)) {
+            const phrase = notePhrases().find(
+              (candidate) => value !== '' && value !== candidate && candidate.startsWith(value),
+            )
+            if (phrase !== undefined) {
               event.preventDefault()
               setNoteContent(phrase)
               safe(() => caretToEnd())
@@ -4786,10 +4856,10 @@ const rewindHandled = new Map()
           if (event.key === 'Escape') closePopover()
         })
         popInput.addEventListener('input', () => {
-          const phrase = adoptTextOf()
           const value = noteValue()
-          // 手打完整采纳句时直接转成 token，避免留下可拆开的纯文本。
-          if (value.endsWith(phrase)) {
+          // 手打完整关键句时直接转成 token，避免留下可拆开的纯文本。
+          const hit = notePhrases().find((phrase) => value.endsWith(phrase))
+          if (hit !== undefined) {
             const last = popInput.lastElementChild
             const already = last !== null && last !== undefined && typeof last.className === 'string' && last.className.includes('sa-token')
             if (!already) {
@@ -5809,7 +5879,7 @@ const rewindHandled = new Map()
           fallbackSettingsRow: () => fallbackSettingsRow(),
           openSideTab: () => toggleSideAnnotationsTab(),
           isSideTabOpen: () => sideAnnotationsTabOpen(),
-          isAdopt: hasAdoptNote,
+          noteView: noteViewOf,
           getHintText: (surface) => panelHintTextOf(surface),
         })
         const renderPanel = () => panelRenderer.render(panelEl)
@@ -6622,6 +6692,7 @@ const rewindHandled = new Map()
         function AnnotationInstructionSettings() {
           const [text, setText] = React.useState(() => instructionOf())
           const [adoptText, setAdoptText] = React.useState(() => adoptTextOf())
+          const [rejectText, setRejectText] = React.useState(() => rejectTextOf())
           const [fallbackText, setFallbackText] = React.useState(() => fallbackTextOf())
           const customized = !isDefaultInstruction(text)
           const card = (key, title, hint, control, actions) =>
@@ -6689,6 +6760,33 @@ const rewindHandled = new Map()
                     const next = DEFAULT_ADOPT_TEXT
                     setAdoptText(next)
                     persistAdoptText(next)
+                  },
+                },
+                t('settings.restore'),
+              ),
+            ),
+            card(
+              'reject',
+              t('settings.rejectLabel'),
+              t('settings.rejectHint'),
+              h('input', {
+                className: 'sa-setting-input',
+                'aria-label': t('settings.rejectLabel'),
+                value: rejectText,
+                onChange: (event) => {
+                  setRejectText(event.target.value)
+                  persistRejectText(event.target.value)
+                },
+              }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'sa-link',
+                  onClick: () => {
+                    const next = DEFAULT_REJECT_TEXT
+                    setRejectText(next)
+                    persistRejectText(next)
                   },
                 },
                 t('settings.restore'),

@@ -17,6 +17,9 @@ export const INSTRUCTION_SETTINGS_KEY = 'dsh-selection-annotations:instruction-s
     /** 「批注采纳」预填文本：可在插件设置里改，恢复默认回到下面这句。*/
 export const ADOPT_SETTINGS_KEY = 'dsh-selection-annotations:adopt-settings'
 export const DEFAULT_ADOPT_TEXT = '【意见采纳】'
+    /** 「批注否决」预填文本：与采纳同一组设置项，可改词，恢复默认回到下面这句。*/
+export const REJECT_SETTINGS_KEY = 'dsh-selection-annotations:reject-settings'
+export const DEFAULT_REJECT_TEXT = '【意见否决】'
     /** 空提示词填充：只发批注、正文为空时自动填入的句子；设为空串即关闭。*/
 export const FALLBACK_SETTINGS_KEY = 'dsh-selection-annotations:fallback-settings'
     /** 弹层尺寸：用户拖拽调整后的宽高按会话记住，下次打开沿用。*/

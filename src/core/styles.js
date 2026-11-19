@@ -8,6 +8,14 @@ export const CSS = `
 .sa-hl[data-adopt="1"] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
+.sa-hl[data-reject="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 70%, transparent); }
+/* 一条批注可以同时含采纳句与否决句：只命中一句时整条按那句着色，
+   两句都在时整条回到警告色，逐句的颜色交给备注正文表达。*/
+.sa-hl[data-adopt="1"][data-reject="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
 /* 已发送的常驻色放在草稿的 data-adopt 之后：同权重时以主题色为准。
    下边线用虚线：这是绝对定位的高亮层，border-box 下加 border 不改整体高度。*/
 .sa-hl.sa-hl-sent { background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
@@ -20,6 +28,10 @@ export const CSS = `
 .sa-hl.sa-hl-sent.sa-hl-blink-sent { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent); }
 .sa-hl.sa-hl-sent.sa-hl-blink-sent[data-adopt="1"] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent); }
+.sa-hl.sa-hl-sent.sa-hl-blink-sent[data-reject="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 30%, transparent); }
+.sa-hl.sa-hl-sent.sa-hl-blink-sent[data-adopt="1"][data-reject="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent); }
 /* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
 .sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }
@@ -49,6 +61,28 @@ export const CSS = `
   .sa-pop-input[data-adopt="1"], .sa-pop-read[data-adopt="1"], .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.13 150); }
 }
+/* 否决句走 error 色相；两条规则都放在采纳之后，同时命中时由这里覆盖回警告色。*/
+.sa-item-note[data-reject="1"], .sa-sent-note[data-reject="1"], .sa-q-note[data-reject="1"],
+.sa-pop-input[data-reject="1"], .sa-pop-read[data-reject="1"] {
+  color: var(--dsw-alias-state-error-primary, #e5484d); }
+@supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
+  .sa-item-note[data-reject="1"], .sa-sent-note[data-reject="1"], .sa-q-note[data-reject="1"],
+  .sa-pop-input[data-reject="1"], .sa-pop-read[data-reject="1"] {
+    color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.14 25); }
+}
+/* 一条备注同时含两句：整条回到警告色，关键句由下面的片段类各自着色。*/
+.sa-item-note[data-adopt="1"][data-reject="1"], .sa-sent-note[data-adopt="1"][data-reject="1"],
+.sa-q-note[data-adopt="1"][data-reject="1"], .sa-pop-input[data-adopt="1"][data-reject="1"],
+.sa-pop-read[data-adopt="1"][data-reject="1"] {
+  color: var(--dsw-alias-state-warn-primary, #d29922); }
+@supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
+  .sa-item-note[data-adopt="1"][data-reject="1"], .sa-sent-note[data-adopt="1"][data-reject="1"],
+  .sa-q-note[data-adopt="1"][data-reject="1"], .sa-pop-input[data-adopt="1"][data-reject="1"],
+  .sa-pop-read[data-adopt="1"][data-reject="1"] {
+    color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.12 85); }
+}
+.sa-note-adopt { color: var(--dsw-alias-state-success-primary, #22c55e); }
+.sa-note-reject { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-badge { position: fixed; pointer-events: auto; cursor: pointer; font: inherit; border: none; padding: 0 3px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
   background: var(--dsw-alias-brand-primary, #247bbf); color: #fff; font-size: calc(10px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1;
@@ -75,6 +109,8 @@ export const CSS = `
   .sa-toolbar .sa-btn + .sa-btn { box-shadow: inset 1px 0 0 var(--dsw-alias-border-l2, ButtonBorder); border-radius: 0 6px 6px 0; }
   .sa-toolbar .sa-btn-adopt, .sa-toolbar .sa-btn-adopt:hover { color: var(--dsw-alias-brand-primary, #247bbf); }
   .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
+  .sa-toolbar .sa-btn-reject, .sa-toolbar .sa-btn-reject:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }
+  .sa-btn-reject { border-color: var(--dsw-alias-state-error-primary, #e5484d); color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-popover { position: fixed; display: flex; flex-direction: column; z-index: 70; width: 340px; max-width: calc(100vw - 16px);
   overflow: hidden; overscroll-behavior: contain;
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
@@ -152,6 +188,9 @@ export const CSS = `
 .sa-token { display: inline-flex; align-items: center; margin: 0 1px; padding: 0 6px; border-radius: 6px;
   background: var(--dsw-alias-state-success-tertiary, #e6faed); color: var(--dsw-alias-state-success-primary, #22c55e);
   font-weight: 500; user-select: all; }
+.sa-token.sa-token-reject {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 15%, transparent);
+  color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-ghost { position: fixed; z-index: 68; pointer-events: none; font-style: italic; white-space: pre;
   font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); line-height: 1.6;
   color: var(--dsw-alias-label-tertiary, GrayText); opacity: .8; }

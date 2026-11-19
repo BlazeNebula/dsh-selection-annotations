@@ -10,6 +10,14 @@
 .sa-hl[data-adopt="1"] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
+.sa-hl[data-reject="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 70%, transparent); }
+/* 一条批注可以同时含采纳句与否决句：只命中一句时整条按那句着色，
+   两句都在时整条回到警告色，逐句的颜色交给备注正文表达。*/
+.sa-hl[data-adopt="1"][data-reject="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
 /* 已发送的常驻色放在草稿的 data-adopt 之后：同权重时以主题色为准。
    下边线用虚线：这是绝对定位的高亮层，border-box 下加 border 不改整体高度。*/
 .sa-hl.sa-hl-sent { background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
@@ -22,6 +30,10 @@
 .sa-hl.sa-hl-sent.sa-hl-blink-sent { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent); }
 .sa-hl.sa-hl-sent.sa-hl-blink-sent[data-adopt="1"] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent); }
+.sa-hl.sa-hl-sent.sa-hl-blink-sent[data-reject="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 30%, transparent); }
+.sa-hl.sa-hl-sent.sa-hl-blink-sent[data-adopt="1"][data-reject="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent); }
 /* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
 .sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }
@@ -51,6 +63,28 @@
   .sa-pop-input[data-adopt="1"], .sa-pop-read[data-adopt="1"], .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.13 150); }
 }
+/* 否决句走 error 色相；两条规则都放在采纳之后，同时命中时由这里覆盖回警告色。*/
+.sa-item-note[data-reject="1"], .sa-sent-note[data-reject="1"], .sa-q-note[data-reject="1"],
+.sa-pop-input[data-reject="1"], .sa-pop-read[data-reject="1"] {
+  color: var(--dsw-alias-state-error-primary, #e5484d); }
+@supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
+  .sa-item-note[data-reject="1"], .sa-sent-note[data-reject="1"], .sa-q-note[data-reject="1"],
+  .sa-pop-input[data-reject="1"], .sa-pop-read[data-reject="1"] {
+    color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.14 25); }
+}
+/* 一条备注同时含两句：整条回到警告色，关键句由下面的片段类各自着色。*/
+.sa-item-note[data-adopt="1"][data-reject="1"], .sa-sent-note[data-adopt="1"][data-reject="1"],
+.sa-q-note[data-adopt="1"][data-reject="1"], .sa-pop-input[data-adopt="1"][data-reject="1"],
+.sa-pop-read[data-adopt="1"][data-reject="1"] {
+  color: var(--dsw-alias-state-warn-primary, #d29922); }
+@supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
+  .sa-item-note[data-adopt="1"][data-reject="1"], .sa-sent-note[data-adopt="1"][data-reject="1"],
+  .sa-q-note[data-adopt="1"][data-reject="1"], .sa-pop-input[data-adopt="1"][data-reject="1"],
+  .sa-pop-read[data-adopt="1"][data-reject="1"] {
+    color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.12 85); }
+}
+.sa-note-adopt { color: var(--dsw-alias-state-success-primary, #22c55e); }
+.sa-note-reject { color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-badge { position: fixed; pointer-events: auto; cursor: pointer; font: inherit; border: none; padding: 0 3px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
   background: var(--dsw-alias-brand-primary, #247bbf); color: #fff; font-size: calc(10px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1;
@@ -77,6 +111,8 @@
   .sa-toolbar .sa-btn + .sa-btn { box-shadow: inset 1px 0 0 var(--dsw-alias-border-l2, ButtonBorder); border-radius: 0 6px 6px 0; }
   .sa-toolbar .sa-btn-adopt, .sa-toolbar .sa-btn-adopt:hover { color: var(--dsw-alias-brand-primary, #247bbf); }
   .sa-btn-adopt { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-brand-primary, #247bbf); }
+  .sa-toolbar .sa-btn-reject, .sa-toolbar .sa-btn-reject:hover { color: var(--dsw-alias-state-error-primary, #e5484d); }
+  .sa-btn-reject { border-color: var(--dsw-alias-state-error-primary, #e5484d); color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-popover { position: fixed; display: flex; flex-direction: column; z-index: 70; width: 340px; max-width: calc(100vw - 16px);
   overflow: hidden; overscroll-behavior: contain;
   padding: 10px; box-sizing: border-box; border-radius: 10px; color: var(--dsw-alias-label-primary, CanvasText);
@@ -154,6 +190,9 @@
 .sa-token { display: inline-flex; align-items: center; margin: 0 1px; padding: 0 6px; border-radius: 6px;
   background: var(--dsw-alias-state-success-tertiary, #e6faed); color: var(--dsw-alias-state-success-primary, #22c55e);
   font-weight: 500; user-select: all; }
+.sa-token.sa-token-reject {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 15%, transparent);
+  color: var(--dsw-alias-state-error-primary, #e5484d); }
 .sa-ghost { position: fixed; z-index: 68; pointer-events: none; font-style: italic; white-space: pre;
   font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.8); line-height: 1.6;
   color: var(--dsw-alias-label-tertiary, GrayText); opacity: .8; }
@@ -515,6 +554,8 @@
   var INSTRUCTION_SETTINGS_KEY = "dsh-selection-annotations:instruction-settings";
   var ADOPT_SETTINGS_KEY = "dsh-selection-annotations:adopt-settings";
   var DEFAULT_ADOPT_TEXT = "【意见采纳】";
+  var REJECT_SETTINGS_KEY = "dsh-selection-annotations:reject-settings";
+  var DEFAULT_REJECT_TEXT = "【意见否决】";
   var FALLBACK_SETTINGS_KEY = "dsh-selection-annotations:fallback-settings";
   var POPOVER_SIZE_KEY = "dsh-selection-annotations:popover-size";
   var DEFAULT_FALLBACK_TEXT = "此轮对话内容均在批注中给出，总计 {count} 条批注。\n此轮消息发起时间：{time}";
@@ -607,9 +648,11 @@
     zh: {
       annotate: "批注反馈",
       "annotate.adopt": "批注采纳",
+      "annotate.reject": "批注否决",
       "annotate.copy": "复制",
       "menu.annotate": "为划选部分批注反馈",
       "menu.adopt": "为划选部分批注采纳",
+      "menu.reject": "为划选部分批注否决",
       "menu.copy": "复制",
       "viewer.alt": "批注图片",
       "image.alt": "图片",
@@ -670,6 +713,8 @@
       "settings.pageTitle": "批注指令",
       "settings.adoptLabel": "「批注采纳」预填文本",
       "settings.adoptHint": "采纳模式下自动写入批注正文的句子；输入前缀会出现补全提示。",
+      "settings.rejectLabel": "「批注否决」预填文本",
+      "settings.rejectHint": "否决模式下自动写入批注正文的句子，随后打开编辑面板补充理由。",
       "settings.fallbackLabel": "空提示词填充",
       "settings.fallbackHint": "只带批注、正文为空时自动填入；{count} 换成批注条数，{time} 换成发送时间。留空则使用默认文案。",
       "settings.fallbackOpen": "收起空提示词设置",
@@ -745,9 +790,11 @@
     en: {
       annotate: "Feedback",
       "annotate.adopt": "Adopt",
+      "annotate.reject": "Reject",
       "annotate.copy": "Copy",
       "menu.annotate": "Feedback on selection",
       "menu.adopt": "Adopt selection",
+      "menu.reject": "Reject selection",
       "menu.copy": "Copy",
       "viewer.alt": "Annotated image",
       "image.alt": "Image",
@@ -808,6 +855,8 @@
       "settings.pageTitle": "Annotation instruction",
       "settings.adoptLabel": "Prefilled “Adopt” text",
       "settings.adoptHint": "Written into the note in Adopt mode; typing a prefix shows an inline completion.",
+      "settings.rejectLabel": "Prefilled “Reject” text",
+      "settings.rejectHint": "Written into the note in Reject mode; the editor opens so you can add a reason.",
       "settings.fallbackLabel": "Empty prompt fallback",
       "settings.fallbackHint": "Filled into the message body when you send only annotations and the prompt is empty. {count} becomes the annotation count, {time} the send time. Leave it empty to use the default text.",
       "settings.fallbackOpen": "Hide empty prompt fallback",
@@ -1037,6 +1086,7 @@
     let imageSettings;
     let instructionSettings;
     let adoptText;
+    let rejectText;
     let fallbackText;
     function loadImageSettings() {
       const settings = { ...DEFAULT_IMAGE_SETTINGS };
@@ -1099,6 +1149,24 @@
       if (storage === void 0) return;
       safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText, version: 1 })));
     }
+    function loadRejectText() {
+      const storage = getStorage();
+      if (storage === void 0) return DEFAULT_REJECT_TEXT;
+      const parsed = safe(() => JSON.parse(storage.getItem(REJECT_SETTINGS_KEY) ?? "null"));
+      if (parsed === null || typeof parsed !== "object") return DEFAULT_REJECT_TEXT;
+      const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
+      return text === "" ? DEFAULT_REJECT_TEXT : text;
+    }
+    function rejectTextOf() {
+      if (rejectText === void 0) rejectText = loadRejectText();
+      return rejectText;
+    }
+    function persistRejectText(text) {
+      rejectText = typeof text === "string" && text.trim() !== "" ? text : DEFAULT_REJECT_TEXT;
+      const storage = getStorage();
+      if (storage === void 0) return;
+      safe(() => storage.setItem(REJECT_SETTINGS_KEY, JSON.stringify({ text: rejectText, version: 1 })));
+    }
     function loadFallbackText() {
       const storage = getStorage();
       if (storage === void 0) return DEFAULT_FALLBACK_TEXT;
@@ -1132,6 +1200,9 @@
       loadAdoptText,
       adoptTextOf,
       persistAdoptText,
+      loadRejectText,
+      rejectTextOf,
+      persistRejectText,
       loadFallbackText,
       fallbackTextOf,
       persistFallbackText
@@ -1676,6 +1747,69 @@
     return svg;
   }
 
+  // src/core/note-tone.js
+  function noteFlags(note, adoptText, rejectText) {
+    const text = typeof note === "string" ? note : "";
+    return {
+      adopt: typeof adoptText === "string" && adoptText !== "" && text.includes(adoptText),
+      reject: typeof rejectText === "string" && rejectText !== "" && text.includes(rejectText)
+    };
+  }
+  function indexFrom(text, phrase, from) {
+    if (typeof phrase !== "string" || phrase === "") return -1;
+    return text.indexOf(phrase, from);
+  }
+  function noteSegments(note, adoptText, rejectText) {
+    const text = typeof note === "string" ? note : "";
+    const segments = [];
+    let cursor = 0;
+    while (cursor < text.length) {
+      const adoptAt = indexFrom(text, adoptText, cursor);
+      const rejectAt = indexFrom(text, rejectText, cursor);
+      const at = adoptAt === -1 ? rejectAt : rejectAt === -1 ? adoptAt : Math.min(adoptAt, rejectAt);
+      if (at === -1) {
+        segments.push({ text: text.slice(cursor), tone: "" });
+        break;
+      }
+      const tone = adoptAt !== -1 && at === adoptAt ? "adopt" : "reject";
+      const phrase = tone === "adopt" ? adoptText : rejectText;
+      if (at > cursor) segments.push({ text: text.slice(cursor, at), tone: "" });
+      segments.push({ text: phrase, tone });
+      cursor = at + phrase.length;
+    }
+    return segments;
+  }
+  function noteView(note, adoptText, rejectText) {
+    const flags = noteFlags(note, adoptText, rejectText);
+    return {
+      adopt: flags.adopt,
+      reject: flags.reject,
+      segments: flags.adopt && flags.reject ? noteSegments(note, adoptText, rejectText) : null
+    };
+  }
+  function paintNote(node, text, view) {
+    const adopt = view !== null && view !== void 0 && view.adopt === true;
+    const reject = view !== null && view !== void 0 && view.reject === true;
+    node.dataset.adopt = adopt ? "1" : "0";
+    node.dataset.reject = reject ? "1" : "0";
+    node.textContent = "";
+    const segments = view === null || view === void 0 ? null : view.segments;
+    if (!Array.isArray(segments)) {
+      node.textContent = text;
+      return;
+    }
+    for (const segment of segments) {
+      if (segment.tone === "") {
+        node.appendChild(document.createTextNode(segment.text));
+        continue;
+      }
+      const span = document.createElement("span");
+      span.className = segment.tone === "reject" ? "sa-note-reject" : "sa-note-adopt";
+      span.textContent = segment.text;
+      node.appendChild(span);
+    }
+  }
+
   // src/core/cards.js
   var VERDICT_LABELS = {
     accepted: ["verdict.accepted", "accepted"],
@@ -1683,7 +1817,7 @@
     rejected: ["verdict.rejected", "rejected"],
     needs_info: ["verdict.needs_info", "needs_info"]
   };
-  function createCards({ t, openImageViewer, markdown, isAdopt = () => false }) {
+  function createCards({ t, openImageViewer, markdown, isAdopt = () => false, noteView: noteView2 = () => null }) {
     function sectionChevron() {
       const ns = "http://www.w3.org/2000/svg";
       const svg = document.createElementNS(ns, "svg");
@@ -1837,9 +1971,8 @@
         if (typeof item.note === "string" && item.note.trim() !== "") {
           const note = document.createElement("div");
           note.className = "sa-sent-note";
-          if (isAdopt(item.note)) note.dataset.adopt = "1";
           note.setAttribute("data-sa-field", "note");
-          note.textContent = item.note;
+          paintNote(note, item.note, noteView2(item.note));
           text.appendChild(note);
         }
         const thumbs = Array.isArray(item.thumbs) ? item.thumbs : [];
@@ -1965,8 +2098,7 @@
             const note = document.createElement("div");
             note.className = "sa-q-note";
             note.setAttribute("data-sa-field", "note");
-            if (isAdopt(displayItem.note)) note.dataset.adopt = "1";
-            note.textContent = displayItem.note;
+            paintNote(note, displayItem.note, noteView2(displayItem.note));
             q.appendChild(note);
           }
           const replyThumbs = Array.isArray(displayItem.thumbs) ? displayItem.thumbs : [];
@@ -2130,7 +2262,7 @@
     },
     isSideTabOpen = () => false,
     // true 时按钮变成「关闭」，图标与提示同步切换
-    isAdopt = () => false,
+    noteView: noteView2 = () => null,
     getHintText = () => ""
   }) {
     function render(panelEl) {
@@ -2292,8 +2424,8 @@
         if (item.note !== "") {
           const a = el("div", "sa-item-a");
           a.appendChild(el("div", "sa-item-label", t("panel.note")));
-          const noteEl = el("div", "sa-item-note", item.note);
-          if (isAdopt(item.note)) noteEl.dataset.adopt = "1";
+          const noteEl = el("div", "sa-item-note");
+          paintNote(noteEl, item.note, noteView2(item.note));
           noteEl.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -4020,9 +4152,13 @@ ${PICK_SCRIPT}<\/script>`;
         const persistInstructionSettings = (text) => settings.persistInstructionSettings(text);
         const adoptTextOf = () => settings.adoptTextOf();
         const persistAdoptText = (text) => settings.persistAdoptText(text);
+        const rejectTextOf = () => settings.rejectTextOf();
+        const persistRejectText = (text) => settings.persistRejectText(text);
         const fallbackTextOf = () => settings.fallbackTextOf();
         const persistFallbackText = (text) => settings.persistFallbackText(text);
         const hasAdoptNote = (note) => typeof note === "string" && note.includes(adoptTextOf());
+        const hasRejectNote = (note) => typeof note === "string" && note.includes(rejectTextOf());
+        const noteViewOf = (note) => noteView(note, adoptTextOf(), rejectTextOf());
         const remoteReplyCache = /* @__PURE__ */ new Map();
         function absorbRemoteReplies(sessionId, remote) {
           if (!Array.isArray(remote?.replies)) return false;
@@ -4665,7 +4801,7 @@ ${PICK_SCRIPT}<\/script>`;
             footnotes: t("markdown.footnotes")
           })
         });
-        const cards = createCards({ t, openImageViewer, markdown, isAdopt: hasAdoptNote });
+        const cards = createCards({ t, openImageViewer, markdown, isAdopt: hasAdoptNote, noteView: noteViewOf });
         const sectionChevron = () => cards.sectionChevron();
         const buildSectionHead = (label, meta) => cards.buildSectionHead(label, meta);
         const collapsible = (body, open) => cards.collapsible(body, open);
@@ -5097,11 +5233,13 @@ ${PICK_SCRIPT}<\/script>`;
           safe(() => {
             annotateLabel.textContent = t("annotate");
             adoptLabel.textContent = t("annotate.adopt");
+            rejectLabel.textContent = t("annotate.reject");
             copyLabel.textContent = t("annotate.copy");
           });
           safe(() => {
             menuAnnotate.textContent = t("menu.annotate");
             menuAdopt.textContent = t("menu.adopt");
+            menuReject.textContent = t("menu.reject");
             menuCopy.textContent = t("menu.copy");
           });
           safe(() => {
@@ -5721,6 +5859,7 @@ ${PICK_SCRIPT}<\/script>`;
           const rects = safe(() => [...range.getClientRects()]) ?? [];
           if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects, item });
           const adopt = safe(() => hasAdoptNote(item.note)) === true;
+          const reject = safe(() => hasRejectNote(item.note)) === true;
           let badged = false;
           for (const rect of rects) {
             if (rect.width <= 0 || rect.height <= 0) continue;
@@ -5728,6 +5867,7 @@ ${PICK_SCRIPT}<\/script>`;
             const base = sent ? "sa-hl sa-hl-sent" : "sa-hl";
             box.className = blinking ? `${base}${sent ? " sa-hl-blink-sent" : " sa-hl-blink"}` : base;
             if (adopt) box.dataset.adopt = "1";
+            if (reject) box.dataset.reject = "1";
             box.style.left = `${rect.left}px`;
             box.style.top = `${rect.top}px`;
             box.style.width = `${rect.width}px`;
@@ -5840,6 +5980,9 @@ ${PICK_SCRIPT}<\/script>`;
           };
           if (kind === "check") {
             path("M2.25 8.5L5.49732 11.7473C5.90519 12.1552 6.57263 12.1344 6.95426 11.7018L13.75 4");
+          } else if (kind === "reject") {
+            path("M3.75 3.75 12.25 12.25");
+            path("M12.25 3.75 3.75 12.25");
           } else if (kind === "copy") {
             path("M5.6 5.6H12.4V12.4H5.6V5.6Z");
             path("M3.6 3.6H9.4V5.6");
@@ -5855,6 +5998,12 @@ ${PICK_SCRIPT}<\/script>`;
         const annotateLabel = document.createElement("span");
         annotateLabel.textContent = t("annotate");
         annotateButton.append(dshIconSvg("edit"), annotateLabel);
+        const rejectButton = document.createElement("button");
+        rejectButton.type = "button";
+        rejectButton.className = "sa-btn sa-btn-reject";
+        const rejectLabel = document.createElement("span");
+        rejectLabel.textContent = t("annotate.reject");
+        rejectButton.append(dshIconSvg("reject"), rejectLabel);
         const adoptButton = document.createElement("button");
         adoptButton.type = "button";
         adoptButton.className = "sa-btn sa-btn-adopt";
@@ -5867,7 +6016,7 @@ ${PICK_SCRIPT}<\/script>`;
         const copyLabel = document.createElement("span");
         copyLabel.textContent = t("annotate.copy");
         copyButton.append(dshIconSvg("copy"), copyLabel);
-        toolbar.append(adoptButton, annotateButton, copyButton);
+        toolbar.append(rejectButton, adoptButton, annotateButton, copyButton);
         const contextMenu = document.createElement("div");
         contextMenu.className = "sa-menu";
         contextMenu.setAttribute("data-sa-ui", "menu");
@@ -5880,11 +6029,15 @@ ${PICK_SCRIPT}<\/script>`;
         menuAdopt.type = "button";
         menuAdopt.className = "sa-menu-item";
         menuAdopt.textContent = t("menu.adopt");
+        const menuReject = document.createElement("button");
+        menuReject.type = "button";
+        menuReject.className = "sa-menu-item";
+        menuReject.textContent = t("menu.reject");
         const menuCopy = document.createElement("button");
         menuCopy.type = "button";
         menuCopy.className = "sa-menu-item";
         menuCopy.textContent = t("menu.copy");
-        contextMenu.append(menuAnnotate, menuAdopt, menuCopy);
+        contextMenu.append(menuAnnotate, menuAdopt, menuReject, menuCopy);
         let contextMenuSelection = null;
         const popover = document.createElement("div");
         popover.className = "sa-popover";
@@ -6045,7 +6198,7 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function refreshNoteState() {
           popInput.dataset.empty = noteValue() === "" ? "1" : "0";
-          syncAdoptTone();
+          syncNoteTone();
           schedulePopAutoSave();
         }
         function appendNoteText(text) {
@@ -6058,12 +6211,15 @@ ${PICK_SCRIPT}<\/script>`;
             popInput.appendChild(span);
           }
         }
-        function adoptTokenNode(phrase) {
+        function noteTokenNode(phrase, tone) {
           const token = document.createElement("span");
-          token.className = "sa-token";
+          token.className = tone === "reject" ? "sa-token sa-token-reject" : "sa-token";
           token.setAttribute("contenteditable", "false");
           token.textContent = phrase;
           return token;
+        }
+        function notePhrases() {
+          return [adoptTextOf(), rejectTextOf()].filter((phrase) => typeof phrase === "string" && phrase !== "");
         }
         function setNoteContent(value) {
           popInput.textContent = "";
@@ -6071,14 +6227,9 @@ ${PICK_SCRIPT}<\/script>`;
             refreshNoteState();
             return;
           }
-          const phrase = adoptTextOf();
-          const at = value.indexOf(phrase);
-          if (at === -1) {
-            appendNoteText(value);
-          } else {
-            appendNoteText(value.slice(0, at));
-            popInput.appendChild(adoptTokenNode(phrase));
-            appendNoteText(value.slice(at + phrase.length));
+          for (const segment of noteSegments(value, adoptTextOf(), rejectTextOf())) {
+            if (segment.tone === "") appendNoteText(segment.text);
+            else popInput.appendChild(noteTokenNode(segment.text, segment.tone));
           }
           refreshNoteState();
         }
@@ -6119,17 +6270,20 @@ ${PICK_SCRIPT}<\/script>`;
           return { node, offset: range.startOffset, line, rect };
         }
         function updateSuggestion() {
-          const phrase = adoptTextOf();
+          const phrases = notePhrases();
           const ctx2 = caretLine();
           if (ctx2 === null) {
             hideSuggestion();
             return;
           }
-          if (ctx2.line === "" || ctx2.line === phrase || !phrase.includes(ctx2.line)) {
+          const phrase = phrases.find(
+            (candidate) => candidate !== "" && ctx2.line !== "" && ctx2.line !== candidate && candidate.includes(ctx2.line)
+          );
+          if (phrase === void 0) {
             hideSuggestion();
             return;
           }
-          suggested = { prefix: ctx2.line, node: ctx2.node, offset: ctx2.offset };
+          suggested = { phrase, prefix: ctx2.line, node: ctx2.node, offset: ctx2.offset };
           ghostTip.textContent = phrase;
           const left = Math.min(ctx2.rect.right + 1, window.innerWidth - 40);
           ghostTip.style.left = `${Math.max(8, left)}px`;
@@ -6138,7 +6292,7 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function acceptSuggestion() {
           if (suggested === null) return false;
-          const phrase = adoptTextOf();
+          const phrase = suggested.phrase;
           const { prefix, node, offset } = suggested;
           if (typeof node.data !== "string" || node.data.slice(offset - prefix.length, offset) !== prefix) {
             hideSuggestion();
@@ -6150,7 +6304,7 @@ ${PICK_SCRIPT}<\/script>`;
           range.setStart(node, offset - prefix.length);
           range.setEnd(node, offset);
           range.deleteContents();
-          const token = adoptTokenNode(phrase);
+          const token = noteTokenNode(phrase, phrase === adoptTextOf() ? "adopt" : "reject");
           range.insertNode(token);
           const after = document.createRange();
           after.setStartAfter(token);
@@ -6781,8 +6935,10 @@ ${PICK_SCRIPT}<\/script>`;
             popBody.scrollTop -= box.top - rect.top + 12;
           }
         }
-        function syncAdoptTone() {
-          popInput.dataset.adopt = hasAdoptNote(noteValue()) ? "1" : "0";
+        function syncNoteTone() {
+          const flags = noteFlags(noteValue(), adoptTextOf(), rejectTextOf());
+          popInput.dataset.adopt = flags.adopt ? "1" : "0";
+          popInput.dataset.reject = flags.reject ? "1" : "0";
         }
         function showPopover(options) {
           popTitle.textContent = options.title;
@@ -6796,8 +6952,8 @@ ${PICK_SCRIPT}<\/script>`;
           popSource.textContent = options.sourceText;
           const readonly = options.mode === "sent";
           if (readonly) {
-            popReadNote.textContent = typeof options.note === "string" && options.note !== "" ? options.note : t("pop.noNote");
-            popReadNote.dataset.adopt = hasAdoptNote(options.note) ? "1" : "0";
+            const noteText = typeof options.note === "string" && options.note !== "" ? options.note : t("pop.noNote");
+            paintNote(popReadNote, noteText, noteViewOf(options.note));
           }
           popReadNote.style.display = readonly ? "" : "none";
           popSource.style.display = readonly ? "none" : "";
@@ -7238,15 +7394,15 @@ ${PICK_SCRIPT}<\/script>`;
           }
           closePopover({ autoSave: false });
         }
-        function adoptSelectionDirectly() {
+        function adoptSelectionDirectly(noteText = adoptTextOf()) {
           const selection = pendingSelection;
-          if (selection === null) return;
+          if (selection === null) return void 0;
           hideToolbar();
           closeContextMenu();
           const source = captureSource(selection.range);
           const created = addAnnotation({
             quote: selection.quote,
-            note: adoptTextOf(),
+            note: noteText,
             images: [],
             source,
             liveRange: selection.range
@@ -7257,6 +7413,14 @@ ${PICK_SCRIPT}<\/script>`;
               warn("[selection-annotations] 位置精修失败（不影响这条批注）：", err);
             });
           }
+          return created;
+        }
+        function rejectSelectionDirectly() {
+          const selection = pendingSelection;
+          const created = adoptSelectionDirectly(rejectTextOf());
+          if (created === void 0 || created === null) return;
+          const anchor = selection === null ? void 0 : { getBoundingClientRect: () => selection.range.getBoundingClientRect() };
+          openEditPopover(created.id, anchor);
         }
         function reuseSentItems(items) {
           const list = Array.isArray(items) ? items : [];
@@ -7294,6 +7458,13 @@ ${PICK_SCRIPT}<\/script>`;
         annotateButton.addEventListener("click", (event) => {
           event.preventDefault();
           openCreatePopover();
+        });
+        rejectButton.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+        });
+        rejectButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          rejectSelectionDirectly();
         });
         adoptButton.addEventListener("mousedown", (event) => {
           event.preventDefault();
@@ -7334,6 +7505,16 @@ ${PICK_SCRIPT}<\/script>`;
           closeContextMenu();
           adoptSelectionDirectly();
         });
+        menuReject.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+        });
+        menuReject.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (contextMenuSelection !== null) pendingSelection = contextMenuSelection;
+          closeContextMenu();
+          rejectSelectionDirectly();
+        });
         menuCopy.addEventListener("mousedown", (event) => {
           event.preventDefault();
         });
@@ -7350,14 +7531,16 @@ ${PICK_SCRIPT}<\/script>`;
         popDelete.addEventListener("click", () => deleteFromPopover());
         popClose.addEventListener("click", () => closePopover());
         popInput.addEventListener("keydown", (event) => {
-          const phrase = adoptTextOf();
           if (event.key === "Tab" && !event.shiftKey) {
             if (acceptSuggestion()) {
               event.preventDefault();
               return;
             }
             const value = noteValue();
-            if (value !== "" && phrase.startsWith(value)) {
+            const phrase = notePhrases().find(
+              (candidate) => value !== "" && value !== candidate && candidate.startsWith(value)
+            );
+            if (phrase !== void 0) {
               event.preventDefault();
               setNoteContent(phrase);
               safe(() => caretToEnd());
@@ -7375,9 +7558,9 @@ ${PICK_SCRIPT}<\/script>`;
           if (event.key === "Escape") closePopover();
         });
         popInput.addEventListener("input", () => {
-          const phrase = adoptTextOf();
           const value = noteValue();
-          if (value.endsWith(phrase)) {
+          const hit = notePhrases().find((phrase) => value.endsWith(phrase));
+          if (hit !== void 0) {
             const last = popInput.lastElementChild;
             const already = last !== null && last !== void 0 && typeof last.className === "string" && last.className.includes("sa-token");
             if (!already) {
@@ -8219,7 +8402,7 @@ ${PICK_SCRIPT}`;
           fallbackSettingsRow: () => fallbackSettingsRow(),
           openSideTab: () => toggleSideAnnotationsTab(),
           isSideTabOpen: () => sideAnnotationsTabOpen(),
-          isAdopt: hasAdoptNote,
+          noteView: noteViewOf,
           getHintText: (surface) => panelHintTextOf(surface)
         });
         const renderPanel = () => panelRenderer.render(panelEl);
@@ -8933,6 +9116,7 @@ ${PICK_SCRIPT}`;
         function AnnotationInstructionSettings() {
           const [text, setText] = React.useState(() => instructionOf());
           const [adoptText, setAdoptText] = React.useState(() => adoptTextOf());
+          const [rejectText, setRejectText] = React.useState(() => rejectTextOf());
           const [fallbackText, setFallbackText] = React.useState(() => fallbackTextOf());
           const customized = !isDefaultInstruction(text);
           const card = (key, title, hint, control, actions) => h(
@@ -8999,6 +9183,33 @@ ${PICK_SCRIPT}`;
                     const next = DEFAULT_ADOPT_TEXT;
                     setAdoptText(next);
                     persistAdoptText(next);
+                  }
+                },
+                t("settings.restore")
+              )
+            ),
+            card(
+              "reject",
+              t("settings.rejectLabel"),
+              t("settings.rejectHint"),
+              h("input", {
+                className: "sa-setting-input",
+                "aria-label": t("settings.rejectLabel"),
+                value: rejectText,
+                onChange: (event) => {
+                  setRejectText(event.target.value);
+                  persistRejectText(event.target.value);
+                }
+              }),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "sa-link",
+                  onClick: () => {
+                    const next = DEFAULT_REJECT_TEXT;
+                    setRejectText(next);
+                    persistRejectText(next);
                   }
                 },
                 t("settings.restore")

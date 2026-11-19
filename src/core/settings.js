@@ -4,9 +4,11 @@ import {
   DEFAULT_FALLBACK_TEXT,
   DEFAULT_IMAGE_SETTINGS,
   DEFAULT_INSTRUCTION,
+  DEFAULT_REJECT_TEXT,
   FALLBACK_SETTINGS_KEY,
   IMAGE_SETTINGS_KEY,
   INSTRUCTION_SETTINGS_KEY,
+  REJECT_SETTINGS_KEY,
 } from './config.js'
 import { safe } from './util.js'
 
@@ -18,6 +20,7 @@ export function createSettings(getStorage, locale) {
   let imageSettings
   let instructionSettings
   let adoptText
+  let rejectText
   let fallbackText
 
   /** 图片设置：读坏了回落到默认值。 */
@@ -95,6 +98,28 @@ export function createSettings(getStorage, locale) {
     safe(() => storage.setItem(ADOPT_SETTINGS_KEY, JSON.stringify({ text: adoptText, version: 1 })))
   }
 
+  /** 「批注否决」的预填文本：空串回落到默认文案。 */
+  function loadRejectText() {
+    const storage = getStorage()
+    if (storage === undefined) return DEFAULT_REJECT_TEXT
+    const parsed = safe(() => JSON.parse(storage.getItem(REJECT_SETTINGS_KEY) ?? 'null'))
+    if (parsed === null || typeof parsed !== 'object') return DEFAULT_REJECT_TEXT
+    const text = typeof parsed.text === 'string' ? parsed.text.trim() : ''
+    return text === '' ? DEFAULT_REJECT_TEXT : text
+  }
+
+  function rejectTextOf() {
+    if (rejectText === undefined) rejectText = loadRejectText()
+    return rejectText
+  }
+
+  function persistRejectText(text) {
+    rejectText = typeof text === 'string' && text.trim() !== '' ? text : DEFAULT_REJECT_TEXT
+    const storage = getStorage()
+    if (storage === undefined) return
+    safe(() => storage.setItem(REJECT_SETTINGS_KEY, JSON.stringify({ text: rejectText, version: 1 })))
+  }
+
   /** 空提示词填充：空串等同默认文案；旧默认「请按批注内容处理。」静默迁移。 */
   function loadFallbackText() {
     const storage = getStorage()
@@ -133,6 +158,9 @@ export function createSettings(getStorage, locale) {
     loadAdoptText,
     adoptTextOf,
     persistAdoptText,
+    loadRejectText,
+    rejectTextOf,
+    persistRejectText,
     loadFallbackText,
     fallbackTextOf,
     persistFallbackText,

@@ -1,6 +1,7 @@
 import { truncateQuote } from './util.js'
 import { mergeReplyBatches } from './annotation-utils.js'
 import { jumpIcon } from './jump-icon.js'
+import { paintNote } from './note-tone.js'
 
 export const VERDICT_LABELS = {
   accepted: ['verdict.accepted', 'accepted'],
@@ -12,7 +13,7 @@ export const VERDICT_LABELS = {
 /**
  * 两个区域共用的收展头、矢量箭头与可折展容器，以及已提交批注的卡片。
  */
-export function createCards({ t, openImageViewer, markdown, isAdopt = () => false }) {
+export function createCards({ t, openImageViewer, markdown, isAdopt = () => false, noteView = () => null }) {
   function sectionChevron() {
     const ns = 'http://www.w3.org/2000/svg'
     const svg = document.createElementNS(ns, 'svg')
@@ -198,9 +199,8 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
       if (typeof item.note === 'string' && item.note.trim() !== '') {
         const note = document.createElement('div')
         note.className = 'sa-sent-note'
-        if (isAdopt(item.note)) note.dataset.adopt = '1'
         note.setAttribute('data-sa-field', 'note')
-        note.textContent = item.note
+        paintNote(note, item.note, noteView(item.note))
         text.appendChild(note)
       }
       const thumbs = Array.isArray(item.thumbs) ? item.thumbs : []
@@ -346,8 +346,7 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
           const note = document.createElement('div')
           note.className = 'sa-q-note'
           note.setAttribute('data-sa-field', 'note')
-          if (isAdopt(displayItem.note)) note.dataset.adopt = '1'
-          note.textContent = displayItem.note
+          paintNote(note, displayItem.note, noteView(displayItem.note))
           q.appendChild(note)
         }
         // 原批注带的附图属于「批注」内容，跟在批注正文后面、同一层级里。
