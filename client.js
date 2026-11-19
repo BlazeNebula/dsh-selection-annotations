@@ -1210,6 +1210,34 @@
   }
 
   // src/core/payload.js
+  var MAX_PAYLOAD_SEGMENTS = 8;
+  function finiteSpan(segment) {
+    if (segment === null || typeof segment !== "object" || Array.isArray(segment)) return false;
+    const { charStart, charEnd, quoteStart, quoteEnd } = segment;
+    if (![charStart, charEnd, quoteStart, quoteEnd].every(Number.isFinite)) return false;
+    if (charStart < 0 || charEnd <= charStart) return false;
+    if (quoteStart < 0 || quoteEnd <= quoteStart) return false;
+    return charEnd - charStart === quoteEnd - quoteStart;
+  }
+  function payloadSegments(list) {
+    if (!Array.isArray(list)) return void 0;
+    const out = [];
+    for (const segment of list) {
+      if (out.length >= MAX_PAYLOAD_SEGMENTS) break;
+      if (!finiteSpan(segment)) continue;
+      const entry = {};
+      if (typeof segment.anchorKey === "string") entry.anchorKey = segment.anchorKey;
+      entry.textOrigin = segment.textOrigin === "source" ? "source" : "rendered";
+      entry.charStart = segment.charStart;
+      entry.charEnd = segment.charEnd;
+      entry.quoteStart = segment.quoteStart;
+      entry.quoteEnd = segment.quoteEnd;
+      if (typeof segment.fingerprintBefore === "string") entry.fingerprintBefore = segment.fingerprintBefore;
+      if (typeof segment.fingerprintAfter === "string") entry.fingerprintAfter = segment.fingerprintAfter;
+      out.push(entry);
+    }
+    return out.length > 0 ? out : void 0;
+  }
   function createPayload({ t, instructionOf, uuidOfSent }) {
     function sentUuidOf(source) {
       if (typeof uuidOfSent !== "function") return void 0;
@@ -1294,6 +1322,11 @@
       }
       if (Number.isFinite(source?.charStart)) out.charStart = source.charStart;
       if (Number.isFinite(source?.charEnd)) out.charEnd = source.charEnd;
+      const segments = payloadSegments(source?.segments);
+      if (segments !== void 0) {
+        out.segments = segments;
+        if (source?.segmentsTruncated === true) out.segmentsTruncated = true;
+      }
       return out;
     }
     function buildPayload(items) {
@@ -1343,6 +1376,36 @@
     const end = measure(range.endContainer, range.endOffset);
     if (start === void 0) return { start: void 0, end: void 0 };
     return { start, end: end === void 0 || end < start ? start : end };
+  }
+  function rangeFromOffsets(root, start, length) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let offset = 0;
+    let startNode;
+    let startOffset = 0;
+    let endNode;
+    let endOffset = 0;
+    let node = walker.nextNode();
+    while (node !== null) {
+      const size = node.nodeValue === null ? 0 : node.nodeValue.length;
+      if (startNode === void 0 && offset + size >= start) {
+        startNode = node;
+        startOffset = start - offset;
+      }
+      if (startNode !== void 0 && offset + size >= start + length) {
+        endNode = node;
+        endOffset = start + length - offset;
+        break;
+      }
+      offset += size;
+      node = walker.nextNode();
+    }
+    if (startNode === void 0 || endNode === void 0) return void 0;
+    return safe(() => {
+      const range = document.createRange();
+      range.setStart(startNode, Math.max(0, Math.min(startOffset, startNode.nodeValue.length)));
+      range.setEnd(endNode, Math.max(0, Math.min(endOffset, endNode.nodeValue.length)));
+      return range;
+    });
   }
   function pathFromPreviewUrl(url) {
     const marker = "/session/";
@@ -1403,6 +1466,40 @@
     if (start === void 0 || end === void 0) return void 0;
     return { start, end: end + 1 };
   }
+  function matchInRootNormalized(root, needle, savedOffset) {
+    if (root === null || root === void 0) return void 0;
+    if (typeof needle !== "string" || needle === "") return void 0;
+    const target = needle.replace(/\s+/g, " ").trim();
+    if (target === "") return void 0;
+    const raw = safe(() => root.textContent) ?? "";
+    if (raw === "") return void 0;
+    const hay = normalizeWithMap(raw);
+    if (hay.text === "") return void 0;
+    const positions = [];
+    let from = 0;
+    for (; ; ) {
+      const at = hay.text.indexOf(target, from);
+      if (at === -1 || positions.length >= 64) break;
+      positions.push(at);
+      from = at + 1;
+    }
+    if (positions.length === 0) return void 0;
+    let best = positions[0];
+    if (positions.length > 1 && Number.isFinite(savedOffset)) {
+      best = positions.reduce((a, b) => {
+        const nearA = Math.abs((hay.map[a] ?? a) - savedOffset);
+        const nearB = Math.abs((hay.map[b] ?? b) - savedOffset);
+        return nearB < nearA ? b : a;
+      });
+    }
+    const start = hay.map[best];
+    if (start === void 0) return void 0;
+    const rawEnd = hay.map[best + target.length];
+    const end = rawEnd === void 0 ? raw.length : rawEnd;
+    const length = Math.max(0, Math.min(end, raw.length) - start);
+    if (length <= 0) return void 0;
+    return rangeFromOffsets(root, start, length);
+  }
   function lineOfOffset(text, offset) {
     let line = 1;
     const limit = Math.max(0, Math.min(offset, text.length));
@@ -1434,6 +1531,191 @@
   }
 
   // src/core/source-capture.js
+  var MAX_SEGMENTS = 8;
+  var BLOCK_SELECTOR = "p,li,pre,blockquote,h1,h2,h3,h4,h5,h6,td,th,dd,dt,figcaption,div,section,article,tr";
+  function blockOf(element) {
+    if (element === null || element === void 0) return null;
+    const block = safe(() => element.closest(BLOCK_SELECTOR)) ?? null;
+    return block ?? element;
+  }
+  function anchorKeyOfNode(node) {
+    const element = node === null || node === void 0 ? null : node.parentElement;
+    if (element === null || element === void 0) return "";
+    return safe(() => element.closest("[data-chat-anchor-key]")?.getAttribute("data-chat-anchor-key")) ?? "";
+  }
+  function rowOfNode(node) {
+    const element = node === null || node === void 0 ? null : node.parentElement;
+    if (element === null || element === void 0) return null;
+    return safe(() => element.closest("[data-chat-anchor-key]")) ?? null;
+  }
+  function buildSegments(root, range, source) {
+    if (root === null || root === void 0 || range === null || range === void 0) {
+      return { segments: [], coverage: 0, truncated: false };
+    }
+    const quoteLength = safe(() => range.toString().length) ?? 0;
+    if (quoteLength <= 0) return { segments: [], coverage: 0, truncated: false };
+    const fallbackAnchorKey = source?.kind === "message" && typeof source?.anchorKey === "string" ? source.anchorKey : "";
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const blocks = [];
+    let cursor = 0;
+    let node = walker.nextNode();
+    while (node !== null) {
+      const inside = safe(() => range.intersectsNode(node)) === true;
+      if (inside) {
+        const value = node.nodeValue ?? "";
+        const start = node === range.startContainer ? range.startOffset : 0;
+        const end = node === range.endContainer ? range.endOffset : value.length;
+        if (end > start) {
+          const anchorKey = anchorKeyOfNode(node) || fallbackAnchorKey;
+          const block = blockOf(node.parentElement);
+          const quoteStart = cursor;
+          const quoteEnd = cursor + (end - start);
+          cursor = quoteEnd;
+          if (value.slice(start, end).trim() !== "") {
+            const last = blocks[blocks.length - 1];
+            const mergeable = last !== void 0 && last.anchorKey === anchorKey && last.block === block;
+            if (mergeable) {
+              last.endNode = node;
+              last.endOffset = end;
+              last.quoteEnd = quoteEnd;
+            } else {
+              blocks.push({
+                anchorKey,
+                block,
+                startNode: node,
+                startOffset: start,
+                endNode: node,
+                endOffset: end,
+                quoteStart,
+                quoteEnd
+              });
+            }
+          }
+        }
+      }
+      node = walker.nextNode();
+    }
+    const coverage = cursor;
+    let picked = blocks;
+    let truncated = false;
+    if (picked.length > MAX_SEGMENTS) {
+      picked = mergeAdjacentSameRoot(picked);
+      if (picked.length > MAX_SEGMENTS) {
+        picked = [...picked.slice(0, MAX_SEGMENTS - 1), picked[picked.length - 1]];
+        truncated = true;
+      }
+    }
+    const segments = [];
+    for (const block of picked) {
+      const measureRoot = rowOfNode(block.startNode) ?? root;
+      const segmentRange = safe(() => {
+        const probe = document.createRange();
+        probe.setStart(block.startNode, block.startOffset);
+        probe.setEnd(block.endNode, block.endOffset);
+        return probe;
+      });
+      if (segmentRange === void 0) continue;
+      const chars = offsetRange(measureRoot, segmentRange);
+      if (!Number.isFinite(chars.start)) continue;
+      const charStart = chars.start;
+      const charEnd = charStart + (block.quoteEnd - block.quoteStart);
+      if (charEnd <= charStart) continue;
+      segments.push({
+        anchorKey: block.anchorKey,
+        textOrigin: "rendered",
+        charStart,
+        charEnd,
+        quoteStart: block.quoteStart,
+        quoteEnd: block.quoteEnd
+      });
+    }
+    return { segments, coverage, truncated };
+  }
+  function mergeAdjacentSameRoot(blocks) {
+    const out = [];
+    for (const block of blocks) {
+      const last = out[out.length - 1];
+      if (last !== void 0 && last.anchorKey === block.anchorKey && last.block === block.block) {
+        last.endNode = block.endNode;
+        last.endOffset = block.endOffset;
+        last.quoteEnd = block.quoteEnd;
+        continue;
+      }
+      out.push({ ...block });
+    }
+    return out;
+  }
+  function segmentsOf(source, quote) {
+    const list = source?.segments;
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const length = typeof quote === "string" ? quote.length : 0;
+    if (length <= 0) return null;
+    const out = [];
+    for (const segment of list) {
+      if (out.length >= MAX_SEGMENTS) break;
+      if (segment === null || typeof segment !== "object" || Array.isArray(segment)) return null;
+      const { charStart, charEnd, quoteStart, quoteEnd } = segment;
+      if (!Number.isFinite(charStart) || !Number.isFinite(charEnd)) return null;
+      if (!Number.isFinite(quoteStart) || !Number.isFinite(quoteEnd)) return null;
+      if (charStart < 0 || charEnd <= charStart) return null;
+      if (charEnd - charStart !== quoteEnd - quoteStart) return null;
+      if (quoteStart < 0 || quoteEnd <= quoteStart || quoteEnd > length) return null;
+      out.push({
+        anchorKey: typeof segment.anchorKey === "string" ? segment.anchorKey : "",
+        textOrigin: segment.textOrigin === "source" ? "source" : "rendered",
+        charStart,
+        charEnd,
+        quoteStart,
+        quoteEnd,
+        ...typeof segment.fingerprintBefore === "string" ? { fingerprintBefore: segment.fingerprintBefore } : {},
+        ...typeof segment.fingerprintAfter === "string" ? { fingerprintAfter: segment.fingerprintAfter } : {}
+      });
+    }
+    if (out.length === 0) return null;
+    if (Number.isFinite(source?.charStart) && source.charStart !== out[0].charStart) return null;
+    if (Number.isFinite(source?.charEnd) && source.charEnd !== out[0].charEnd) return null;
+    return out;
+  }
+  function spanOfSegment(segment) {
+    const start = Math.max(0, segment.quoteStart);
+    const end = Math.max(start, segment.quoteEnd);
+    return { start, end };
+  }
+  function fitSegmentsToQuote(source, rawQuote, quote) {
+    if (source === null || typeof source !== "object") return source;
+    const list = source.segments;
+    if (!Array.isArray(list) || list.length === 0) return source;
+    const raw = typeof rawQuote === "string" ? rawQuote : "";
+    const kept = typeof quote === "string" ? quote : "";
+    const lead = Math.max(0, raw.length - raw.trimStart().length);
+    const keptEnd = lead + kept.length;
+    const next = [];
+    for (const segment of list) {
+      if (segment === null || typeof segment !== "object") continue;
+      if (![segment.charStart, segment.charEnd, segment.quoteStart, segment.quoteEnd].every(Number.isFinite)) continue;
+      const span = spanOfSegment(segment);
+      const start = Math.max(span.start, lead);
+      const end = Math.min(span.end, keptEnd);
+      if (end <= start) continue;
+      const shift = start - segment.quoteStart;
+      const charStart = segment.charStart + shift;
+      next.push({
+        ...segment,
+        charStart,
+        charEnd: charStart + (end - start),
+        quoteStart: start - lead,
+        quoteEnd: end - lead
+      });
+    }
+    if (next.length === 0) {
+      const cleaned = { ...source };
+      delete cleaned.segments;
+      delete cleaned.segmentsTruncated;
+      return cleaned;
+    }
+    const first = next[0];
+    return { ...source, charStart: first.charStart, charEnd: first.charEnd, segments: next };
+  }
   var elementOf = (node) => {
     if (node === null || node === void 0) return null;
     if (node.nodeType === 1) return node;
@@ -1447,6 +1729,21 @@
   };
   var REPLY_CLASS_BY_FIELD = { quote: "sa-q-quote", note: "sa-q-note", reason: "sa-a-reason", next: "sa-a-next" };
   function createSourceCapture() {
+    function withSegments(source, root, range) {
+      const quoteLength = safe(() => range.toString().length) ?? 0;
+      if (quoteLength <= 0) return source;
+      const built = safe(() => buildSegments(root, range, source));
+      if (built === void 0 || built.segments.length === 0) return source;
+      if (built.coverage !== quoteLength) return source;
+      const first = built.segments[0];
+      return {
+        ...source,
+        charStart: first.charStart,
+        charEnd: first.charEnd,
+        segments: built.segments,
+        ...built.truncated === true ? { segmentsTruncated: true } : {}
+      };
+    }
     function captureSource(range) {
       const startEl = elementOf(range.startContainer);
       const endEl = elementOf(range.endContainer);
@@ -1475,15 +1772,19 @@
           const digits = (replyItem.querySelector(".sa-reply-index")?.textContent ?? "").match(/(\d+)/);
           index = digits === null ? 0 : Number(digits[1]);
         }
-        return {
-          kind: "reply",
-          batchAt: Number(replyItem.getAttribute("data-sa-batch-at")) || 0,
-          index,
-          field,
-          charStart: chars.start,
-          charEnd: chars.end,
-          textOrigin: "rendered"
-        };
+        return withSegments(
+          {
+            kind: "reply",
+            batchAt: Number(replyItem.getAttribute("data-sa-batch-at")) || 0,
+            index,
+            field,
+            charStart: chars.start,
+            charEnd: chars.end,
+            textOrigin: "rendered"
+          },
+          fieldElement,
+          range
+        );
       }
       const sentItem = startEl.closest(".sa-sent-item");
       if (sentItem !== null) {
@@ -1507,15 +1808,19 @@
             const digits = (sentItem.querySelector(".sa-sent-num")?.textContent ?? "").match(/(\d+)/);
             index = digits === null ? 0 : Number(digits[1]);
           }
-          return {
-            kind: "sent",
-            anchorKey: sentCard.getAttribute("data-anchor") ?? "",
-            index,
-            field,
-            charStart: chars.start,
-            charEnd: chars.end,
-            textOrigin: "rendered"
-          };
+          return withSegments(
+            {
+              kind: "sent",
+              anchorKey: sentCard.getAttribute("data-anchor") ?? "",
+              index,
+              field,
+              charStart: chars.start,
+              charEnd: chars.end,
+              textOrigin: "rendered"
+            },
+            fieldEl,
+            range
+          );
         }
       }
       const row = startEl.closest("[data-chat-anchor-key]");
@@ -1523,7 +1828,7 @@
         const chars = offsetRange(row, range);
         const turnText = row.closest("[data-chat-turn]")?.getAttribute("data-chat-turn") ?? "";
         const turn = turnText === "" ? null : Number(turnText);
-        return {
+        const source = {
           kind: "message",
           role: (row.getAttribute("data-chat-flow-kind") ?? "") === "user" ? "user" : "assistant",
           anchorKey: row.getAttribute("data-chat-anchor-key") ?? "",
@@ -1532,6 +1837,12 @@
           charEnd: chars.end,
           ...Number.isFinite(turn) ? { turn } : {}
         };
+        const walkRoot = row.contains(range.endContainer) ? row : safe(() => {
+          const common = range.commonAncestorContainer;
+          if (common === null || common === void 0) return row;
+          return common.nodeType === 1 ? common : common.parentElement ?? row;
+        }) ?? row;
+        return withSegments(source, walkRoot, range);
       }
       const doc = startEl.closest("[data-textpreview-url]");
       if (doc !== null) {
@@ -1598,36 +1909,6 @@
         }
       }
       return null;
-    }
-    function rangeFromOffsets(root, start, length) {
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      let offset = 0;
-      let startNode;
-      let startOffset = 0;
-      let endNode;
-      let endOffset = 0;
-      let node = walker.nextNode();
-      while (node !== null) {
-        const size = node.nodeValue === null ? 0 : node.nodeValue.length;
-        if (startNode === void 0 && offset + size >= start) {
-          startNode = node;
-          startOffset = start - offset;
-        }
-        if (startNode !== void 0 && offset + size >= start + length) {
-          endNode = node;
-          endOffset = start + length - offset;
-          break;
-        }
-        offset += size;
-        node = walker.nextNode();
-      }
-      if (startNode === void 0 || endNode === void 0) return void 0;
-      return safe(() => {
-        const range = document.createRange();
-        range.setStart(startNode, Math.max(0, Math.min(startOffset, startNode.nodeValue.length)));
-        range.setEnd(endNode, Math.max(0, Math.min(endOffset, endNode.nodeValue.length)));
-        return range;
-      });
     }
     function matchInRoot(root, quote, savedOffset) {
       if (typeof quote !== "string" || quote === "") return void 0;
@@ -4312,8 +4593,39 @@ ${PICK_SCRIPT}<\/script>`;
         const sourceCapture = createSourceCapture();
         const FINGERPRINT_RADIUS = 40;
         const flatText = (value) => String(value ?? "").replace(/\s+/g, "");
+        function rootByAnchorKey(anchorKey) {
+          if (typeof anchorKey !== "string" || anchorKey === "") return null;
+          const escaped = cssEscape(anchorKey);
+          return safe(() => document.querySelector(`[data-chat-anchor-key="${escaped}"]`)) ?? safe(() => document.querySelector(`[data-chat-flow-key="${escaped}"]`)) ?? null;
+        }
+        function stampSegmentFingerprints(segments) {
+          return segments.map((segment) => {
+            const row = rootByAnchorKey(segment.anchorKey);
+            if (row === null) return segment;
+            const text = row.textContent ?? "";
+            if (text === "") return segment;
+            const start = Number.isFinite(segment.charStart) ? segment.charStart : -1;
+            const end = Number.isFinite(segment.charEnd) ? segment.charEnd : -1;
+            if (start < 0 || end < start) return segment;
+            return {
+              ...segment,
+              fingerprintBefore: flatText(text.slice(0, start)).slice(-FINGERPRINT_RADIUS),
+              fingerprintAfter: flatText(text.slice(end)).slice(0, FINGERPRINT_RADIUS)
+            };
+          });
+        }
         function withSourceFingerprint(range, source) {
-          if (source === null || typeof source !== "object" || source.kind !== "message") return source;
+          if (source === null || typeof source !== "object") return source;
+          const list = Array.isArray(source.segments) ? source.segments : [];
+          if (list.length > 0) {
+            const stamped = stampSegmentFingerprints(list);
+            const first = stamped[0];
+            const next = { ...source, segments: stamped };
+            if (typeof first?.fingerprintBefore === "string") next.contextBefore = first.fingerprintBefore;
+            if (typeof first?.fingerprintAfter === "string") next.contextAfter = first.fingerprintAfter;
+            return next;
+          }
+          if (source.kind !== "message") return source;
           if (typeof source.anchorKey !== "string" || source.anchorKey === "") return source;
           const start = Number.isFinite(source.charStart) ? source.charStart : -1;
           const end = Number.isFinite(source.charEnd) ? source.charEnd : -1;
@@ -4331,7 +4643,7 @@ ${PICK_SCRIPT}<\/script>`;
         }
         const captureSource = (range) => withSourceFingerprint(range, sourceCapture.captureSource(range));
         const anchorRoot = (source) => sourceCapture.anchorRoot(source);
-        const rangeFromOffsets = (root, start, length) => sourceCapture.rangeFromOffsets(root, start, length);
+        const rangeFromOffsets2 = (root, start, length) => sourceCapture.rangeFromOffsets(root, start, length);
         const matchInRoot = (root, quote, savedOffset) => sourceCapture.matchInRoot(root, quote, savedOffset);
         const rangeMatchesQuote = (range, quote) => sourceCapture.rangeMatchesQuote(range, quote);
         function locateRange(item) {
@@ -4353,9 +4665,10 @@ ${PICK_SCRIPT}<\/script>`;
           annotations = annotations.map((item, index) => item.number === index + 1 ? item : { ...item, number: index + 1 });
         }
         function addAnnotation(input) {
+          const rawQuote = typeof input.quote === "string" ? input.quote : "";
           const quote = typeof input.quote === "string" ? input.quote.trim().slice(0, MAX_QUOTE) : "";
           const note = typeof input.note === "string" ? input.note.trim().slice(0, MAX_NOTE) : "";
-          const source = input.source ?? { kind: "dom" };
+          const source = fitSegmentsToQuote(input.source ?? { kind: "dom" }, rawQuote, quote);
           if (quote === "" && note === "") return void 0;
           sequence += 1;
           const item = {
@@ -4497,6 +4810,19 @@ ${PICK_SCRIPT}<\/script>`;
           emit();
           scheduleSync();
           saveDraft(annotationsSession);
+        }
+        function updateAnnotationSource(id, source) {
+          if (typeof id !== "string" || id === "" || source === null || typeof source !== "object") return false;
+          let hit = false;
+          annotations = annotations.map((item) => {
+            if (item.id !== id) return item;
+            hit = true;
+            return { ...item, source };
+          });
+          if (!hit) return false;
+          emit();
+          saveDraft(annotationsSession);
+          return true;
         }
         function removeAnnotation(id) {
           annotations = annotations.filter((item) => item.id !== id);
@@ -5833,6 +6159,133 @@ ${PICK_SCRIPT}<\/script>`;
           if (found !== void 0) item.liveRange = found;
           return found;
         }
+        function mergeRunRects(rects) {
+          const out = [];
+          for (const rect of rects) {
+            const last = out[out.length - 1];
+            const joinable = last !== void 0 && Math.abs(rect.top - last.top) <= 2 && Math.abs(rect.height - last.height) <= 4 && rect.left - (last.left + last.width) <= 4;
+            if (!joinable) {
+              out.push({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+              continue;
+            }
+            const left = Math.min(last.left, rect.left);
+            const right = Math.max(last.left + last.width, rect.left + rect.width);
+            out[out.length - 1] = {
+              left,
+              top: Math.min(last.top, rect.top),
+              width: right - left,
+              height: Math.max(last.height, rect.height)
+            };
+          }
+          return out;
+        }
+        function locateSegmentsOf(item) {
+          const segments = segmentsFor(item);
+          if (segments === null) return null;
+          const quote = typeof item?.quote === "string" ? item.quote : "";
+          const source = item?.source ?? {};
+          const rects = [];
+          let loaded = 0;
+          let matched = 0;
+          for (const segment of segments) {
+            const root = rootByAnchorKey(segment.anchorKey) ?? anchorRoot(source);
+            if (root === null || root === void 0) continue;
+            const slice = quote.slice(segment.quoteStart, segment.quoteEnd);
+            if (flatText(slice).length < 2) continue;
+            loaded += 1;
+            const found = safe(() => matchInRootNormalized(root, slice, savedOffsetOf(segment))) ?? void 0;
+            if (found === void 0) continue;
+            matched += 1;
+            const boxes = safe(() => [...found.getClientRects()]) ?? [];
+            for (const box of boxes) {
+              if (box.width > 0 && box.height > 0) rects.push(box);
+            }
+          }
+          if (loaded === 0 || matched === 0) return null;
+          if (matched * 2 < loaded) return null;
+          return mergeRunRects(rects);
+        }
+        function segmentsFor(item) {
+          const valid = segmentsOf(item?.source, item?.quote);
+          if (valid !== null) return valid;
+          return maybeMigrateSegments(item);
+        }
+        const migratedKeys = /* @__PURE__ */ new Map();
+        function migrationKeyOf(item) {
+          if (typeof item?.uuid === "string" && item.uuid !== "") return `u:${item.uuid}`;
+          if (typeof item?.id === "string" && item.id !== "") return `i:${item.id}`;
+          return null;
+        }
+        function maybeMigrateSegments(item) {
+          const source = item?.source;
+          const kind = source?.kind;
+          if (kind !== "message" && kind !== "reply" && kind !== "sent") return null;
+          if (segmentsOf(source, item.quote) !== null) return null;
+          const sessionId = currentSessionId();
+          if (sessionId === void 0) return null;
+          const key = migrationKeyOf(item);
+          if (key === null) return null;
+          let tried = migratedKeys.get(sessionId);
+          if (tried === void 0) {
+            tried = /* @__PURE__ */ new Set();
+            migratedKeys.set(sessionId, tried);
+          }
+          if (tried.has(key)) return null;
+          tried.add(key);
+          const turn = Number.isFinite(source?.turn) ? source.turn : null;
+          const row = safe(() => findSourceRow(source, item, turn)) ?? null;
+          if (row === null || row === void 0) return null;
+          const range = safe(() => matchInRoot(row, item.quote, savedOffsetOf(source))) ?? void 0;
+          if (range === void 0) return null;
+          if (flatText(safe(() => range.toString())) !== flatText(item.quote)) return null;
+          const built = safe(() => buildSegments(row, range, source));
+          if (built === void 0 || built.segments.length === 0) return null;
+          const segments = stampSegmentFingerprints(built.segments);
+          const first = segments[0];
+          const nextSource = {
+            ...source,
+            charStart: first.charStart,
+            charEnd: first.charEnd,
+            segments,
+            ...built.truncated === true ? { segmentsTruncated: true } : {}
+          };
+          if (typeof first.fingerprintBefore === "string") nextSource.contextBefore = first.fingerprintBefore;
+          if (typeof first.fingerprintAfter === "string") nextSource.contextAfter = first.fingerprintAfter;
+          if (JSON.stringify(nextSource) === JSON.stringify(source)) return null;
+          const isDraft = typeof item.id === "string" && annotations.some((entry) => entry.id === item.id);
+          let written = false;
+          if (isDraft) {
+            written = updateAnnotationSource(item.id, nextSource);
+          } else if (item.sentHighlight === true || typeof item.uuid === "string") {
+            written = writeSentSource(item, nextSource);
+          }
+          if (!written) return null;
+          item.source = nextSource;
+          return segmentsOf(nextSource, item.quote);
+        }
+        function writeSentSource(item, source) {
+          const sessionId = currentSessionId();
+          if (sessionId === void 0) return false;
+          const uuid = typeof item?.uuid === "string" && item.uuid !== "" ? item.uuid : "";
+          if (uuid === "") return false;
+          const table = safe(() => loadSent(sessionId)) ?? null;
+          if (table === null || table === void 0) return false;
+          const key = typeof item.id === "string" ? item.id : null;
+          for (const [storedKey, record] of table) {
+            if (record === null || typeof record !== "object" || !Array.isArray(record.items)) continue;
+            const index = record.items.findIndex(
+              (entry) => entry !== null && typeof entry === "object" && entry.uuid === uuid
+            );
+            if (index === -1) continue;
+            const items = record.items.slice();
+            items[index] = { ...items[index], source };
+            table.set(storedKey, { ...record, items });
+            saveSent(sessionId, table);
+            if (key !== null) sentHighlightCache.delete(key);
+            return true;
+          }
+          return false;
+        }
         function flashPhaseOn(item) {
           return flashPhase === 1 && flashKey !== null && highlightKeyOf(item) === flashKey;
         }
@@ -5854,9 +6307,12 @@ ${PICK_SCRIPT}<\/script>`;
         function collectHighlightOf(item, nodes, target) {
           const sent = item.sentHighlight === true;
           const blinking = flashPhaseOn(item);
-          const range = blinking && flashRange !== null && safe(() => flashRange.startContainer.isConnected === true) === true ? flashRange : locateHighlightRange(item);
-          if (range === void 0 || range === null) return;
-          const rects = safe(() => [...range.getClientRects()]) ?? [];
+          let rects = locateSegmentsOf(item);
+          if (rects === null) {
+            const range = blinking && flashRange !== null && safe(() => flashRange.startContainer.isConnected === true) === true ? flashRange : locateHighlightRange(item);
+            if (range === void 0 || range === null) return;
+            rects = safe(() => [...range.getClientRects()]) ?? [];
+          }
           if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects, item });
           const adopt = safe(() => hasAdoptNote(item.note)) === true;
           const reject = safe(() => hasRejectNote(item.note)) === true;
@@ -7225,6 +7681,7 @@ ${PICK_SCRIPT}<\/script>`;
           if (item === void 0 || item === null || row === null || row === void 0) return null;
           const source = item.source;
           if (source === void 0 || source === null) return null;
+          if (locateSegmentsOf(item) !== null) return null;
           return safe(() => matchInRoot(row, item.quote, savedOffsetOf(source))) ?? null;
         }
         const FLASH_STEP_MS = 250;
@@ -9281,7 +9738,7 @@ ${PICK_SCRIPT}`;
           },
           /** 控制台开关：`__dshSelectionAnnotations.traceScroll(false)` 停掉滚动追踪。*/
           traceScroll: (on) => scrollTrace.setEnabled(on),
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf, openPanel, closePanel, clampPanelToViewport }
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets: rangeFromOffsets2, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf, openPanel, closePanel, clampPanelToViewport, buildSegments, segmentsOf, fitSegmentsToQuote, matchInRootNormalized, locateSegmentsOf }
         };
       }
     };

@@ -47,7 +47,7 @@ import { mergeReplyBatches, shouldDiscardEmpty } from './core/annotation-utils.j
 import { createSessionApi } from './core/session.js'
 import { createSettings } from './core/settings.js'
 import { createPayload } from './core/payload.js'
-import { createSourceCapture } from './core/source-capture.js'
+import { createSourceCapture, buildSegments, segmentsOf, fitSegmentsToQuote } from './core/source-capture.js'
 import { createSourceResolver } from './core/source-resolve.js'
 import { createCards, VERDICT_LABELS } from './core/cards.js'
 import { jumpIcon } from './core/jump-icon.js'
@@ -74,6 +74,7 @@ import {
   locateInSource,
   lineOfOffset,
   withTimeout,
+  matchInRootNormalized,
 } from './core/source-locate.js'
 import { safe, cssEscape, el, button, hashString } from './core/util.js'
 import { uuidV4 } from './core/uuid.js'
@@ -668,13 +669,51 @@ const rewindHandled = new Map()
         /** 文本指纹半径：选中文字前后各 40 字；比对时去掉所有空白，免得换行/缩进差异干扰。*/
         const FINGERPRINT_RADIUS = 40
         const flatText = (value) => String(value ?? '').replace(/\s+/g, '')
+        /** 按锚点键找回那一行；分段指纹要按段各自的行量。*/
+        function rootByAnchorKey(anchorKey) {
+          if (typeof anchorKey !== 'string' || anchorKey === '') return null
+          const escaped = cssEscape(anchorKey)
+          return (
+            safe(() => document.querySelector(`[data-chat-anchor-key="${escaped}"]`)) ??
+            safe(() => document.querySelector(`[data-chat-flow-key="${escaped}"]`)) ??
+            null
+          )
+        }
+        /** 给每一段量一份前后文指纹：锚点键丢了还能靠它在已加载的行里认回这一段。*/
+        function stampSegmentFingerprints(segments) {
+          return segments.map((segment) => {
+            const row = rootByAnchorKey(segment.anchorKey)
+            if (row === null) return segment
+            const text = row.textContent ?? ''
+            if (text === '') return segment
+            const start = Number.isFinite(segment.charStart) ? segment.charStart : -1
+            const end = Number.isFinite(segment.charEnd) ? segment.charEnd : -1
+            if (start < 0 || end < start) return segment
+            return {
+              ...segment,
+              fingerprintBefore: flatText(text.slice(0, start)).slice(-FINGERPRINT_RADIUS),
+              fingerprintAfter: flatText(text.slice(end)).slice(0, FINGERPRINT_RADIUS),
+            }
+          })
+        }
         /**
          * 给消息来源补一份文本指纹：锚点行重渲染后 data-chat-anchor-key 可能对不上，
          * 「轮次 + 前后文」是最后一条能在已加载行里认出同一段的线索。
          * 指纹存在 source 上，随草稿落盘；发送时再抄到台账条目上（payloadSource 只留白名单字段）。
+         * 有分段时逐段量，顶层指纹恒等于首段 —— 与分段不变量一致。
          */
         function withSourceFingerprint(range, source) {
-          if (source === null || typeof source !== 'object' || source.kind !== 'message') return source
+          if (source === null || typeof source !== 'object') return source
+          const list = Array.isArray(source.segments) ? source.segments : []
+          if (list.length > 0) {
+            const stamped = stampSegmentFingerprints(list)
+            const first = stamped[0]
+            const next = { ...source, segments: stamped }
+            if (typeof first?.fingerprintBefore === 'string') next.contextBefore = first.fingerprintBefore
+            if (typeof first?.fingerprintAfter === 'string') next.contextAfter = first.fingerprintAfter
+            return next
+          }
+          if (source.kind !== 'message') return source
           if (typeof source.anchorKey !== 'string' || source.anchorKey === '') return source
           const start = Number.isFinite(source.charStart) ? source.charStart : -1
           const end = Number.isFinite(source.charEnd) ? source.charEnd : -1
@@ -729,9 +768,11 @@ const rewindHandled = new Map()
         }
 
         function addAnnotation(input) {
+          const rawQuote = typeof input.quote === 'string' ? input.quote : ''
           const quote = typeof input.quote === 'string' ? input.quote.trim().slice(0, MAX_QUOTE) : ''
           const note = typeof input.note === 'string' ? input.note.trim().slice(0, MAX_NOTE) : ''
-          const source = input.source ?? { kind: 'dom' }
+          // trim 与 MAX_QUOTE 截断会让分段的偏移越界：按最终引文收紧末段，保持不变式。
+          const source = fitSegmentsToQuote(input.source ?? { kind: 'dom' }, rawQuote, quote)
           // 空选区空批注没有意义。
           if (quote === '' && note === '') return undefined
           sequence += 1
@@ -904,6 +945,22 @@ const rewindHandled = new Map()
           emit()
           scheduleSync()
           saveDraft(annotationsSession)
+        }
+
+        /** 只改写一条批注的出处（懒迁移用）：正文、图片与编号都不动。*/
+        function updateAnnotationSource(id, source) {
+          if (typeof id !== 'string' || id === '' || source === null || typeof source !== 'object') return false
+          let hit = false
+          annotations = annotations.map((item) => {
+            if (item.id !== id) return item
+            hit = true
+            return { ...item, source }
+          })
+          if (!hit) return false
+          emit()
+          // 出处只在本地用：草稿落盘即可，不需要为它重传附件。
+          saveDraft(annotationsSession)
+          return true
         }
 
         function removeAnnotation(id) {
@@ -2671,11 +2728,175 @@ const rewindHandled = new Map()
           return found
         }
 
+        /**
+         * 分段命中的矩形合并：同一行、高度一致、水平间距不超过 4px 的两块并成一块。
+         * 逐段画框时，一段文字被加粗、链接切成多个矩形，不合并会留下断断续续的缝。
+         */
+        function mergeRunRects(rects) {
+          const out = []
+          for (const rect of rects) {
+            const last = out[out.length - 1]
+            const joinable =
+              last !== undefined &&
+              Math.abs(rect.top - last.top) <= 2 &&
+              Math.abs(rect.height - last.height) <= 4 &&
+              rect.left - (last.left + last.width) <= 4
+            if (!joinable) {
+              out.push({ left: rect.left, top: rect.top, width: rect.width, height: rect.height })
+              continue
+            }
+            const left = Math.min(last.left, rect.left)
+            const right = Math.max(last.left + last.width, rect.left + rect.width)
+            out[out.length - 1] = {
+              left,
+              top: Math.min(last.top, rect.top),
+              width: right - left,
+              height: Math.max(last.height, rect.height),
+            }
+          }
+          return out
+        }
+
+        /**
+         * 按段定位：每段回自己的锚点行（没有锚点时退到这条批注的根），
+         * 用空白折叠后的匹配找那一小截。命中不足一半就不算数 —— 那更像是误配，
+         * 交给整段兜底（仍要求前后指纹对得上）。
+         * @returns 命中矩形；没有可用段、全部失配或不足一半时返回 null。
+         */
+        function locateSegmentsOf(item) {
+          const segments = segmentsFor(item)
+          if (segments === null) return null
+          const quote = typeof item?.quote === 'string' ? item.quote : ''
+          const source = item?.source ?? {}
+          const rects = []
+          let loaded = 0
+          let matched = 0
+          for (const segment of segments) {
+            const root = rootByAnchorKey(segment.anchorKey) ?? anchorRoot(source)
+            if (root === null || root === undefined) continue
+            const slice = quote.slice(segment.quoteStart, segment.quoteEnd)
+            if (flatText(slice).length < 2) continue
+            loaded += 1
+            const found = safe(() => matchInRootNormalized(root, slice, savedOffsetOf(segment))) ?? undefined
+            if (found === undefined) continue
+            matched += 1
+            const boxes = safe(() => [...found.getClientRects()]) ?? []
+            for (const box of boxes) {
+              if (box.width > 0 && box.height > 0) rects.push(box)
+            }
+          }
+          if (loaded === 0 || matched === 0) return null
+          if (matched * 2 < loaded) return null
+          return mergeRunRects(rects)
+        }
+
+        /** 读回段；旧条目先试一次懒迁移（每会话每条最多一次）。*/
+        function segmentsFor(item) {
+          const valid = segmentsOf(item?.source, item?.quote)
+          if (valid !== null) return valid
+          return maybeMigrateSegments(item)
+        }
+
+        /** 懒迁移已尝试过的条目（会话 → 身份键）；失败也记，避免每次重绘都去翻一遍 DOM。*/
+        const migratedKeys = new Map()
+
+        function migrationKeyOf(item) {
+          if (typeof item?.uuid === 'string' && item.uuid !== '') return `u:${item.uuid}`
+          if (typeof item?.id === 'string' && item.id !== '') return `i:${item.id}`
+          return null
+        }
+
+        /**
+         * 旧条目的懒迁移：只有 kind 是 message/reply/sent、且还没有合法 segments 时才试。
+         * 行找不到就放弃（不点导航、不拉远端）；找到后由整段 Range 重建分段，
+         * 文本逐字对得上才写回 —— 迁移错位的代价比不迁移大得多。
+         * @returns 新的段数组；跳过或失败返回 null。
+         */
+        function maybeMigrateSegments(item) {
+          const source = item?.source
+          const kind = source?.kind
+          if (kind !== 'message' && kind !== 'reply' && kind !== 'sent') return null
+          if (segmentsOf(source, item.quote) !== null) return null
+          const sessionId = currentSessionId()
+          if (sessionId === undefined) return null
+          const key = migrationKeyOf(item)
+          if (key === null) return null
+          let tried = migratedKeys.get(sessionId)
+          if (tried === undefined) {
+            tried = new Set()
+            migratedKeys.set(sessionId, tried)
+          }
+          if (tried.has(key)) return null
+          tried.add(key)
+          const turn = Number.isFinite(source?.turn) ? source.turn : null
+          const row = safe(() => findSourceRow(source, item, turn)) ?? null
+          if (row === null || row === undefined) return null
+          const range = safe(() => matchInRoot(row, item.quote, savedOffsetOf(source))) ?? undefined
+          if (range === undefined) return null
+          // 子串匹配可能只命中引文的一部分：文本对不上就不能拿来建段。
+          if (flatText(safe(() => range.toString())) !== flatText(item.quote)) return null
+          const built = safe(() => buildSegments(row, range, source))
+          if (built === undefined || built.segments.length === 0) return null
+          const segments = stampSegmentFingerprints(built.segments)
+          const first = segments[0]
+          const nextSource = {
+            ...source,
+            charStart: first.charStart,
+            charEnd: first.charEnd,
+            segments,
+            ...(built.truncated === true ? { segmentsTruncated: true } : {}),
+          }
+          if (typeof first.fingerprintBefore === 'string') nextSource.contextBefore = first.fingerprintBefore
+          if (typeof first.fingerprintAfter === 'string') nextSource.contextAfter = first.fingerprintAfter
+          // 字面完全一样就不写：省掉一次草稿落盘与远端整快照 PUT。
+          if (JSON.stringify(nextSource) === JSON.stringify(source)) return null
+          const isDraft = typeof item.id === 'string' && annotations.some((entry) => entry.id === item.id)
+          let written = false
+          if (isDraft) {
+            written = updateAnnotationSource(item.id, nextSource)
+          } else if (item.sentHighlight === true || typeof item.uuid === 'string') {
+            written = writeSentSource(item, nextSource)
+          }
+          if (!written) return null
+          // 旧对象可能还在这一遍重绘的调用栈里（跳转闪烁、命中表）：就地换掉它的来源。
+          item.source = nextSource
+          return segmentsOf(nextSource, item.quote)
+        }
+
+        /**
+         * 已发送条目的写回：按 uuid 在台账里找到那一条，替换 source、保留 savedAt。
+         * 走 saveSent 才能触发远端整快照 PUT（宿主会 UPDATE source_json）；
+         * 不能走 batch 合并接口 —— 那边只补空值，改不了已有字段。
+         */
+        function writeSentSource(item, source) {
+          const sessionId = currentSessionId()
+          if (sessionId === undefined) return false
+          const uuid = typeof item?.uuid === 'string' && item.uuid !== '' ? item.uuid : ''
+          if (uuid === '') return false
+          const table = safe(() => loadSent(sessionId)) ?? null
+          if (table === null || table === undefined) return false
+          const key = typeof item.id === 'string' ? item.id : null
+          for (const [storedKey, record] of table) {
+            if (record === null || typeof record !== 'object' || !Array.isArray(record.items)) continue
+            const index = record.items.findIndex(
+              (entry) => entry !== null && typeof entry === 'object' && entry.uuid === uuid,
+            )
+            if (index === -1) continue
+            const items = record.items.slice()
+            items[index] = { ...items[index], source }
+            // savedAt 不变：它在台账里代表「最后一次内容写入」，迁移出处不该刷新它。
+            table.set(storedKey, { ...record, items })
+            saveSent(sessionId, table)
+            if (key !== null) sentHighlightCache.delete(key)
+            return true
+          }
+          return false
+        }
+
         /** 这一相位是否要把划线换回旧底色：闪烁三下，每下 250ms 由 flashQuote 排下一拍。*/
         function flashPhaseOn(item) {
           return flashPhase === 1 && flashKey !== null && highlightKeyOf(item) === flashKey
         }
-
         /**
          * 高亮层节点与命中矩形：位置要在会话区回到原位之后量，
          * 所以从 keepScrollStable 的保护段里挪到这里，由 repaint 在滚动回正之后单独调用。
@@ -2701,12 +2922,17 @@ const rewindHandled = new Map()
         function collectHighlightOf(item, nodes, target) {
           const sent = item.sentHighlight === true
           const blinking = flashPhaseOn(item)
-          const range =
-            blinking && flashRange !== null && (safe(() => flashRange.startContainer.isConnected === true) === true)
-              ? flashRange
-              : locateHighlightRange(item)
-          if (range === undefined || range === null) return
-          const rects = safe(() => [...range.getClientRects()]) ?? []
+          // 分段命中优先：一段对不上不影响其他段，也不再用整段引文冒一次误配的风险。
+          // 分段画框时闪烁照样走统一的相位类，闪烁控制流不用改。
+          let rects = locateSegmentsOf(item)
+          if (rects === null) {
+            const range =
+              blinking && flashRange !== null && (safe(() => flashRange.startContainer.isConnected === true) === true)
+                ? flashRange
+                : locateHighlightRange(item)
+            if (range === undefined || range === null) return
+            rects = safe(() => [...range.getClientRects()]) ?? []
+          }
           // 命中表带上条目本身：已发送条目不在 annotations 里，悬停时只能靠它找到对应记录。
           if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects, item })
           // 采纳与否决判定各读一次设置项：草稿据此选常驻色、已发送据此选闪烁时的旧底色，读不到也必须照常画。
@@ -4432,6 +4658,9 @@ const rewindHandled = new Map()
           if (item === undefined || item === null || row === null || row === undefined) return null
           const source = item.source
           if (source === undefined || source === null) return null
+          // 分段命中时只按段画框：返回 null 让 flashQuote 不把整段 Range 当成闪烁目标，
+          // 闪烁控制流仍按 item.id 加类，由 collectHighlightOf 的分段矩形呈现。
+          if (locateSegmentsOf(item) !== null) return null
           return safe(() => matchInRoot(row, item.quote, savedOffsetOf(source))) ?? null
         }
 
@@ -6862,7 +7091,7 @@ const rewindHandled = new Map()
           },
           /** 控制台开关：`__dshSelectionAnnotations.traceScroll(false)` 停掉滚动追踪。*/
           traceScroll: (on) => scrollTrace.setEnabled(on),
-          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf, openPanel, closePanel, clampPanelToViewport },
+          _internals: { buildPayload, payloadSource, describeSource, captureSource, matchInRoot, rangeFromOffsets, offsetRange, anchorRoot, locateRange, locateInSource, lineOfOffset, resolveSourcePosition, refineSourcePosition, adoptSession, loadDraft, saveDraft, loadSent, saveSent, recordSent, scanSentMessages, buildSentCard, renderSentCards, renderReplySections, buildReplySection, mergeReplyBatches, absorbRemoteReplies, shouldDiscardEmpty, loadImageSettings, syncReplyCollapse, sentCardAnchor, turnOfRow, placeToolbar, createPayloadHidingRule, copyAnnotationsToClipboard, panelHintTextOf, openPanel, closePanel, clampPanelToViewport, buildSegments, segmentsOf, fitSegmentsToQuote, matchInRootNormalized, locateSegmentsOf },
         }
     },
   }

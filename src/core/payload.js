@@ -1,5 +1,37 @@
 import { PAYLOAD_KIND } from './config.js'
 
+/** 分段白名单：只抄这些字段，别让段上的临时缓存混进负载。*/
+const MAX_PAYLOAD_SEGMENTS = 8
+
+function finiteSpan(segment) {
+  if (segment === null || typeof segment !== 'object' || Array.isArray(segment)) return false
+  const { charStart, charEnd, quoteStart, quoteEnd } = segment
+  if (![charStart, charEnd, quoteStart, quoteEnd].every(Number.isFinite)) return false
+  if (charStart < 0 || charEnd <= charStart) return false
+  if (quoteStart < 0 || quoteEnd <= quoteStart) return false
+  return charEnd - charStart === quoteEnd - quoteStart
+}
+
+function payloadSegments(list) {
+  if (!Array.isArray(list)) return undefined
+  const out = []
+  for (const segment of list) {
+    if (out.length >= MAX_PAYLOAD_SEGMENTS) break
+    if (!finiteSpan(segment)) continue
+    const entry = {}
+    if (typeof segment.anchorKey === 'string') entry.anchorKey = segment.anchorKey
+    entry.textOrigin = segment.textOrigin === 'source' ? 'source' : 'rendered'
+    entry.charStart = segment.charStart
+    entry.charEnd = segment.charEnd
+    entry.quoteStart = segment.quoteStart
+    entry.quoteEnd = segment.quoteEnd
+    if (typeof segment.fingerprintBefore === 'string') entry.fingerprintBefore = segment.fingerprintBefore
+    if (typeof segment.fingerprintAfter === 'string') entry.fingerprintAfter = segment.fingerprintAfter
+    out.push(entry)
+  }
+  return out.length > 0 ? out : undefined
+}
+
 /**
  * 批注负载与出处文案。
  * 负载是一个自描述的 JSON 数据块：位置要能被程序化使用，所以用字段而不是自然语言描述。
@@ -110,6 +142,13 @@ export function createPayload({ t, instructionOf, uuidOfSent }) {
     }
     if (Number.isFinite(source?.charStart)) out.charStart = source.charStart
     if (Number.isFinite(source?.charEnd)) out.charEnd = source.charEnd
+    // 分段是选中区间的按块切片：markConsumed 会把 payload 原样抄进台账，
+    // 白名单漏掉它，发送后这条批注就永久退回整段定位。
+    const segments = payloadSegments(source?.segments)
+    if (segments !== undefined) {
+      out.segments = segments
+      if (source?.segmentsTruncated === true) out.segmentsTruncated = true
+    }
     return out
   }
 

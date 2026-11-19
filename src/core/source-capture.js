@@ -1,5 +1,246 @@
 import { safe, cssEscape } from './util.js'
-import { offsetRange, pathFromPreviewUrl, lineRangeWithin } from './source-locate.js'
+import { offsetRange, pathFromPreviewUrl, lineRangeWithin, rangeFromOffsets } from './source-locate.js'
+
+/** 一条批注最多存几段；超出的先并段，仍超就保留首末段并标 segmentsTruncated。*/
+const MAX_SEGMENTS = 8
+
+/**
+ * 会打断阅读顺序的块元素：跨过它们就是另一段。行内元素（strong/em/code/a/span）不切段，
+ * 否则一句话被加粗切开就会变成两段，反而更难定位。
+ */
+const BLOCK_SELECTOR = 'p,li,pre,blockquote,h1,h2,h3,h4,h5,h6,td,th,dd,dt,figcaption,div,section,article,tr'
+
+/** 文本节点所属的块：同一个块里的文本归一段。*/
+function blockOf(element) {
+  if (element === null || element === undefined) return null
+  const block = safe(() => element.closest(BLOCK_SELECTOR)) ?? null
+  return block ?? element
+}
+
+function anchorKeyOfNode(node) {
+  const element = node === null || node === undefined ? null : node.parentElement
+  if (element === null || element === undefined) return ''
+  return safe(() => element.closest('[data-chat-anchor-key]')?.getAttribute('data-chat-anchor-key')) ?? ''
+}
+
+function rowOfNode(node) {
+  const element = node === null || node === undefined ? null : node.parentElement
+  if (element === null || element === undefined) return null
+  return safe(() => element.closest('[data-chat-anchor-key]')) ?? null
+}
+
+/**
+ * 把一次选区拆成「按块分段的引文区间」。
+ *
+ * 只存每段的 `quoteStart/quoteEnd`（引文里的位置）与 `charStart/charEnd`（所属根元素里的偏移），
+ * 不存文本：引文本身已经在条目上，段只是它的一段切片。不变量：
+ * `charEnd - charStart === quoteEnd - quoteStart`，且每一段都能单独定位。
+ *
+ * 空白段丢弃，但游标照常前进 —— 这样后一段的 `quoteStart` 仍然对得上原引文。
+ * 超过 MAX_SEGMENTS 时先并同根相邻段（中间只有空白或行内元素），仍超就取前 7 段加末段。
+ * @param root - 遍历范围的根（消息行、答复字段或已发送条目）。
+ * @param range - 用户选区。
+ * @param source - 已捕获的来源，`anchorKey` 在文本节点不在锚点行内时兜底。
+ * @returns `{ segments, coverage, truncated }`；coverage 是走到的原文长度，用来校验是否覆盖整段选区。
+ */
+export function buildSegments(root, range, source) {
+  if (root === null || root === undefined || range === null || range === undefined) {
+    return { segments: [], coverage: 0, truncated: false }
+  }
+  const quoteLength = safe(() => range.toString().length) ?? 0
+  if (quoteLength <= 0) return { segments: [], coverage: 0, truncated: false }
+  // 只有消息行有锚点键可兜底：答复卡与已发送卡的根就是字段元素本身，
+  // 段上留空锚点键，定位时才会回退到 anchorRoot，而不是去翻同名的消息行。
+  const fallbackAnchorKey =
+    source?.kind === 'message' && typeof source?.anchorKey === 'string' ? source.anchorKey : ''
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const blocks = []
+  let cursor = 0
+  let node = walker.nextNode()
+  while (node !== null) {
+    const inside = safe(() => range.intersectsNode(node)) === true
+    if (inside) {
+      const value = node.nodeValue ?? ''
+      const start = node === range.startContainer ? range.startOffset : 0
+      const end = node === range.endContainer ? range.endOffset : value.length
+      if (end > start) {
+        const anchorKey = anchorKeyOfNode(node) || fallbackAnchorKey
+        const block = blockOf(node.parentElement)
+        const quoteStart = cursor
+        const quoteEnd = cursor + (end - start)
+        cursor = quoteEnd
+        if (value.slice(start, end).trim() !== '') {
+          const last = blocks[blocks.length - 1]
+          const mergeable = last !== undefined && last.anchorKey === anchorKey && last.block === block
+          if (mergeable) {
+            // 同块内相邻文本节点（中间只隔行内元素或空白）并成一段，段数才不会被加粗、链接撑爆。
+            last.endNode = node
+            last.endOffset = end
+            last.quoteEnd = quoteEnd
+          } else {
+            blocks.push({
+              anchorKey,
+              block,
+              startNode: node,
+              startOffset: start,
+              endNode: node,
+              endOffset: end,
+              quoteStart,
+              quoteEnd,
+            })
+          }
+        }
+      }
+    }
+    node = walker.nextNode()
+  }
+  const coverage = cursor
+  let picked = blocks
+  let truncated = false
+  if (picked.length > MAX_SEGMENTS) {
+    picked = mergeAdjacentSameRoot(picked)
+    if (picked.length > MAX_SEGMENTS) {
+      // 优先保首末段：首段代表「从哪开始」，末段保证选区末尾也被标记到。
+      picked = [...picked.slice(0, MAX_SEGMENTS - 1), picked[picked.length - 1]]
+      truncated = true
+    }
+  }
+  const segments = []
+  for (const block of picked) {
+    const measureRoot = rowOfNode(block.startNode) ?? root
+    const segmentRange = safe(() => {
+      const probe = document.createRange()
+      probe.setStart(block.startNode, block.startOffset)
+      probe.setEnd(block.endNode, block.endOffset)
+      return probe
+    })
+    if (segmentRange === undefined) continue
+    const chars = offsetRange(measureRoot, segmentRange)
+    if (!Number.isFinite(chars.start)) continue
+    // 保持不变式：字符长度只按引文切片长度算，量出来的 charEnd 只当交叉校验。
+    const charStart = chars.start
+    const charEnd = charStart + (block.quoteEnd - block.quoteStart)
+    if (charEnd <= charStart) continue
+    segments.push({
+      anchorKey: block.anchorKey,
+      textOrigin: 'rendered',
+      charStart,
+      charEnd,
+      quoteStart: block.quoteStart,
+      quoteEnd: block.quoteEnd,
+    })
+  }
+  return { segments, coverage, truncated }
+}
+
+/** 同根相邻段并成一段：段数超限时的第一道收缩。*/
+function mergeAdjacentSameRoot(blocks) {
+  const out = []
+  for (const block of blocks) {
+    const last = out[out.length - 1]
+    if (last !== undefined && last.anchorKey === block.anchorKey && last.block === block.block) {
+      last.endNode = block.endNode
+      last.endOffset = block.endOffset
+      last.quoteEnd = block.quoteEnd
+      continue
+    }
+    out.push({ ...block })
+  }
+  return out
+}
+
+/**
+ * 读回判据：只有「每段四个数字都有限、区间合法、且字符长度等于引文切片长度」才算可用。
+ * 顶层字段若存在，必须与首段同义 —— 否则是坏数据，宁可不分段。
+ * @param source - 条目上的来源。
+ * @param quote - 条目上的引文（用来限定 quoteEnd 上界）。
+ * @returns 规范化后的段数组；不可用返回 null。
+ */
+export function segmentsOf(source, quote) {
+  const list = source?.segments
+  if (!Array.isArray(list) || list.length === 0) return null
+  const length = typeof quote === 'string' ? quote.length : 0
+  if (length <= 0) return null
+  const out = []
+  for (const segment of list) {
+    if (out.length >= MAX_SEGMENTS) break
+    if (segment === null || typeof segment !== 'object' || Array.isArray(segment)) return null
+    const { charStart, charEnd, quoteStart, quoteEnd } = segment
+    if (!Number.isFinite(charStart) || !Number.isFinite(charEnd)) return null
+    if (!Number.isFinite(quoteStart) || !Number.isFinite(quoteEnd)) return null
+    if (charStart < 0 || charEnd <= charStart) return null
+    if (charEnd - charStart !== quoteEnd - quoteStart) return null
+    if (quoteStart < 0 || quoteEnd <= quoteStart || quoteEnd > length) return null
+    out.push({
+      anchorKey: typeof segment.anchorKey === 'string' ? segment.anchorKey : '',
+      textOrigin: segment.textOrigin === 'source' ? 'source' : 'rendered',
+      charStart,
+      charEnd,
+      quoteStart,
+      quoteEnd,
+      ...(typeof segment.fingerprintBefore === 'string' ? { fingerprintBefore: segment.fingerprintBefore } : {}),
+      ...(typeof segment.fingerprintAfter === 'string' ? { fingerprintAfter: segment.fingerprintAfter } : {}),
+    })
+  }
+  if (out.length === 0) return null
+  if (Number.isFinite(source?.charStart) && source.charStart !== out[0].charStart) return null
+  if (Number.isFinite(source?.charEnd) && source.charEnd !== out[0].charEnd) return null
+  return out
+}
+
+/** 选段覆盖的原文区间（跨段选区时范围可以很大；这里只判断交集）。*/
+function spanOfSegment(segment) {
+  const start = Math.max(0, segment.quoteStart)
+  const end = Math.max(start, segment.quoteEnd)
+  return { start, end }
+}
+
+/**
+ * 把分段收紧到最终保存的引文上。
+ *
+ * `addAnnotation` 会 `trim()` 再 `slice(0, MAX_QUOTE)`：前者让所有偏移整体左移，
+ * 后者让末段越界。这里按「原始引文 → 最终引文」的偏移差逐段裁剪、平移，
+ * 被裁空的段直接丢弃，并让顶层字段重新等于首段。
+ * @param source - 刚捕获的来源。
+ * @param rawQuote - 捕获时的原始引文（range.toString()）。
+ * @param quote - 最终保存的引文。
+ * @returns 收紧后的来源；没有可用段时移除 segments。
+ */
+export function fitSegmentsToQuote(source, rawQuote, quote) {
+  if (source === null || typeof source !== 'object') return source
+  const list = source.segments
+  if (!Array.isArray(list) || list.length === 0) return source
+  const raw = typeof rawQuote === 'string' ? rawQuote : ''
+  const kept = typeof quote === 'string' ? quote : ''
+  const lead = Math.max(0, raw.length - raw.trimStart().length)
+  const keptEnd = lead + kept.length
+  const next = []
+  for (const segment of list) {
+    if (segment === null || typeof segment !== 'object') continue
+    if (![segment.charStart, segment.charEnd, segment.quoteStart, segment.quoteEnd].every(Number.isFinite)) continue
+    const span = spanOfSegment(segment)
+    const start = Math.max(span.start, lead)
+    const end = Math.min(span.end, keptEnd)
+    if (end <= start) continue
+    const shift = start - segment.quoteStart
+    const charStart = segment.charStart + shift
+    next.push({
+      ...segment,
+      charStart,
+      charEnd: charStart + (end - start),
+      quoteStart: start - lead,
+      quoteEnd: end - lead,
+    })
+  }
+  if (next.length === 0) {
+    const cleaned = { ...source }
+    delete cleaned.segments
+    delete cleaned.segmentsTruncated
+    return cleaned
+  }
+  const first = next[0]
+  return { ...source, charStart: first.charStart, charEnd: first.charEnd, segments: next }
+}
 
 const elementOf = (node) => {
   if (node === null || node === undefined) return null
@@ -21,6 +262,27 @@ const REPLY_CLASS_BY_FIELD = { quote: 'sa-q-quote', note: 'sa-q-note', reason: '
  * 答复卡（批次 + 批注编号 + 字段）与已发送卡（消息键 + 编号 + 字段）。
  */
 export function createSourceCapture() {
+  /**
+   * 给来源挂上分段；选区没被完整覆盖（端点跨出 root）时保持旧的单段字段。
+   * 顶层 charStart/charEnd 恒等于首段，只有一段时与旧数据完全同形。
+   */
+  function withSegments(source, root, range) {
+    const quoteLength = safe(() => range.toString().length) ?? 0
+    if (quoteLength <= 0) return source
+    const built = safe(() => buildSegments(root, range, source))
+    if (built === undefined || built.segments.length === 0) return source
+    // 只覆盖到一部分时不能挂：段里的 quoteEnd 会与整段引文对不上，定位会错位。
+    if (built.coverage !== quoteLength) return source
+    const first = built.segments[0]
+    return {
+      ...source,
+      charStart: first.charStart,
+      charEnd: first.charEnd,
+      segments: built.segments,
+      ...(built.truncated === true ? { segmentsTruncated: true } : {}),
+    }
+  }
+
   function captureSource(range) {
     const startEl = elementOf(range.startContainer)
     const endEl = elementOf(range.endContainer)
@@ -55,15 +317,19 @@ export function createSourceCapture() {
         const digits = (replyItem.querySelector('.sa-reply-index')?.textContent ?? '').match(/(\d+)/)
         index = digits === null ? 0 : Number(digits[1])
       }
-      return {
-        kind: 'reply',
-        batchAt: Number(replyItem.getAttribute('data-sa-batch-at')) || 0,
-        index,
-        field,
-        charStart: chars.start,
-        charEnd: chars.end,
-        textOrigin: 'rendered',
-      }
+      return withSegments(
+        {
+          kind: 'reply',
+          batchAt: Number(replyItem.getAttribute('data-sa-batch-at')) || 0,
+          index,
+          field,
+          charStart: chars.start,
+          charEnd: chars.end,
+          textOrigin: 'rendered',
+        },
+        fieldElement,
+        range,
+      )
     }
 
     const sentItem = startEl.closest('.sa-sent-item')
@@ -89,15 +355,19 @@ export function createSourceCapture() {
           const digits = (sentItem.querySelector('.sa-sent-num')?.textContent ?? '').match(/(\d+)/)
           index = digits === null ? 0 : Number(digits[1])
         }
-        return {
-          kind: 'sent',
-          anchorKey: sentCard.getAttribute('data-anchor') ?? '',
-          index,
-          field,
-          charStart: chars.start,
-          charEnd: chars.end,
-          textOrigin: 'rendered',
-        }
+        return withSegments(
+          {
+            kind: 'sent',
+            anchorKey: sentCard.getAttribute('data-anchor') ?? '',
+            index,
+            field,
+            charStart: chars.start,
+            charEnd: chars.end,
+            textOrigin: 'rendered',
+          },
+          fieldEl,
+          range,
+        )
       }
     }
 
@@ -107,7 +377,7 @@ export function createSourceCapture() {
       // 记下所属轮次：之后那一行可能被宿主卸载，靠轮次号才能让导航按钮把它加载回来。
       const turnText = row.closest('[data-chat-turn]')?.getAttribute('data-chat-turn') ?? ''
       const turn = turnText === '' ? null : Number(turnText)
-      return {
+      const source = {
         kind: 'message',
         role: (row.getAttribute('data-chat-flow-kind') ?? '') === 'user' ? 'user' : 'assistant',
         anchorKey: row.getAttribute('data-chat-anchor-key') ?? '',
@@ -116,6 +386,13 @@ export function createSourceCapture() {
         charEnd: chars.end,
         ...(Number.isFinite(turn) ? { turn } : {}),
       }
+      // 选区跨出这一行时，从共同祖先里走，段内偏移仍按各自所属的消息行量。
+      const walkRoot = row.contains(range.endContainer) ? row : safe(() => {
+        const common = range.commonAncestorContainer
+        if (common === null || common === undefined) return row
+        return common.nodeType === 1 ? common : common.parentElement ?? row
+      }) ?? row
+      return withSegments(source, walkRoot, range)
     }
 
     const doc = startEl.closest('[data-textpreview-url]')
@@ -190,37 +467,6 @@ export function createSourceCapture() {
       }
     }
     return null
-  }
-
-  function rangeFromOffsets(root, start, length) {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    let offset = 0
-    let startNode
-    let startOffset = 0
-    let endNode
-    let endOffset = 0
-    let node = walker.nextNode()
-    while (node !== null) {
-      const size = node.nodeValue === null ? 0 : node.nodeValue.length
-      if (startNode === undefined && offset + size >= start) {
-        startNode = node
-        startOffset = start - offset
-      }
-      if (startNode !== undefined && offset + size >= start + length) {
-        endNode = node
-        endOffset = start + length - offset
-        break
-      }
-      offset += size
-      node = walker.nextNode()
-    }
-    if (startNode === undefined || endNode === undefined) return undefined
-    return safe(() => {
-      const range = document.createRange()
-      range.setStart(startNode, Math.max(0, Math.min(startOffset, startNode.nodeValue.length)))
-      range.setEnd(endNode, Math.max(0, Math.min(endOffset, endNode.nodeValue.length)))
-      return range
-    })
   }
 
   /** 在根元素里定位原文；重复片段用保存时的偏移择优。 */

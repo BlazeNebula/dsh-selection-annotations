@@ -14,6 +14,41 @@ export function offsetRange(root, range) {
   return { start, end: end === undefined || end < start ? start : end }
 }
 
+/**
+ * 按「根元素文本里的字符偏移」重建一个 Range。
+ * 从 source-capture 挪到这里，让分段捕获、分段定位共用同一份测量口径。
+ */
+export function rangeFromOffsets(root, start, length) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let offset = 0
+  let startNode
+  let startOffset = 0
+  let endNode
+  let endOffset = 0
+  let node = walker.nextNode()
+  while (node !== null) {
+    const size = node.nodeValue === null ? 0 : node.nodeValue.length
+    if (startNode === undefined && offset + size >= start) {
+      startNode = node
+      startOffset = start - offset
+    }
+    if (startNode !== undefined && offset + size >= start + length) {
+      endNode = node
+      endOffset = start + length - offset
+      break
+    }
+    offset += size
+    node = walker.nextNode()
+  }
+  if (startNode === undefined || endNode === undefined) return undefined
+  return safe(() => {
+    const range = document.createRange()
+    range.setStart(startNode, Math.max(0, Math.min(startOffset, startNode.nodeValue.length)))
+    range.setEnd(endNode, Math.max(0, Math.min(endOffset, endNode.nodeValue.length)))
+    return range
+  })
+}
+
 export function pathFromPreviewUrl(url) {
   // dsh-resource://file/session/<sessionId>/<encoded path>
   const marker = '/session/'
@@ -90,6 +125,57 @@ export function locateInSource(source, quote) {
   const end = hay.map[at + needle.length - 1]
   if (start === undefined || end === undefined) return undefined
   return { start, end: end + 1 }
+}
+
+/**
+ * 在根元素里按「空白折叠后」的文本定位一段引文。
+ *
+ * 渲染后的正文会被换行、缩进重排：`p` 与 `p` 之间的换行、`li` 的缩进都不在文本节点里，
+ * 但 `textContent` 会原样拼出空白序列，于是同一个选区在窄屏/宽屏下空白数量可能不同，
+ * 精确 `indexOf` 就会落空。两边都折叠空白再比，命中后把规范化下标映射回源文本下标：
+ * 末端取 `map[pos + len]`（命中后的第一个规范化字符），越界时取文本长度 ——
+ * 用 `map[pos + len - 1] + 1` 会在末字符后紧跟空白时把结尾的空白吞掉。
+ * 重复片段按保存时的偏移取最近的一处。
+ * @param root - 搜索范围（元素）。
+ * @param needle - 要定位的引文（原始空白即可，函数内部折叠）。
+ * @param savedOffset - 保存时的根内字符偏移，用于在多处命中里选最近的一处。
+ * @returns 命中的 Range；找不到返回 undefined。
+ */
+export function matchInRootNormalized(root, needle, savedOffset) {
+  if (root === null || root === undefined) return undefined
+  if (typeof needle !== 'string' || needle === '') return undefined
+  const target = needle.replace(/\s+/g, ' ').trim()
+  if (target === '') return undefined
+  const raw = safe(() => root.textContent) ?? ''
+  if (raw === '') return undefined
+  const hay = normalizeWithMap(raw)
+  if (hay.text === '') return undefined
+  const positions = []
+  let from = 0
+  for (;;) {
+    const at = hay.text.indexOf(target, from)
+    if (at === -1 || positions.length >= 64) break
+    positions.push(at)
+    from = at + 1
+  }
+  if (positions.length === 0) return undefined
+  let best = positions[0]
+  if (positions.length > 1 && Number.isFinite(savedOffset)) {
+    best = positions.reduce((a, b) => {
+      const nearA = Math.abs((hay.map[a] ?? a) - savedOffset)
+      const nearB = Math.abs((hay.map[b] ?? b) - savedOffset)
+      return nearB < nearA ? b : a
+    })
+  }
+  const start = hay.map[best]
+  if (start === undefined) return undefined
+  const rawEnd = hay.map[best + target.length]
+  // 命中顶到规范化文本末尾时，末端取原文长度：map 存的是原文下标，
+  // 用规范化文本长度当原文下标会把折叠掉的空白算进来、把最后几个字符截掉。
+  const end = rawEnd === undefined ? raw.length : rawEnd
+  const length = Math.max(0, Math.min(end, raw.length) - start)
+  if (length <= 0) return undefined
+  return rangeFromOffsets(root, start, length)
 }
 
 /** 源文本里某个下标所处的 1 基行号。 */
