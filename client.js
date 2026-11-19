@@ -2,23 +2,26 @@
   // src/core/styles.js
   var CSS = `
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
-/* 常驻划线：以主题前景色为基准的低透明度底色，草稿与已发送同色。
-   采纳/待办不再决定静态配色，只在「查看出处」闪烁时回到旧底色。*/
+/* 常驻划线：草稿用改版前的成功/警告底色（采纳=success、待办=warn），
+   已发送条目用主题前景色的低透明度底色。*/
 .sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
-  background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
-/* 跳转闪烁的「亮」相位：旧底色（待办=warn、已采纳=success），由 JS 每 250ms 切换一次。*/
-.sa-hl.sa-hl-blink { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
-.sa-hl.sa-hl-blink[data-adopt="1"] {
+.sa-hl[data-adopt="1"] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
-/* 减少动态：整个闪烁只做一次淡入，由 JS 在 280ms 后撤掉相位。*/
-.sa-hl.sa-hl-once { animation: sa-hl-fade-in 260ms ease-out; }
-@keyframes sa-hl-fade-in {
-  from { opacity: 0.25; }
-  to { opacity: 1; }
-}
+/* 已发送的常驻色放在草稿的 data-adopt 之后：同权重时以主题色为准。*/
+.sa-hl.sa-hl-sent { background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
+/* 跳转闪烁：草稿在旧底色与主题色之间切，已发送在主题色与旧底色之间切；
+   由 JS 每 250ms 换一次类名，亮/灭各三次。*/
+.sa-hl.sa-hl-blink { background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
+.sa-hl.sa-hl-sent.sa-hl-blink-sent { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
+.sa-hl.sa-hl-sent.sa-hl-blink-sent[data-adopt="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
 /* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
 .sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }
@@ -34,18 +37,18 @@
   box-shadow: 0 4px 16px rgba(0,0,0,0.28); pointer-events: none; animation: sa-toast-in 160ms ease-out; }
 @keyframes sa-toast-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 /* 批注文字的墨色从主题前景色派生（同 dsh-todo-notes 的优先级着色）：普通批注走 warn 色相，采纳走 success 色相。*/
-.sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-token {
+.sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-pop-read, .sa-token {
   color: var(--dsw-alias-state-warn-primary, #d29922); }
 @supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
-  .sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-token {
+  .sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-pop-read, .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.12 85); }
 }
 .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-note[data-adopt="1"],
-.sa-pop-input[data-adopt="1"], .sa-token {
+.sa-pop-input[data-adopt="1"], .sa-pop-read[data-adopt="1"], .sa-token {
   color: var(--dsw-alias-state-success-primary, #22c55e); }
 @supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
   .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-note[data-adopt="1"],
-  .sa-pop-input[data-adopt="1"], .sa-token {
+  .sa-pop-input[data-adopt="1"], .sa-pop-read[data-adopt="1"], .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.13 150); }
 }
 .sa-badge { position: fixed; pointer-events: auto; cursor: pointer; font: inherit; border: none; padding: 0 3px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box;
@@ -105,6 +108,9 @@
 .sa-pop-input[data-empty="1"]::before { content: attr(data-placeholder); color: var(--dsw-alias-label-tertiary, GrayText); pointer-events: none; }
 .sa-pop-label { margin: 8px 0 4px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
   letter-spacing: .02em; color: var(--dsw-alias-label-secondary, GrayText); }
+/* 已发送批注的只读正文：与编辑弹层同底座，没有输入框和按钮；文本仍可选中复制。*/
+.sa-pop-read { flex: none; margin: 2px 0 2px; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
+  line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 /* 「引用原文」标题行：左标题、右跳转按钮，失败提示接在按钮后面。*/
 .sa-pop-quote-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-quote-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
@@ -617,6 +623,8 @@
       "pop.save": "保存",
       "pop.createTitle": "新建批注",
       "pop.editTitle": "修改批注 #{n}",
+      "pop.sentTitle": "已发送批注 · 第 {n} 条",
+      "pop.noNote": "无备注",
       "pop.resize": "调整面板大小",
       "panel.empty": "选中回复、消息或文件预览里的文字，点浮动的「批注反馈」即可。",
       "panel.title": "批注总览",
@@ -753,6 +761,8 @@
       "pop.save": "Save",
       "pop.createTitle": "New annotation",
       "pop.editTitle": "Edit annotation #{n}",
+      "pop.sentTitle": "Sent annotation · #{n}",
+      "pop.noNote": "No note",
       "pop.resize": "Resize panel",
       "panel.empty": "Select text in a reply, message, or file preview, then click the floating “Feedback”.",
       "panel.title": "Annotations",
@@ -5695,24 +5705,25 @@ ${PICK_SCRIPT}<\/script>`;
           }
           for (const item of collectSentHighlightItems()) {
             safe(
-              () => collectHighlightOf(item, nodes, null),
+              () => collectHighlightOf(item, nodes, target),
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, "collectHighlightNodes", error)
             );
           }
         }
         function collectHighlightOf(item, nodes, target) {
+          const sent = item.sentHighlight === true;
           const blinking = flashPhaseOn(item);
           const range = blinking && flashRange !== null && safe(() => flashRange.startContainer.isConnected === true) === true ? flashRange : locateHighlightRange(item);
           if (range === void 0 || range === null) return;
           const rects = safe(() => [...range.getClientRects()]) ?? [];
-          if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects });
+          if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects, item });
           const adopt = safe(() => hasAdoptNote(item.note)) === true;
           let badged = false;
           for (const rect of rects) {
             if (rect.width <= 0 || rect.height <= 0) continue;
             const box = document.createElement("div");
-            box.className = blinking ? "sa-hl sa-hl-blink" : "sa-hl";
-            if (blinking && flashReduced) box.classList.add("sa-hl-once");
+            const base = sent ? "sa-hl sa-hl-sent" : "sa-hl";
+            box.className = blinking ? `${base}${sent ? " sa-hl-blink-sent" : " sa-hl-blink"}` : base;
             if (adopt) box.dataset.adopt = "1";
             box.style.left = `${rect.left}px`;
             box.style.top = `${rect.top}px`;
@@ -5738,6 +5749,23 @@ ${PICK_SCRIPT}<\/script>`;
               nodes.push(badge);
             }
           }
+        }
+        function paintHighlightLayer() {
+          const nodes = [];
+          const hits = [];
+          const ok = safe(() => {
+            collectHighlightNodes(nodes, hits);
+            return true;
+          }) === true;
+          if (!ok) return false;
+          highlightHits = hits;
+          if (typeof overlay.replaceChildren === "function") {
+            overlay.replaceChildren(...nodes);
+          } else {
+            overlay.textContent = "";
+            for (const node of nodes) overlay.appendChild(node);
+          }
+          return true;
         }
         function selectionAtRisk() {
           const selection = safe(() => window.getSelection()) ?? null;
@@ -5768,8 +5796,6 @@ ${PICK_SCRIPT}<\/script>`;
             repaintPending = false;
             repaintDeferredAt = null;
           }
-          const nodes = [];
-          const hits = [];
           const step = (name, run) => safe(run, (error) => reportRepaintFailure(name, name, error));
           const renderConversation = () => {
             const scanned = step("scanSentMessages", scanSentMessages) === true;
@@ -5789,16 +5815,7 @@ ${PICK_SCRIPT}<\/script>`;
             else keepScrollStable(renderConversation);
           }
           if (!rebuildHighlights) return;
-          step("collectHighlightNodes", () => {
-            collectHighlightNodes(nodes, hits);
-            highlightHits = hits;
-          });
-          if (typeof overlay.replaceChildren === "function") {
-            overlay.replaceChildren(...nodes);
-          } else {
-            overlay.textContent = "";
-            for (const node of nodes) overlay.appendChild(node);
-          }
+          step("collectHighlightNodes", paintHighlightLayer);
         }
         const toolbar = document.createElement("div");
         toolbar.className = "sa-toolbar";
@@ -5969,6 +5986,9 @@ ${PICK_SCRIPT}<\/script>`;
         popQuoteHead.append(popQuoteLabel, popJumpHint, popJump);
         const popQuote = document.createElement("div");
         popQuote.className = "sa-pop-quote";
+        const popReadNote = document.createElement("div");
+        popReadNote.className = "sa-pop-read";
+        popReadNote.style.display = "none";
         const popDivider = document.createElement("div");
         popDivider.className = "sa-pop-divider";
         const popSource = document.createElement("div");
@@ -5999,7 +6019,6 @@ ${PICK_SCRIPT}<\/script>`;
         let flashKey = null;
         let flashPhase = 0;
         let flashTimers = [];
-        let flashReduced = false;
         let flashRange = null;
         const sentHighlightCache = /* @__PURE__ */ new Map();
         let hoverOpenTimer = null;
@@ -6184,7 +6203,7 @@ ${PICK_SCRIPT}<\/script>`;
         popSave.className = "sa-btn sa-pop-primary";
         popSave.textContent = t("pop.save");
         popActions.append(popDelete, popSpacer, popCancel, popSave);
-        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions);
+        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteLabel, popReadNote, popInput, popImages, popActions);
         popover.append(popHead, popBody);
         const POPOVER_MIN_WIDTH = 260;
         const POPOVER_MIN_HEIGHT = 160;
@@ -6748,9 +6767,20 @@ ${PICK_SCRIPT}<\/script>`;
           popJump.style.display = options.mode === "edit" && options.quote !== "" ? "" : "none";
           popJump.dataset.disabled = options.item?.source?.kind === "file" ? "1" : "0";
           popSource.textContent = options.sourceText;
-          setNoteContent(options.note);
+          const readonly = options.mode === "sent";
+          if (readonly) {
+            popReadNote.textContent = typeof options.note === "string" && options.note !== "" ? options.note : t("pop.noNote");
+            popReadNote.dataset.adopt = hasAdoptNote(options.note) ? "1" : "0";
+          }
+          popReadNote.style.display = readonly ? "" : "none";
+          popSource.style.display = readonly ? "none" : "";
+          popDivider.style.display = readonly ? "none" : "";
+          popInput.style.display = readonly ? "none" : "";
+          popImages.style.display = readonly ? "none" : "";
+          popActions.style.display = readonly ? "none" : "";
+          setNoteContent(readonly ? "" : options.note);
           updateSuggestion();
-          resetPopImages(options.images);
+          resetPopImages(readonly ? [] : options.images);
           popoverMode = options.mode;
           popoverTargetId = options.targetId ?? null;
           popoverItem = options.item ?? null;
@@ -6772,8 +6802,9 @@ ${PICK_SCRIPT}<\/script>`;
           restorePopoverSize();
           popBody.scrollTop = 0;
           if (options.rect !== void 0 && options.rect !== null) placePopover(options.rect);
-          syncPopInputHeight();
+          if (!readonly) syncPopInputHeight();
           const focusEditor = () => {
+            if (readonly) return;
             if (popover.dataset.open !== "1") return;
             safe(() => popInput.focus({ preventScroll: true }));
             safe(() => caretToEnd());
@@ -6800,12 +6831,10 @@ ${PICK_SCRIPT}<\/script>`;
             targetId: null
           });
         }
-        function openEditPopover(id, anchor, source = "manual") {
-          const item = annotations.find((candidate) => candidate.id === id);
-          if (item === void 0) return;
+        function popoverAnchorRect(anchor) {
           const measured = safe(() => anchor?.getBoundingClientRect());
           const panelRect = measured === void 0 || measured === null || measured.width === 0 && measured.height === 0 ? safe(() => document.querySelector('[data-sa-ui="panel"]')?.getBoundingClientRect()) : measured;
-          const rect = (panelRect !== void 0 && panelRect !== null ? panelRect : null) ?? {
+          return (panelRect !== void 0 && panelRect !== null ? panelRect : null) ?? {
             left: window.innerWidth / 2 - 40,
             top: window.innerHeight / 2,
             width: 80,
@@ -6813,6 +6842,10 @@ ${PICK_SCRIPT}<\/script>`;
             right: window.innerWidth / 2 + 40,
             bottom: window.innerHeight / 2
           };
+        }
+        function openEditPopover(id, anchor, source = "manual") {
+          const item = annotations.find((candidate) => candidate.id === id);
+          if (item === void 0) return;
           popoverAnchor = null;
           showPopover({
             title: t("pop.editTitle", { n: item.number }),
@@ -6820,9 +6853,27 @@ ${PICK_SCRIPT}<\/script>`;
             sourceText: describeSource(item.source),
             note: item.note,
             images: Array.isArray(item.images) ? item.images : [],
-            rect,
+            rect: popoverAnchorRect(anchor),
             mode: "edit",
             targetId: id,
+            source,
+            item
+          });
+        }
+        function openSentPopover(item, anchor, source = "manual") {
+          if (item === null || item === void 0 || item.sentHighlight !== true) return;
+          const number = Number.isFinite(item.index) ? item.index : Number.isFinite(item.number) ? item.number : "?";
+          popoverAnchor = null;
+          showPopover({
+            title: t("pop.sentTitle", { n: number }),
+            quote: typeof item.quote === "string" ? item.quote : "",
+            sourceText: "",
+            note: typeof item.note === "string" ? item.note : "",
+            images: [],
+            rect: popoverAnchorRect(anchor),
+            mode: "sent",
+            // 悬停命中用它判断「指针还停在这条上」，避免同一条划线上反复收起重开。
+            targetId: item.id,
             source,
             item
           });
@@ -6991,7 +7042,6 @@ ${PICK_SCRIPT}<\/script>`;
         }
         const FLASH_STEP_MS = 250;
         const FLASH_STEPS = 6;
-        const FLASH_REDUCED_MS = 280;
         function clearFlashTimers() {
           for (const timer of flashTimers) window.clearTimeout(timer);
           flashTimers = [];
@@ -7000,7 +7050,6 @@ ${PICK_SCRIPT}<\/script>`;
           clearFlashTimers();
           flashKey = null;
           flashPhase = 0;
-          flashReduced = false;
           flashRange = null;
         }
         function flashQuote(item, range = null) {
@@ -7009,35 +7058,20 @@ ${PICK_SCRIPT}<\/script>`;
           resetFlashState();
           flashKey = key;
           flashRange = range !== null && range !== void 0 ? range : null;
-          flashReduced = safe(() => typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) === true;
           flashPhase = 1;
-          highlightDirty = true;
-          scheduleRepaint("jump-quote");
-          if (flashReduced) {
-            flashTimers.push(window.setTimeout(() => {
-              flashTimers = [];
-              flashPhase = 0;
-              flashReduced = false;
-              flashRange = null;
-              highlightDirty = true;
-              scheduleRepaint("jump-quote");
-            }, FLASH_REDUCED_MS));
-            return;
-          }
+          paintHighlightLayer();
           for (let step = 1; step < FLASH_STEPS; step += 1) {
             flashTimers.push(window.setTimeout(() => {
               flashPhase = step % 2 === 0 ? 1 : 0;
-              highlightDirty = true;
-              scheduleRepaint("jump-quote");
+              paintHighlightLayer();
             }, step * FLASH_STEP_MS));
           }
           flashTimers.push(window.setTimeout(() => {
             flashTimers = [];
             flashKey = null;
             flashPhase = 0;
-            flashReduced = false;
             flashRange = null;
-            highlightDirty = true;
+            paintHighlightLayer();
             scheduleRepaint("jump-quote");
           }, FLASH_STEPS * FLASH_STEP_MS));
         }
@@ -7439,6 +7473,11 @@ ${PICK_SCRIPT}<\/script>`;
             if (popoverMode === "edit") commitPopover(true);
             else closePopover();
             if (popover.dataset.open === "1") return;
+            const nextSent = hit.item?.sentHighlight === true ? hit.item : void 0;
+            if (nextSent !== void 0) {
+              openSentPopover(nextSent, { getBoundingClientRect: () => nextRect }, "hover");
+              return;
+            }
             openEditPopover(hit.id, { getBoundingClientRect: () => nextRect }, "hover");
             return;
           }
@@ -7453,13 +7492,18 @@ ${PICK_SCRIPT}<\/script>`;
             hoverOpenTimer = null;
             hoverTargetId = null;
             if (popover.dataset.open === "1") return;
+            const rect = unionRects(hit.rects);
+            if (rect === null) return;
+            const sent = hit.item?.sentHighlight === true ? hit.item : void 0;
+            if (sent !== void 0) {
+              openSentPopover(sent, { getBoundingClientRect: () => rect }, "hover");
+              return;
+            }
             const target = annotations.find((item) => item.id === hit.id);
             if (target === void 0) {
               reportHoverMiss(hit.id);
               return;
             }
-            const rect = unionRects(hit.rects);
-            if (rect === null) return;
             openEditPopover(target.id, { getBoundingClientRect: () => rect }, "hover");
           }, HOVER_OPEN_DELAY_MS);
         }
@@ -7474,7 +7518,7 @@ ${PICK_SCRIPT}<\/script>`;
         popover.addEventListener(
           "pointerdown",
           () => {
-            popoverTouched = true;
+            if (popoverMode !== "sent") popoverTouched = true;
             cancelHoverClose();
           },
           true

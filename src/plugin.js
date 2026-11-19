@@ -2679,16 +2679,17 @@ const rewindHandled = new Map()
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, 'collectHighlightNodes', error),
             )
           }
-          // 已发送条目只画常驻划线：不挂角标、不进悬停命中（命中表按草稿 id 配弹层）。
+          // 已发送条目也进命中表：悬停到它们的划线时弹只读面板；不挂角标（它们没有可编辑的条目 id）。
           for (const item of collectSentHighlightItems()) {
             safe(
-              () => collectHighlightOf(item, nodes, null),
+              () => collectHighlightOf(item, nodes, target),
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, 'collectHighlightNodes', error),
             )
           }
         }
 
         function collectHighlightOf(item, nodes, target) {
+          const sent = item.sentHighlight === true
           const blinking = flashPhaseOn(item)
           const range =
             blinking && flashRange !== null && (safe(() => flashRange.startContainer.isConnected === true) === true)
@@ -2696,15 +2697,17 @@ const rewindHandled = new Map()
               : locateHighlightRange(item)
           if (range === undefined || range === null) return
           const rects = safe(() => [...range.getClientRects()]) ?? []
-          if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects })
-          // 采纳判定要读设置项：它只决定闪烁时回到哪个旧底色，读不到也必须照常把这条划线画出来。
+          // 命中表带上条目本身：已发送条目不在 annotations 里，悬停时只能靠它找到对应记录。
+          if (rects.length > 0 && Array.isArray(target)) target.push({ id: item.id, rects, item })
+          // 采纳判定要读设置项：草稿据此选常驻色、已发送据此选闪烁时的旧底色，读不到也必须照常画。
           const adopt = safe(() => hasAdoptNote(item.note)) === true
           let badged = false
           for (const rect of rects) {
             if (rect.width <= 0 || rect.height <= 0) continue
             const box = document.createElement('div')
-            box.className = blinking ? 'sa-hl sa-hl-blink' : 'sa-hl'
-            if (blinking && flashReduced) box.classList.add('sa-hl-once')
+            // 草稿用改版前的成功/警告底色；已发送用主题前景色。闪烁时两边都换成对方那一套。
+            const base = sent ? 'sa-hl sa-hl-sent' : 'sa-hl'
+            box.className = blinking ? `${base}${sent ? ' sa-hl-blink-sent' : ' sa-hl-blink'}` : base
             if (adopt) box.dataset.adopt = '1'
             box.style.left = `${rect.left}px`
             box.style.top = `${rect.top}px`
@@ -2730,6 +2733,32 @@ const rewindHandled = new Map()
               nodes.push(badge)
             }
           }
+        }
+
+        /**
+         * 只重建高亮层：不碰会话区 DOM、不看选区、也不经过 120ms 的通用重绘节流。
+         * 跳转闪烁每 250ms 要换一次相位，走 scheduleRepaint 会被滚动/宿主重绘合并掉；
+         * 这里直接换整层，失败时保留上一份，一次定位异常不会让悬停与划线整片消失。
+         */
+        function paintHighlightLayer() {
+          const nodes = []
+          // 命中表整份替换：中途失败时保留上一份，一次重绘失败不会让悬停整片失效。
+          const hits = []
+          const ok =
+            safe(() => {
+              collectHighlightNodes(nodes, hits)
+              return true
+            }) === true
+          if (!ok) return false
+          highlightHits = hits
+          // 一次性换掉整层：先清空再逐个插入会在帧间露出空白，看起来像界面闪了一下。
+          if (typeof overlay.replaceChildren === 'function') {
+            overlay.replaceChildren(...nodes)
+          } else {
+            overlay.textContent = ''
+            for (const node of nodes) overlay.appendChild(node)
+          }
+          return true
         }
 
         /**
@@ -2777,9 +2806,6 @@ const rewindHandled = new Map()
             repaintPending = false
             repaintDeferredAt = null
           }
-          const nodes = []
-          // 命中表整份替换：中途失败时保留上一份，一次重绘失败不会让悬停整片失效。
-          const hits = []
           // 每一步单独兜住异常并留日志：任何一步失败都不能挡住后面的高亮重建。
           const step = (name, run) => safe(run, (error) => reportRepaintFailure(name, name, error))
           // 三步渲染：这一步只动内容，位置保护由外面决定要不要套。
@@ -2813,17 +2839,8 @@ const rewindHandled = new Map()
           }
           if (!rebuildHighlights) return
           // 高亮最后量：放在位置保护之后，量到的视口坐标才与最终的滚动位置一致。
-          step('collectHighlightNodes', () => {
-            collectHighlightNodes(nodes, hits)
-            highlightHits = hits
-          })
-          // 一次性换掉整层：先清空再逐个插入会在帧间露出空白，看起来像界面闪了一下。
-          if (typeof overlay.replaceChildren === 'function') {
-            overlay.replaceChildren(...nodes)
-          } else {
-            overlay.textContent = ''
-            for (const node of nodes) overlay.appendChild(node)
-          }
+          // 与跳转闪烁共用同一个入口，overlay 的替换只留一处。
+          step('collectHighlightNodes', paintHighlightLayer)
         }
 
         /* ------------------------------------------------------------------ 选区工具条*/
@@ -3014,6 +3031,10 @@ const rewindHandled = new Map()
         popQuoteHead.append(popQuoteLabel, popJumpHint, popJump)
         const popQuote = document.createElement('div')
         popQuote.className = 'sa-pop-quote'
+        /** 已发送批注的只读正文：同一个弹层底座，只是把输入框换成这一段文字。*/
+        const popReadNote = document.createElement('div')
+        popReadNote.className = 'sa-pop-read'
+        popReadNote.style.display = 'none'
         const popDivider = document.createElement('div')
         popDivider.className = 'sa-pop-divider'
         const popSource = document.createElement('div')
@@ -3051,7 +3072,6 @@ const rewindHandled = new Map()
         let flashKey = null
         let flashPhase = 0
         let flashTimers = []
-        let flashReduced = false
         /** 闪烁目标在跳转时命中的 Range：锚点键对不上时也能在找到的那一行上闪。*/
         let flashRange = null
         /** 已发送批注的绘制副本：按 key 缓存，台账 savedAt 变了就重建，避免重绘丢 liveRange。*/
@@ -3263,7 +3283,7 @@ const rewindHandled = new Map()
         popSave.textContent = t('pop.save')
         popActions.append(popDelete, popSpacer, popCancel, popSave)
         // 只有标题固定在顶部；来源、引用原文、备注、图片、按钮行同住正文区一起滚。
-        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteLabel, popInput, popImages, popActions)
+        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteLabel, popReadNote, popInput, popImages, popActions)
         popover.append(popHead, popBody)
 
         /* ------------------------------------------------------------------ 弹层尺寸调整*/
@@ -3973,9 +3993,22 @@ const rewindHandled = new Map()
           popJump.style.display = options.mode === 'edit' && options.quote !== '' ? '' : 'none'
           popJump.dataset.disabled = options.item?.source?.kind === 'file' ? '1' : '0'
           popSource.textContent = options.sourceText
-          setNoteContent(options.note)
+          // 已发送批注是只读的：正文换成一段文字，输入框、图片和操作行都收起来。
+          const readonly = options.mode === 'sent'
+          if (readonly) {
+            popReadNote.textContent =
+              typeof options.note === 'string' && options.note !== '' ? options.note : t('pop.noNote')
+            popReadNote.dataset.adopt = hasAdoptNote(options.note) ? '1' : '0'
+          }
+          popReadNote.style.display = readonly ? '' : 'none'
+          popSource.style.display = readonly ? 'none' : ''
+          popDivider.style.display = readonly ? 'none' : ''
+          popInput.style.display = readonly ? 'none' : ''
+          popImages.style.display = readonly ? 'none' : ''
+          popActions.style.display = readonly ? 'none' : ''
+          setNoteContent(readonly ? '' : options.note)
           updateSuggestion()
-          resetPopImages(options.images)
+          resetPopImages(readonly ? [] : options.images)
           popoverMode = options.mode
           popoverTargetId = options.targetId ?? null
           popoverItem = options.item ?? null
@@ -4003,8 +4036,9 @@ const rewindHandled = new Map()
           restorePopoverSize()
           popBody.scrollTop = 0
           if (options.rect !== undefined && options.rect !== null) placePopover(options.rect)
-          syncPopInputHeight()
+          if (!readonly) syncPopInputHeight()
           const focusEditor = () => {
+            if (readonly) return
             if (popover.dataset.open !== '1') return
             safe(() => popInput.focus({ preventScroll: true }))
             safe(() => caretToEnd())
@@ -4035,6 +4069,26 @@ const rewindHandled = new Map()
           })
         }
 
+        /** 弹层定位用的矩形：优先量给定元素；量不到或量到 0×0 时退回总览面板，再退回窗口中心。*/
+        function popoverAnchorRect(anchor) {
+          const measured = safe(() => anchor?.getBoundingClientRect())
+          // 总览重绘后原节点可能已被替换，量到 0×0：退回面板本身的位置，别让弹层飘到左上角。
+          const panelRect =
+            measured === undefined || measured === null || (measured.width === 0 && measured.height === 0)
+              ? safe(() => document.querySelector('[data-sa-ui="panel"]')?.getBoundingClientRect())
+              : measured
+          return (
+            (panelRect !== undefined && panelRect !== null ? panelRect : null) ?? {
+              left: window.innerWidth / 2 - 40,
+              top: window.innerHeight / 2,
+              width: 80,
+              height: 0,
+              right: window.innerWidth / 2 + 40,
+              bottom: window.innerHeight / 2,
+            }
+          )
+        }
+
         /**
          * 修改一条既有批注。
          * 这是编号角标点击后的默认行为 ——点它是要改这一条，不是打开列表。
@@ -4044,22 +4098,6 @@ const rewindHandled = new Map()
         function openEditPopover(id, anchor, source = 'manual') {
           const item = annotations.find((candidate) => candidate.id === id)
           if (item === undefined) return
-          const measured = safe(() => anchor?.getBoundingClientRect())
-          // 总览重绘后原节点可能已被替换，量到 0×0：退回面板本身的位置，别让弹层飘到左上角。
-          const panelRect =
-            measured === undefined || measured === null || (measured.width === 0 && measured.height === 0)
-              ? safe(() => document.querySelector('[data-sa-ui="panel"]')?.getBoundingClientRect())
-              : measured
-          const rect =
-            (panelRect !== undefined && panelRect !== null ? panelRect : null) ??
-            {
-              left: window.innerWidth / 2 - 40,
-              top: window.innerHeight / 2,
-              width: 80,
-              height: 0,
-              right: window.innerWidth / 2 + 40,
-              bottom: window.innerHeight / 2,
-            }
           popoverAnchor = null
           showPopover({
             title: t('pop.editTitle', { n: item.number }),
@@ -4067,9 +4105,36 @@ const rewindHandled = new Map()
             sourceText: describeSource(item.source),
             note: item.note,
             images: Array.isArray(item.images) ? item.images : [],
-            rect,
+            rect: popoverAnchorRect(anchor),
             mode: 'edit',
             targetId: id,
+            source,
+            item,
+          })
+        }
+
+        /**
+         * 已发送批注的只读弹层：复用编辑弹层的底座、标题行、关闭按钮与 placePopover 定位，
+         * 只显示引文与备注正文，不出现输入框、图片与保存/删除。
+         * @param item - collectSentHighlightItems 产出的绘制副本（带 sentHighlight 与 id）。
+         * @param anchor - 定位元素或矩形提供者。
+         * @param source - 'hover' 表示悬停预览，其它值表示手动打开。
+         */
+        function openSentPopover(item, anchor, source = 'manual') {
+          if (item === null || item === undefined || item.sentHighlight !== true) return
+          // 台账条目的 index 就是发送时的条目序号（buildPayload 用批注 number 写入）；老记录没有时退回 number。
+          const number = Number.isFinite(item.index) ? item.index : Number.isFinite(item.number) ? item.number : '?'
+          popoverAnchor = null
+          showPopover({
+            title: t('pop.sentTitle', { n: number }),
+            quote: typeof item.quote === 'string' ? item.quote : '',
+            sourceText: '',
+            note: typeof item.note === 'string' ? item.note : '',
+            images: [],
+            rect: popoverAnchorRect(anchor),
+            mode: 'sent',
+            // 悬停命中用它判断「指针还停在这条上」，避免同一条划线上反复收起重开。
+            targetId: item.id,
             source,
             item,
           })
@@ -4295,7 +4360,6 @@ const rewindHandled = new Map()
 
         const FLASH_STEP_MS = 250
         const FLASH_STEPS = 6 // 亮/灭各三次，总计 1.5s
-        const FLASH_REDUCED_MS = 280
 
         function clearFlashTimers() {
           for (const timer of flashTimers) window.clearTimeout(timer)
@@ -4306,13 +4370,16 @@ const rewindHandled = new Map()
           clearFlashTimers()
           flashKey = null
           flashPhase = 0
-          flashReduced = false
           flashRange = null
         }
 
         /**
-         * 闪烁：让目标那条批注的常驻划线按相位换回旧底色，不再另画一个临时框。
-         * 三下（亮/灭各 250ms）后回到常驻色；减少动态时只做一次淡入。
+         * 闪烁：让目标那条批注的常驻划线按相位换到另一套底色，不再另画一个临时框。
+         * 亮/灭各三次、每次 250ms，之后回到常驻色。
+         * 相位切换直接重画高亮层：通用 repaint 有 120ms 节流，还会被选区/滚动合并，
+         * 250ms 的节拍落到画面上常常只剩一次。
+         * 这里不按 prefers-reduced-motion 降级：本机系统关了「动画效果」时 Chromium 会
+         * 一直报 reduce，降级成单次闪烁会让「查看出处」完全失去定位提示。
          * @param item - 跳转目标（草稿条目或台账条目）。
          * @param range - 跳转时命中的 Range；锚点键对不上时也保证闪在刚找到的那一行。
          */
@@ -4322,36 +4389,21 @@ const rewindHandled = new Map()
           resetFlashState()
           flashKey = key
           flashRange = range !== null && range !== undefined ? range : null
-          flashReduced =
-            safe(() => typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) === true
           flashPhase = 1
-          highlightDirty = true
-          scheduleRepaint('jump-quote')
-          if (flashReduced) {
-            flashTimers.push(window.setTimeout(() => {
-              flashTimers = []
-              flashPhase = 0
-              flashReduced = false
-              flashRange = null
-              highlightDirty = true
-              scheduleRepaint('jump-quote')
-            }, FLASH_REDUCED_MS))
-            return
-          }
+          paintHighlightLayer()
           for (let step = 1; step < FLASH_STEPS; step += 1) {
             flashTimers.push(window.setTimeout(() => {
               flashPhase = step % 2 === 0 ? 1 : 0
-              highlightDirty = true
-              scheduleRepaint('jump-quote')
+              paintHighlightLayer()
             }, step * FLASH_STEP_MS))
           }
           flashTimers.push(window.setTimeout(() => {
             flashTimers = []
             flashKey = null
             flashPhase = 0
-            flashReduced = false
             flashRange = null
-            highlightDirty = true
+            paintHighlightLayer()
+            // 收尾再排一次常规重绘：闪烁期间会话区可能滚动/换行，下一轮按常驻色补齐。
             scheduleRepaint('jump-quote')
           }, FLASH_STEPS * FLASH_STEP_MS))
         }
@@ -4859,10 +4911,16 @@ const rewindHandled = new Map()
             if (popoverTargetId === hit.id) return
             const nextRect = unionRects(hit.rects)
             if (nextRect === null) return
-            // 收掉旧预览再开新的：编辑态走保存式收起，其它态直接关。
+            // 收掉旧预览再开新的：编辑态走保存式收起，其它态（含只读的已发送面板）直接关。
             if (popoverMode === 'edit') commitPopover(true)
             else closePopover()
             if (popover.dataset.open === '1') return
+            // 已发送条目没有编辑弹层：换成同一底座的只读面板。
+            const nextSent = hit.item?.sentHighlight === true ? hit.item : undefined
+            if (nextSent !== undefined) {
+              openSentPopover(nextSent, { getBoundingClientRect: () => nextRect }, 'hover')
+              return
+            }
             openEditPopover(hit.id, { getBoundingClientRect: () => nextRect }, 'hover')
             return
           }
@@ -4877,13 +4935,19 @@ const rewindHandled = new Map()
             hoverOpenTimer = null
             hoverTargetId = null
             if (popover.dataset.open === '1') return
+            const rect = unionRects(hit.rects)
+            if (rect === null) return
+            // 已发送条目不进 annotations：命中里带的副本已经够画只读面板，先去这一支。
+            const sent = hit.item?.sentHighlight === true ? hit.item : undefined
+            if (sent !== undefined) {
+              openSentPopover(sent, { getBoundingClientRect: () => rect }, 'hover')
+              return
+            }
             const target = annotations.find((item) => item.id === hit.id)
             if (target === undefined) {
               reportHoverMiss(hit.id)
               return
             }
-            const rect = unionRects(hit.rects)
-            if (rect === null) return
             openEditPopover(target.id, { getBoundingClientRect: () => rect }, 'hover')
           }, HOVER_OPEN_DELAY_MS)
         }
@@ -4899,7 +4963,8 @@ const rewindHandled = new Map()
         popover.addEventListener(
           'pointerdown',
           () => {
-            popoverTouched = true
+            // 只读面板没有需要保在手边的输入：点它不算「用户已接手」，移开划线与面板仍然自动收起。
+            if (popoverMode !== 'sent') popoverTouched = true
             cancelHoverClose()
           },
           true,

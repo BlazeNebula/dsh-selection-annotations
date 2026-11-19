@@ -1,22 +1,25 @@
 export const CSS = `
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
-/* 常驻划线：以主题前景色为基准的低透明度底色，草稿与已发送同色。
-   采纳/待办不再决定静态配色，只在「查看出处」闪烁时回到旧底色。*/
+/* 常驻划线：草稿用改版前的成功/警告底色（采纳=success、待办=warn），
+   已发送条目用主题前景色的低透明度底色。*/
 .sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
-  background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
-/* 跳转闪烁的「亮」相位：旧底色（待办=warn、已采纳=success），由 JS 每 250ms 切换一次。*/
-.sa-hl.sa-hl-blink { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
-.sa-hl.sa-hl-blink[data-adopt="1"] {
+.sa-hl[data-adopt="1"] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
-/* 减少动态：整个闪烁只做一次淡入，由 JS 在 280ms 后撤掉相位。*/
-.sa-hl.sa-hl-once { animation: sa-hl-fade-in 260ms ease-out; }
-@keyframes sa-hl-fade-in {
-  from { opacity: 0.25; }
-  to { opacity: 1; }
-}
+/* 已发送的常驻色放在草稿的 data-adopt 之后：同权重时以主题色为准。*/
+.sa-hl.sa-hl-sent { background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
+/* 跳转闪烁：草稿在旧底色与主题色之间切，已发送在主题色与旧底色之间切；
+   由 JS 每 250ms 换一次类名，亮/灭各三次。*/
+.sa-hl.sa-hl-blink { background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
+.sa-hl.sa-hl-sent.sa-hl-blink-sent { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
+.sa-hl.sa-hl-sent.sa-hl-blink-sent[data-adopt="1"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
 /* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
 .sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }
@@ -32,18 +35,18 @@ export const CSS = `
   box-shadow: 0 4px 16px rgba(0,0,0,0.28); pointer-events: none; animation: sa-toast-in 160ms ease-out; }
 @keyframes sa-toast-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 /* 批注文字的墨色从主题前景色派生（同 dsh-todo-notes 的优先级着色）：普通批注走 warn 色相，采纳走 success 色相。*/
-.sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-token {
+.sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-pop-read, .sa-token {
   color: var(--dsw-alias-state-warn-primary, #d29922); }
 @supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
-  .sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-token {
+  .sa-item-note, .sa-sent-note, .sa-q-note, .sa-pop-input, .sa-pop-read, .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.12 85); }
 }
 .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-note[data-adopt="1"],
-.sa-pop-input[data-adopt="1"], .sa-token {
+.sa-pop-input[data-adopt="1"], .sa-pop-read[data-adopt="1"], .sa-token {
   color: var(--dsw-alias-state-success-primary, #22c55e); }
 @supports (color: oklch(from #fff calc(l * 0.9) 0.1 80)) {
   .sa-item-note[data-adopt="1"], .sa-sent-note[data-adopt="1"], .sa-q-note[data-adopt="1"],
-  .sa-pop-input[data-adopt="1"], .sa-token {
+  .sa-pop-input[data-adopt="1"], .sa-pop-read[data-adopt="1"], .sa-token {
     color: oklch(from var(--dsw-alias-label-primary, #e8e8ea) calc(l * 0.9) 0.13 150); }
 }
 .sa-badge { position: fixed; pointer-events: auto; cursor: pointer; font: inherit; border: none; padding: 0 3px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box;
@@ -103,6 +106,9 @@ export const CSS = `
 .sa-pop-input[data-empty="1"]::before { content: attr(data-placeholder); color: var(--dsw-alias-label-tertiary, GrayText); pointer-events: none; }
 .sa-pop-label { margin: 8px 0 4px; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
   letter-spacing: .02em; color: var(--dsw-alias-label-secondary, GrayText); }
+/* 已发送批注的只读正文：与编辑弹层同底座，没有输入框和按钮；文本仍可选中复制。*/
+.sa-pop-read { flex: none; margin: 2px 0 2px; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
+  line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 /* 「引用原文」标题行：左标题、右跳转按钮，失败提示接在按钮后面。*/
 .sa-pop-quote-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-quote-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
