@@ -3813,7 +3813,7 @@ ${PICK_SCRIPT}<\/script>`;
           const data = await readObject(response);
           if (data === void 0) return failed(response.status, "empty");
           batchSupported = true;
-          return { ...data, ok: true };
+          return { ...data, ok: true, status: response.status };
         } catch {
           return failed(0, "network");
         }
@@ -3877,6 +3877,7 @@ ${PICK_SCRIPT}<\/script>`;
     let enabled = true;
     let queue = [];
     let timer = null;
+    let contextFn = null;
     let stopped = false;
     let bound = false;
     const marks = /* @__PURE__ */ new WeakMap();
@@ -3904,7 +3905,15 @@ ${PICK_SCRIPT}<\/script>`;
     function flush() {
       clearTimer();
       if (stopped || !enabled || queue.length === 0) return;
-      const lines = queue.map((entry) => JSON.stringify(entry));
+      let context = {};
+      if (contextFn !== null) {
+        try {
+          const value = contextFn();
+          if (value !== null && typeof value === "object") context = value;
+        } catch {
+        }
+      }
+      const lines = queue.map((entry) => JSON.stringify({ ...context, ...entry }));
       queue = [];
       if (typeof fetch !== "function") return;
       try {
@@ -3956,6 +3965,9 @@ ${PICK_SCRIPT}<\/script>`;
         { passive: true }
       );
     }
+    function setContext(fn) {
+      contextFn = typeof fn === "function" ? fn : null;
+    }
     function setEnabled(on) {
       enabled = Boolean(on);
       if (!enabled) {
@@ -3988,7 +4000,7 @@ ${PICK_SCRIPT}<\/script>`;
       flush();
     }
     bindPageListeners();
-    return { setEnabled, flush, push, repaint, markWrite, watch, dispose };
+    return { setEnabled, setContext, flush, push, repaint, markWrite, watch, dispose };
   }
 
   // src/core/image-codec.js
@@ -4561,10 +4573,21 @@ ${PICK_SCRIPT}<\/script>`;
           remoteReplyCache.set(sessionId, batches);
           return true;
         }
-        const remoteSync = createRemoteSync(sessionSnapshot);
+        const scrollTrace = createScrollTrace();
+        scrollTrace.setContext(() => ({ session: currentSessionId() ?? null, build: PLUGIN_BUILD }));
+        const remoteSync = createRemoteSync((sessionId) => {
+          const snapshot2 = sessionSnapshot(sessionId);
+          scrollTrace.push({
+            t: Date.now(),
+            kind: "snapshot-push",
+            session: sessionId,
+            sent: Object.keys(snapshot2.sent).length,
+            drafts: Array.isArray(snapshot2.drafts) ? snapshot2.drafts.length : 0
+          });
+          return snapshot2;
+        });
         const storeUrl = (sessionId) => remoteSync.storeUrl(sessionId);
         const pullRemoteSession = (sessionId) => remoteSync.pull(sessionId);
-        const scrollTrace = createScrollTrace();
         function sessionSnapshot(sessionId) {
           const drafts = annotationsSession === sessionId ? draftItems(annotations) : draftSessions.get(sessionId) ?? [];
           const sent = {};
@@ -5090,14 +5113,39 @@ ${PICK_SCRIPT}<\/script>`;
           const settle = () => sentBatchInflight.delete(flightKey);
           const storedRecord = sentStore.loadSent(sessionId).get(storedKey);
           const bodyAnchorKey = typeof storedRecord?.anchorKey === "string" && storedRecord.anchorKey !== "" ? storedRecord.anchorKey : storedKey;
-          void remoteSync.createBatch(sessionId, sentBatchBody(sessionId, storedKey, items, turn, batchAt, bodyAnchorKey)).then((result) => {
+          const body = sentBatchBody(sessionId, storedKey, items, turn, batchAt, bodyAnchorKey);
+          scrollTrace.push({
+            t: Date.now(),
+            kind: "batch-post",
+            session: sessionId,
+            anchorKey: bodyAnchorKey,
+            items: items.length,
+            hasBatchUuid: typeof body.batch_uuid === "string" && body.batch_uuid !== ""
+          });
+          void remoteSync.createBatch(sessionId, body).then((result) => {
             settle();
             if (result === void 0 || result?.ok !== true) {
               const status = Number.isFinite(result?.status) ? result.status : 0;
               const reason = typeof result?.reason === "string" && result.reason !== "" ? result.reason : "unknown";
+              scrollTrace.push({
+                t: Date.now(),
+                kind: "batch-done",
+                session: sessionId,
+                ok: false,
+                status,
+                reason
+              });
               markSentUnsynced(sessionId, storedKey, items.length, status, reason);
               return;
             }
+            scrollTrace.push({
+              t: Date.now(),
+              kind: "batch-done",
+              session: sessionId,
+              ok: true,
+              status: Number.isFinite(result.status) ? result.status : 0,
+              reason: ""
+            });
             sentBatchRetries.delete(sentRetryKey(sessionId, storedKey));
             setSentUnsynced(sessionId, storedKey, false);
             const batchUuid = typeof result.batch_uuid === "string" && result.batch_uuid !== "" ? result.batch_uuid : void 0;
@@ -5124,6 +5172,14 @@ ${PICK_SCRIPT}<\/script>`;
           }).catch((error) => {
             settle();
             const reason = error instanceof Error && error.message !== "" ? error.message : "network";
+            scrollTrace.push({
+              t: Date.now(),
+              kind: "batch-done",
+              session: sessionId,
+              ok: false,
+              status: 0,
+              reason
+            });
             markSentUnsynced(sessionId, storedKey, items.length, 0, reason);
           });
         }

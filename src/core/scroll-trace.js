@@ -4,6 +4,7 @@
  * `$DSH_HOME/selection-annotations/scroll-trace.log`。
  *
  * 只记录时间、数字和来源标记，不碰任何正文与批注内容。
+ * 每条行还会带上 setContext 给出的上下文（当前会话 id 与构建号），flush 时统一合并。
  * 默认开启，控制台可用 `window.__dshSelectionAnnotations.traceScroll(false)` 关掉。
  */
 export const SCROLL_TRACE_ROUTE = '/selection-annotations/debug/trace'
@@ -19,6 +20,8 @@ export function createScrollTrace() {
   let enabled = true
   let queue = []
   let timer = null
+  /** 每条行附带的上下文（会话 id、构建号）；flush 时求值，合并进该批每一行。 */
+  let contextFn = null
   /** 卸载后停用；同一个实例再次 watch 时重新挂上页面级监听。 */
   let stopped = false
   let bound = false
@@ -53,7 +56,18 @@ export function createScrollTrace() {
   function flush() {
     clearTimer()
     if (stopped || !enabled || queue.length === 0) return
-    const lines = queue.map((entry) => JSON.stringify(entry))
+    // 上下文在冲刷时求值：同一批行共用一个会话与构建号，不必逐行重复调用。
+    let context = {}
+    if (contextFn !== null) {
+      try {
+        const value = contextFn()
+        if (value !== null && typeof value === 'object') context = value
+      } catch {
+        /* 上下文取不到就照常发本行，追踪不能反过来影响功能 */
+      }
+    }
+    // 上下文放在前面、行内同名字段优先：批次行自带的 session 不会被当前会话覆盖。
+    const lines = queue.map((entry) => JSON.stringify({ ...context, ...entry }))
     queue = []
     if (typeof fetch !== 'function') return
     try {
@@ -114,6 +128,11 @@ export function createScrollTrace() {
     )
   }
 
+  /** 设置随每条 trace 一起发出的上下文；返回对象里的字段会合并进每一行。 */
+  function setContext(fn) {
+    contextFn = typeof fn === 'function' ? fn : null
+  }
+
   function setEnabled(on) {
     enabled = Boolean(on)
     if (!enabled) {
@@ -154,5 +173,5 @@ export function createScrollTrace() {
 
   bindPageListeners()
 
-  return { setEnabled, flush, push, repaint, markWrite, watch, dispose }
+  return { setEnabled, setContext, flush, push, repaint, markWrite, watch, dispose }
 }

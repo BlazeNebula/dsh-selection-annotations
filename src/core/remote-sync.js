@@ -106,7 +106,7 @@ export function createRemoteSync(getSnapshot) {
   /**
    * 新建一批已提交批注。旧宿主（404/405）只判一次，之后直接走整份快照。
    * 失败统一返回 `{ ok: false, status, reason }`，调用方据此决定是否标记未同步；
-   * 成功返回后端对象并补 `ok: true`，`batch_uuid` / `items` 等字段原样保留。
+   * 成功返回后端对象并补 `ok: true` 与真实 HTTP `status`，`batch_uuid` / `items` 等字段原样保留。
    */
   async function createBatch(sessionId, body) {
     const failed = (status, reason) => ({ ok: false, status, reason })
@@ -133,7 +133,7 @@ export function createRemoteSync(getSnapshot) {
         const data = await readObject(response)
         if (data === undefined) return failed(response.status, 'empty')
         batchSupported = true
-        return { ...data, ok: true }
+        return { ...data, ok: true, status: response.status }
       } catch {
         return failed(0, 'network')
       }

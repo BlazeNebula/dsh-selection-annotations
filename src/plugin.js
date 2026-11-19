@@ -23,6 +23,7 @@ import {
   REPLY_POLL_MS,
   SENT_PENDING_TTL_MS,
   LOCALE_NS,
+  PLUGIN_BUILD,
 } from './core/config.js'
 import {
   CONSUME_CONFIRM_MS,
@@ -505,11 +506,25 @@ const rewindHandled = new Map()
           return true
         }
 
-        const remoteSync = createRemoteSync(sessionSnapshot)
+        // 滚动追踪：谁改了会话区 scrollTop、谁触发了重绘，落盘给人事后看。
+        // 每条行都带上当前会话 id 与构建号：能按会话对时间窗，也能确认页面加载的是哪一版。
+        const scrollTrace = createScrollTrace()
+        scrollTrace.setContext(() => ({ session: currentSessionId() ?? null, build: PLUGIN_BUILD }))
+        // 整份快照的构造点就是 remoteSync 发 PUT 前取数据的地方，在这里留一条 snapshot-push：
+        // 记录这次推送带了多少条已提交记录与草稿，用来查「谁把批次覆盖掉」。
+        const remoteSync = createRemoteSync((sessionId) => {
+          const snapshot = sessionSnapshot(sessionId)
+          scrollTrace.push({
+            t: Date.now(),
+            kind: 'snapshot-push',
+            session: sessionId,
+            sent: Object.keys(snapshot.sent).length,
+            drafts: Array.isArray(snapshot.drafts) ? snapshot.drafts.length : 0,
+          })
+          return snapshot
+        })
         const storeUrl = (sessionId) => remoteSync.storeUrl(sessionId)
         const pullRemoteSession = (sessionId) => remoteSync.pull(sessionId)
-        // 滚动追踪：谁改了会话区 scrollTop、谁触发了重绘，落盘给人事后看。
-        const scrollTrace = createScrollTrace()
 
         /** 当前会话的可落盘快照：草稿与已提交台账（落盘不做体积裁剪）。*/
         function sessionSnapshot(sessionId) {
@@ -1186,17 +1201,44 @@ const rewindHandled = new Map()
             typeof storedRecord?.anchorKey === 'string' && storedRecord.anchorKey !== ''
               ? storedRecord.anchorKey
               : storedKey
+          const body = sentBatchBody(sessionId, storedKey, items, turn, batchAt, bodyAnchorKey)
+          // 发 POST 之前先留一条：日志里能看到「这一批发过请求」，与后面的 batch-done 配对看。
+          scrollTrace.push({
+            t: Date.now(),
+            kind: 'batch-post',
+            session: sessionId,
+            anchorKey: bodyAnchorKey,
+            items: items.length,
+            hasBatchUuid: typeof body.batch_uuid === 'string' && body.batch_uuid !== '',
+          })
           void remoteSync
-            .createBatch(sessionId, sentBatchBody(sessionId, storedKey, items, turn, batchAt, bodyAnchorKey))
+            .createBatch(sessionId, body)
             .then((result) => {
               settle()
               if (result === undefined || result?.ok !== true) {
                 const status = Number.isFinite(result?.status) ? result.status : 0
                 const reason =
                   typeof result?.reason === 'string' && result.reason !== '' ? result.reason : 'unknown'
+                // 结果与 batch-fail 用同一个 reason，两条能对上；batch-fail 仍保留。
+                scrollTrace.push({
+                  t: Date.now(),
+                  kind: 'batch-done',
+                  session: sessionId,
+                  ok: false,
+                  status,
+                  reason,
+                })
                 markSentUnsynced(sessionId, storedKey, items.length, status, reason)
                 return
               }
+              scrollTrace.push({
+                t: Date.now(),
+                kind: 'batch-done',
+                session: sessionId,
+                ok: true,
+                status: Number.isFinite(result.status) ? result.status : 0,
+                reason: '',
+              })
               sentBatchRetries.delete(sentRetryKey(sessionId, storedKey))
               // 成功落库：先摘掉未同步标记，再回填批号与条目 uuid。
               setSentUnsynced(sessionId, storedKey, false)
@@ -1231,6 +1273,14 @@ const rewindHandled = new Map()
             .catch((error) => {
               settle()
               const reason = error instanceof Error && error.message !== '' ? error.message : 'network'
+              scrollTrace.push({
+                t: Date.now(),
+                kind: 'batch-done',
+                session: sessionId,
+                ok: false,
+                status: 0,
+                reason,
+              })
               markSentUnsynced(sessionId, storedKey, items.length, 0, reason)
             })
         }
