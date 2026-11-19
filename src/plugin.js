@@ -3368,6 +3368,38 @@ const rewindHandled = new Map()
           popoverSized = true
         }
 
+        const SENT_POPOVER_MIN_WIDTH = 280
+        const SENT_POPOVER_MAX_WIDTH = 420
+        const SENT_POPOVER_HEIGHT_RATIO = 0.7
+
+        /**
+         * 只读面板按内容定尺寸，不沿用会话里记住的编辑尺寸：
+         * 宽度取自然宽夹在 280–420，高度由内容决定、最多到视口 70%；定位仍交给 placePopover。
+         */
+        function sizeSentPopover() {
+          popoverSized = false
+          popover.style.height = ''
+          popover.style.width = 'auto'
+          popover.style.maxWidth = `${SENT_POPOVER_MAX_WIDTH}px`
+          // 量自然宽时把 left 归零：上一轮弹层停在屏幕右侧会把可用宽压小，量出来偏窄。
+          const previousLeft = popover.style.left
+          popover.style.left = '0px'
+          const naturalWidth = popover.offsetWidth
+          popover.style.left = previousLeft
+          const width = Math.round(
+            Math.min(SENT_POPOVER_MAX_WIDTH, Math.max(SENT_POPOVER_MIN_WIDTH, naturalWidth || 0)),
+          )
+          popover.style.width = `${width}px`
+          // 清掉 inline max-width，回到 CSS 的 calc(100vw - 16px)，窗口很窄时仍能收住。
+          popover.style.maxWidth = ''
+          popover.style.maxHeight = `${Math.floor(window.innerHeight * SENT_POPOVER_HEIGHT_RATIO)}px`
+        }
+
+        /** 只读面板的高度上限：视口 70%。*/
+        function sentPopoverHeightLimit() {
+          return Math.floor(window.innerHeight * SENT_POPOVER_HEIGHT_RATIO)
+        }
+
         /** 窗口缩小时把已定尺寸的浮层夹回视口；夹取结果不写回存储，放大窗口后还能恢复原尺寸。*/
         function clampSizedPopoverToViewport() {
           if (!popoverSized || popover.dataset.open !== '1') return
@@ -3643,7 +3675,8 @@ const rewindHandled = new Map()
         function placePopover(rect) {
           if (rect === undefined || rect === null) return
           popoverRect = rect
-          popover.style.maxHeight = ''
+          // 只读面板保留 70% 视口的高度上限，量自然高度时就不会越过它；其余模式先清掉上一轮的临时上限。
+          popover.style.maxHeight = popoverMode === 'sent' ? `${sentPopoverHeightLimit()}px` : ''
           const width = popover.offsetWidth || 340
           const height = popover.offsetHeight || 240
           // 悬停跟鼠标；手动打开（总览编辑、角标编辑）跟被点的元素，
@@ -3665,7 +3698,11 @@ const rewindHandled = new Map()
           const available = Math.max(160, preferAbove ? spaceAbove : spaceBelow)
           // 用户定过尺寸就按他定的来，只保证整块留在视口内；没定过才把高度夹进锚点周围的空间。
           const sizeCap = Math.max(160, window.innerHeight - margin * 2)
-          popover.style.maxHeight = popoverSized ? `${Math.floor(sizeCap)}px` : `${Math.floor(available)}px`
+          const heightLimit =
+            popoverMode === 'sent' ? Math.min(sizeCap, sentPopoverHeightLimit()) : sizeCap
+          popover.style.maxHeight = popoverSized
+            ? `${Math.floor(heightLimit)}px`
+            : `${Math.floor(Math.min(available, heightLimit))}px`
           const effectiveHeight = popoverSized ? Math.min(height, sizeCap) : Math.min(height, available)
           top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap
           // 从总览里点开时，弹层不能压住总览：先找左右视野的空位，
@@ -3695,7 +3732,9 @@ const rewindHandled = new Map()
             const maxHeight = window.innerHeight - margin * 2
             const shownHeight = Math.min(height, maxHeight)
             top = Math.max(margin, Math.min(rect.top, window.innerHeight - shownHeight - margin))
-            popover.style.maxHeight = `${Math.floor(maxHeight)}px`
+            const heightLimit =
+              popoverMode === 'sent' ? Math.min(maxHeight, sentPopoverHeightLimit()) : maxHeight
+            popover.style.maxHeight = `${Math.floor(heightLimit)}px`
           }
           popover.style.left = `${Math.max(margin, Math.min(left, Math.max(margin, window.innerWidth - width - margin)))}px`
           // 用户定过尺寸时高度是固定的，可能被推到视口外：往上/往下夹回来。
@@ -4003,6 +4042,7 @@ const rewindHandled = new Map()
           popReadNote.style.display = readonly ? '' : 'none'
           popSource.style.display = readonly ? 'none' : ''
           popDivider.style.display = readonly ? 'none' : ''
+          popNoteLabel.style.display = readonly ? 'none' : ''
           popInput.style.display = readonly ? 'none' : ''
           popImages.style.display = readonly ? 'none' : ''
           popActions.style.display = readonly ? 'none' : ''
@@ -4022,6 +4062,9 @@ const rewindHandled = new Map()
                 }
               : null
           popDelete.style.display = options.mode === 'edit' ? '' : 'none'
+          // 只读面板不提供尺寸把手：尺寸随内容走。
+          for (const handle of popEdgeHandles) handle.style.display = readonly ? 'none' : ''
+          popGrip.style.display = readonly ? 'none' : ''
           hideToolbar()
           resetPopInputHeight()
           popoverTouched = false
@@ -4032,8 +4075,9 @@ const rewindHandled = new Map()
           // 每次打开都从「自动贴靠」开始；用户手动拖过之后，滚动与窗口变化不再把它挪回去。
           delete popover.dataset.dragged
           popover.dataset.open = '1'
-          // 用户上次拖出来的尺寸按会话记住， reopened 时直接用；没记过就回到内容自适应。
-          restorePopoverSize()
+          // 只读面板按内容自动定尺寸；编辑/新建仍沿用会话里记住的尺寸。
+          if (readonly) sizeSentPopover()
+          else restorePopoverSize()
           popBody.scrollTop = 0
           if (options.rect !== undefined && options.rect !== null) placePopover(options.rect)
           if (!readonly) syncPopInputHeight()

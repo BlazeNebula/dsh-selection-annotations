@@ -2,24 +2,24 @@ export const CSS = `
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
 /* 常驻划线：草稿用改版前的成功/警告底色（采纳=success、待办=warn），
    已发送条目用主题前景色的低透明度底色。*/
-.sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
+.sa-hl { position: fixed; pointer-events: none; border-radius: 3px; box-sizing: border-box;
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
 .sa-hl[data-adopt="1"] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
-/* 已发送的常驻色放在草稿的 data-adopt 之后：同权重时以主题色为准。*/
+/* 已发送的常驻色放在草稿的 data-adopt 之后：同权重时以主题色为准。
+   下边线用虚线：这是绝对定位的高亮层，border-box 下加 border 不改整体高度。*/
 .sa-hl.sa-hl-sent { background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
+  border-bottom: 1px dashed color-mix(in srgb, var(--dsw-alias-label-primary) 55%, transparent);
+  box-shadow: none; }
 /* 跳转闪烁：草稿在旧底色与主题色之间切，已发送在主题色与旧底色之间切；
    由 JS 每 250ms 换一次类名，亮/灭各三次。*/
 .sa-hl.sa-hl-blink { background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
-.sa-hl.sa-hl-sent.sa-hl-blink-sent { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
+.sa-hl.sa-hl-sent.sa-hl-blink-sent { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent); }
 .sa-hl.sa-hl-sent.sa-hl-blink-sent[data-adopt="1"] {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent); }
 /* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
 .sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }

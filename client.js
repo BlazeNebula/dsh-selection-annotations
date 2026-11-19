@@ -4,24 +4,24 @@
 .sa-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
 /* 常驻划线：草稿用改版前的成功/警告底色（采纳=success、待办=warn），
    已发送条目用主题前景色的低透明度底色。*/
-.sa-hl { position: fixed; pointer-events: none; border-radius: 3px;
+.sa-hl { position: fixed; pointer-events: none; border-radius: 3px; box-sizing: border-box;
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
 .sa-hl[data-adopt="1"] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
-/* 已发送的常驻色放在草稿的 data-adopt 之后：同权重时以主题色为准。*/
+/* 已发送的常驻色放在草稿的 data-adopt 之后：同权重时以主题色为准。
+   下边线用虚线：这是绝对定位的高亮层，border-box 下加 border 不改整体高度。*/
 .sa-hl.sa-hl-sent { background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
+  border-bottom: 1px dashed color-mix(in srgb, var(--dsw-alias-label-primary) 55%, transparent);
+  box-shadow: none; }
 /* 跳转闪烁：草稿在旧底色与主题色之间切，已发送在主题色与旧底色之间切；
    由 JS 每 250ms 换一次类名，亮/灭各三次。*/
 .sa-hl.sa-hl-blink { background: color-mix(in srgb, var(--dsw-alias-label-primary) 15%, transparent);
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 34%, transparent); }
-.sa-hl.sa-hl-sent.sa-hl-blink-sent { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent); }
+.sa-hl.sa-hl-sent.sa-hl-blink-sent { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 30%, transparent); }
 .sa-hl.sa-hl-sent.sa-hl-blink-sent[data-adopt="1"] {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 70%, transparent); }
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, transparent); }
 /* 「查看出处」复用 .sa-reuse 那套 hover 文字按钮；这里只补工作区文件的置灰。*/
 .sa-jump[data-disabled="1"] { opacity: 0.4; cursor: default; }
 .sa-jump[data-disabled="1"]:hover { background: transparent; }
@@ -632,7 +632,7 @@
       "panel.drag": "拖动排序",
       "panel.edit": "编辑",
       "panel.delete": "删除",
-      "panel.quote": "引用",
+      "panel.quote": "引用原文",
       "panel.note": "批注",
       "panel.clear": "清空",
       "panel.copyAll": "拷贝",
@@ -686,7 +686,7 @@
       "chip.title": "查看 / 管理批注",
       "chip.label": "批注",
       "chip.count": "批注 ×{n}",
-      "sent.title": "已发送的批注 ×{n}",
+      "sent.title": "已发送批注 ×{n}",
       "sent.reuse": "回放所有批注",
       "sent.replayItem": "回放批注",
       "reuse.hint": "按原样添加到待发送的批注队列",
@@ -770,7 +770,7 @@
       "panel.drag": "Drag to reorder",
       "panel.edit": "Edit",
       "panel.delete": "Delete",
-      "panel.quote": "Quote",
+      "panel.quote": "Quoted text",
       "panel.note": "Note",
       "panel.clear": "Clear",
       "panel.copyAll": "Copy",
@@ -1663,7 +1663,10 @@
     svg.setAttribute("height", "13");
     svg.setAttribute("fill", "none");
     svg.setAttribute("aria-hidden", "true");
-    for (const d of ["M11.6 4.4 5.6 10.4", "M5.6 6.8v3.6h3.6"]) {
+    for (const d of [
+      "M2.8 12.2h10.4",
+      "M7.3 4.1 10.9 11.5M8.9 10.2 10.9 11.5 11.2 9.2"
+    ]) {
       const path = document.createElementNS(SVG_NS, "path");
       path.setAttribute("d", d);
       path.setAttribute("stroke", "currentColor");
@@ -6268,6 +6271,28 @@ ${PICK_SCRIPT}<\/script>`;
           if (height !== void 0) popover.style.height = `${Math.round(Math.max(POPOVER_MIN_HEIGHT, Math.min(height, bounds.maxHeight)))}px`;
           popoverSized = true;
         }
+        const SENT_POPOVER_MIN_WIDTH = 280;
+        const SENT_POPOVER_MAX_WIDTH = 420;
+        const SENT_POPOVER_HEIGHT_RATIO = 0.7;
+        function sizeSentPopover() {
+          popoverSized = false;
+          popover.style.height = "";
+          popover.style.width = "auto";
+          popover.style.maxWidth = `${SENT_POPOVER_MAX_WIDTH}px`;
+          const previousLeft = popover.style.left;
+          popover.style.left = "0px";
+          const naturalWidth = popover.offsetWidth;
+          popover.style.left = previousLeft;
+          const width = Math.round(
+            Math.min(SENT_POPOVER_MAX_WIDTH, Math.max(SENT_POPOVER_MIN_WIDTH, naturalWidth || 0))
+          );
+          popover.style.width = `${width}px`;
+          popover.style.maxWidth = "";
+          popover.style.maxHeight = `${Math.floor(window.innerHeight * SENT_POPOVER_HEIGHT_RATIO)}px`;
+        }
+        function sentPopoverHeightLimit() {
+          return Math.floor(window.innerHeight * SENT_POPOVER_HEIGHT_RATIO);
+        }
         function clampSizedPopoverToViewport() {
           if (!popoverSized || popover.dataset.open !== "1") return;
           const bounds = popoverSizeBounds();
@@ -6507,7 +6532,7 @@ ${PICK_SCRIPT}<\/script>`;
         function placePopover(rect) {
           if (rect === void 0 || rect === null) return;
           popoverRect = rect;
-          popover.style.maxHeight = "";
+          popover.style.maxHeight = popoverMode === "sent" ? `${sentPopoverHeightLimit()}px` : "";
           const width = popover.offsetWidth || 340;
           const height = popover.offsetHeight || 240;
           const point = popoverSource === "hover" ? lastPointerMove : popoverSource === "manual" ? null : selectionPointer ?? lastPointerMove;
@@ -6520,7 +6545,8 @@ ${PICK_SCRIPT}<\/script>`;
           const preferAbove = spaceAbove >= Math.min(height, spaceBelow);
           const available = Math.max(160, preferAbove ? spaceAbove : spaceBelow);
           const sizeCap = Math.max(160, window.innerHeight - margin * 2);
-          popover.style.maxHeight = popoverSized ? `${Math.floor(sizeCap)}px` : `${Math.floor(available)}px`;
+          const heightLimit = popoverMode === "sent" ? Math.min(sizeCap, sentPopoverHeightLimit()) : sizeCap;
+          popover.style.maxHeight = popoverSized ? `${Math.floor(heightLimit)}px` : `${Math.floor(Math.min(available, heightLimit))}px`;
           const effectiveHeight = popoverSized ? Math.min(height, sizeCap) : Math.min(height, available);
           top = preferAbove ? rect.top - effectiveHeight - gap : rect.bottom + gap;
           const surface = popoverSource === "manual" ? document.querySelector('[data-sa-ui="panel"]') ?? document.querySelector('[data-sa-ui="side"]') : null;
@@ -6536,7 +6562,8 @@ ${PICK_SCRIPT}<\/script>`;
             const maxHeight = window.innerHeight - margin * 2;
             const shownHeight = Math.min(height, maxHeight);
             top = Math.max(margin, Math.min(rect.top, window.innerHeight - shownHeight - margin));
-            popover.style.maxHeight = `${Math.floor(maxHeight)}px`;
+            const heightLimit2 = popoverMode === "sent" ? Math.min(maxHeight, sentPopoverHeightLimit()) : maxHeight;
+            popover.style.maxHeight = `${Math.floor(heightLimit2)}px`;
           }
           popover.style.left = `${Math.max(margin, Math.min(left, Math.max(margin, window.innerWidth - width - margin)))}px`;
           const boundedTop = popoverSized ? Math.max(margin, Math.min(top, Math.max(margin, window.innerHeight - effectiveHeight - margin))) : Math.max(margin, top);
@@ -6775,6 +6802,7 @@ ${PICK_SCRIPT}<\/script>`;
           popReadNote.style.display = readonly ? "" : "none";
           popSource.style.display = readonly ? "none" : "";
           popDivider.style.display = readonly ? "none" : "";
+          popNoteLabel.style.display = readonly ? "none" : "";
           popInput.style.display = readonly ? "none" : "";
           popImages.style.display = readonly ? "none" : "";
           popActions.style.display = readonly ? "none" : "";
@@ -6790,6 +6818,8 @@ ${PICK_SCRIPT}<\/script>`;
             images: Array.isArray(options.images) ? options.images.slice() : []
           } : null;
           popDelete.style.display = options.mode === "edit" ? "" : "none";
+          for (const handle of popEdgeHandles) handle.style.display = readonly ? "none" : "";
+          popGrip.style.display = readonly ? "none" : "";
           hideToolbar();
           resetPopInputHeight();
           popoverTouched = false;
@@ -6799,7 +6829,8 @@ ${PICK_SCRIPT}<\/script>`;
           cancelHoverClose();
           delete popover.dataset.dragged;
           popover.dataset.open = "1";
-          restorePopoverSize();
+          if (readonly) sizeSentPopover();
+          else restorePopoverSize();
           popBody.scrollTop = 0;
           if (options.rect !== void 0 && options.rect !== null) placePopover(options.rect);
           if (!readonly) syncPopInputHeight();
