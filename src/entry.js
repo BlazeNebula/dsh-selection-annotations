@@ -1,7 +1,7 @@
 import { createPlugin } from './plugin.js'
 
 window.__ModuleLoader__.load({
-  id: '@u2a5f/dsh-selection-annotations',
+  id: 'dsh-selection-annotations',
   factory(require) {
     const React = require('react')
     // 这两项是可选能力：宿主版本缺少它们时退回纯文本渲染，不影响插件加载。

@@ -105,7 +105,7 @@ export function createPlugin(React, extras = {}) {
   const h = React.createElement
 
   const plugin = {
-    name: '@u2a5f/dsh-selection-annotations',
+    name: 'dsh-selection-annotations',
     inject: [
       'slots',
       'sessions',
@@ -2872,6 +2872,32 @@ const rewindHandled = new Map()
           return items
         }
 
+        /**
+         * 由绘制副本找回它所属的台账记录：轮次与锚点都记在批次记录上，条目自己不一定会带。
+         * 返回值补上计算用的 anchorKey 与 storedKey（卡片 data-sa-key 存的是后者），供「查看出处」定位卡片。
+         * @param item - collectSentHighlightItems 产出的绘制副本（id 为高亮键）。
+         */
+        function sentRecordOf(item) {
+          if (item === null || item === undefined) return null
+          const sessionId = currentSessionId()
+          if (sessionId === undefined) return null
+          const table = safe(() => loadSent(sessionId)) ?? null
+          if (table === null) return null
+          for (const [storedKey, record] of table) {
+            if (record === null || typeof record !== 'object' || Array.isArray(record.items) === false) continue
+            const anchorKey =
+              typeof record.anchorKey === 'string' && record.anchorKey !== '' ? record.anchorKey : storedKey
+            for (const candidate of record.items) {
+              if (candidate === null || typeof candidate !== 'object') continue
+              // 与绘制时完全相同的算法：条目自带 uuid 时优先，否则按所属批次的锚点与序号拼键。
+              const key = highlightKeyOf(candidate) ?? sentHighlightKey(anchorKey, candidate)
+              if (key !== item.id) continue
+              return { ...record, anchorKey, storedKey }
+            }
+          }
+          return null
+        }
+
         /** 先按锚点重建，锚点键对不上时退到文本指纹；找到的 Range 写回条目缓存。*/
         function locateHighlightRange(item) {
           const range = locateRange(item)
@@ -3060,9 +3086,11 @@ const rewindHandled = new Map()
               if (box.width > 0 && box.height > 0) partRects.push(box)
             }
           }
+          // 记下这条划线画在哪一行：跳转时优先滚回这一行，不再靠轮次/锚点另找一遍。
+          const paintRow = located[firstHit].root
           return [
-            ...mergeRunRects(hitRects).map((rect) => ({ ...rect, hit: true })),
-            ...mergeRunRects(partRects).map((rect) => ({ ...rect, hit: false })),
+            ...mergeRunRects(hitRects).map((rect) => ({ ...rect, hit: true, row: paintRow })),
+            ...mergeRunRects(partRects).map((rect) => ({ ...rect, hit: false, row: paintRow })),
           ]
         }
 
@@ -3177,19 +3205,19 @@ const rewindHandled = new Map()
          * 高亮层节点与命中矩形：位置要在会话区回到原位之后量，
          * 所以从 keepScrollStable 的保护段里挪到这里，由 repaint 在滚动回正之后单独调用。
          */
-        function collectHighlightNodes(nodes, hits) {
+        function collectHighlightNodes(nodes, hits, rows) {
           const target = Array.isArray(hits) ? hits : highlightHits
           for (const item of annotations) {
             // 一条批注定位失败不该拖掉整层高亮：逐条兜住，失败的那条只少一条划线。
             safe(
-              () => collectHighlightOf(item, nodes, target),
+              () => collectHighlightOf(item, nodes, target, rows),
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, 'collectHighlightNodes', error),
             )
           }
           // 已发送条目也进命中表：悬停到它们的划线时弹只读面板；不挂角标（它们没有可编辑的条目 id）。
           for (const item of collectSentHighlightItems()) {
             safe(
-              () => collectHighlightOf(item, nodes, target),
+              () => collectHighlightOf(item, nodes, target, rows),
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, 'collectHighlightNodes', error),
             )
           }
@@ -3276,17 +3304,19 @@ const rewindHandled = new Map()
           return foldHeaderRectsOfRow(row, turn)
         }
 
-        function collectHighlightOf(item, nodes, target) {
+        function collectHighlightOf(item, nodes, target, rows) {
           const sent = item.sentHighlight === true
           const blinking = flashPhaseOn(item)
           // 分段命中优先：一段对不上不影响其他段，也不再用整段引文冒一次误配的风险。
           // 分段画框时闪烁照样走统一的相位类，闪烁控制流不用改。
           let rects = locateSegmentsOf(item)
+          let fallbackRange = null
           if (rects === null) {
             const range =
               blinking && flashRange !== null && (safe(() => flashRange.startContainer.isConnected === true) === true)
                 ? flashRange
                 : locateHighlightRange(item)
+            fallbackRange = range ?? null
             if (range === undefined || range === null) {
               // 正文被卸载（不只是被 hidden 收起）时连 Range 都建不出来：目标行不可见就退到折叠标题。
               const foldedRects = foldedHeaderRectsOfItem(item)
@@ -3348,7 +3378,37 @@ const rewindHandled = new Map()
               nodes.push(badge)
             }
           }
+          // 记下「这条划线画在哪一行」：跳转优先滚回这一行，绕开轮次/锚点在已发送与
+          // 答复来源上对不上的判据。表由 paintHighlightLayer 整份替换，不长期持有旧节点。
+          const row = highlightedRowOf(rects, fallbackRange)
+          const key = highlightKeyOf(item)
+          if (rows instanceof Map && key !== null && row !== null) rows.set(key, row)
         }
+
+        /**
+         * 这条划线画在哪一行：分段定位时用首命中段的根，整段兜底时从 Range 起点上溯到
+         * 最近的消息行。找不到返回 null，调用方会退回原来的轮次/锚点查找。
+         */
+        function highlightedRowOf(rects, range) {
+          if (Array.isArray(rects)) {
+            for (const rect of rects) {
+              const row = rect?.row
+              if (row !== null && row !== undefined && safe(() => row.isConnected === true) === true) return row
+            }
+          }
+          const start = range?.startContainer ?? null
+          if (start === null || start === undefined) return null
+          const element = start.nodeType === 1 ? start : start.parentElement
+          if (element === null || element === undefined) return null
+          // 消息行走聊天锚点；已发送卡与答复卡没有聊天锚点，退到它们自己的卡片项。
+          const selector =
+            '[data-chat-anchor-key], [data-chat-flow-key], [data-chat-turn], .sa-sent-item, .sa-reply-item, [data-sa-field]'
+          const row = safe(() => element.closest(selector)) ?? null
+          return row !== null && safe(() => row.isConnected === true) === true ? row : null
+        }
+
+        /** 高亮键 → 画出来的那一行；每次重建整份替换，旧表里的节点引用随旧表一起释放。*/
+        let paintedRows = new Map()
 
         /**
          * 只重建高亮层：不碰会话区 DOM、不看选区、也不经过 120ms 的通用重绘节流。
@@ -3359,13 +3419,16 @@ const rewindHandled = new Map()
           const nodes = []
           // 命中表整份替换：中途失败时保留上一份，一次重绘失败不会让悬停整片失效。
           const hits = []
+          // 绘制行同理整份重建：条目删除或 DOM 重排后，旧行自动从表里消失。
+          const rows = new Map()
           const ok =
             safe(() => {
-              collectHighlightNodes(nodes, hits)
+              collectHighlightNodes(nodes, hits, rows)
               return true
             }) === true
           if (!ok) return false
           highlightHits = hits
+          paintedRows = rows
           // 一次性换掉整层：先清空再逐个插入会在帧间露出空白，看起来像界面闪了一下。
           if (typeof overlay.replaceChildren === 'function') {
             overlay.replaceChildren(...nodes)
@@ -3635,7 +3698,7 @@ const rewindHandled = new Map()
         popJumpHint.dataset.on = '0'
         /** 与「回放」同一套：图标常驻、文字悬停出现，作为标题行的普通子元素贴右。*/
         const jumpButtonNodes = []
-        const createJumpButton = () => {
+        const createJumpButton = (action) => {
           const node = document.createElement('span')
           node.className = 'sa-reuse sa-jump'
           node.setAttribute('role', 'button')
@@ -3651,6 +3714,11 @@ const rewindHandled = new Map()
             event.preventDefault()
             event.stopPropagation()
             if (popoverItem === null) return
+            // 备注行的按钮回到这张已发送卡；引用原文行没有回调，仍按正文位置跳。
+            if (typeof action === 'function') {
+              action(node)
+              return
+            }
             // 只读面板用台账里的批次轮次；编辑/新建态没有轮次，仍让 jumpToQuote 自己从 source 里找。
             jumpToQuote(popoverItem, popoverTurn === null ? undefined : popoverTurn, node)
           }
@@ -3679,7 +3747,7 @@ const rewindHandled = new Map()
         popNoteLabel.className = 'sa-pop-label'
         popNoteLabel.textContent = t('pop.noteLabel')
         // 只读态在「批注」标题行右侧再放一个「查看出处」，与「引用原文」行上下对称。
-        const popNoteJump = createJumpButton()
+        const popNoteJump = createJumpButton((node) => jumpToSentCard(popoverRecord, popoverItem, node))
         const popNoteHead = document.createElement('div')
         popNoteHead.className = 'sa-pop-note-head'
         popNoteHead.append(popNoteLabel, popNoteJump)
@@ -4458,6 +4526,8 @@ const rewindHandled = new Map()
         let popoverItem = null
         /** 只读面板对应的已发送批次轮次：条目自己的 source 不一定带 turn，导航时要用台账记下的轮次。*/
         let popoverTurn = null
+        /** 只读面板对应的台账记录：备注行的「查看出处」要按它找卡片与锚点。*/
+        let popoverRecord = null
         /** 编辑中自动存写的去抖计时器：停手一小段再落盘，崩溃时最多丢这一段。*/
         let popAutoSaveTimer = null
 
@@ -4734,6 +4804,8 @@ const rewindHandled = new Map()
                   ? options.item.source.turn
                   : null
               : null
+          // 备注行的「查看出处」要回到卡片本身：批次锚点与轮次都从台账里捞出来备用。
+          popoverRecord = options.mode === 'sent' && popoverItem !== null ? sentRecordOf(popoverItem) : null
           // 编辑态先留一份快照：之后每敲一下都即时写进条目，只有「取消」才回到这一份。
           popoverSnapshot =
             options.mode === 'edit' && popoverTargetId !== null
@@ -4910,6 +4982,8 @@ const rewindHandled = new Map()
           popoverSnapshot = null
           popoverItem = null
           popoverTurn = null
+          popoverRecord = null
+          clearSentFlash()
           popoverMode = 'create'
           hideSuggestion()
         }
@@ -5180,6 +5254,149 @@ const rewindHandled = new Map()
           }, FLASH_STEPS * FLASH_STEP_MS))
         }
 
+        /** 已发送卡的闪烁计时器与当前卡片：同一时刻只闪一张，新的跳转先收掉旧的。*/
+        let sentFlashTimers = []
+        let sentFlashCard = null
+
+        /** 停掉卡片闪烁并摘掉类：弹层关闭或下一次跳转都从这里收尾。*/
+        function clearSentFlash() {
+          for (const timer of sentFlashTimers) window.clearTimeout(timer)
+          sentFlashTimers = []
+          if (sentFlashCard !== null) safe(() => sentFlashCard.classList.remove('sa-sent-flash'))
+          sentFlashCard = null
+        }
+
+        /**
+         * 已发送卡闪三下：与划线同一套节拍，只切换卡片根上的 class，不另画框、不改布局与配色。
+         * @param card - 已发送卡根节点（[data-sa-ui="sent"]）。
+         */
+        function flashSentCard(card) {
+          if (card === null || card === undefined) return
+          clearSentFlash()
+          sentFlashCard = card
+          safe(() => card.classList.add('sa-sent-flash'))
+          for (let step = 1; step < FLASH_STEPS; step += 1) {
+            sentFlashTimers.push(window.setTimeout(() => {
+              if (sentFlashCard !== card) return
+              if (step % 2 === 0) safe(() => card.classList.add('sa-sent-flash'))
+              else safe(() => card.classList.remove('sa-sent-flash'))
+            }, step * FLASH_STEP_MS))
+          }
+          sentFlashTimers.push(window.setTimeout(() => {
+            if (sentFlashCard !== card) return
+            safe(() => card.classList.remove('sa-sent-flash'))
+            sentFlashCard = null
+            sentFlashTimers = []
+          }, FLASH_STEPS * FLASH_STEP_MS))
+        }
+
+        /**
+         * 官方轮次导航的共用分支：点对应轮次，按固定间隔重试落点查找，超时统一报「还没加载」。
+         * @param turn - 轮次号。
+         * @param locate - 每次重试调用的落点查找；成功返回 true。
+         * @param fail - 超时或按钮缺失时的失败回调。
+         */
+        function navigateToTurn(turn, locate, fail) {
+          const mark = findTurnNavButton(turn)
+          if (mark === null) {
+            fail(t('jump.notLoaded', { n: turn }))
+            return
+          }
+          mark.click()
+          const deadline = Date.now() + JUMP_NAV_TIMEOUT_MS
+          const retry = () => {
+            if (locate()) return
+            if (Date.now() < deadline) {
+              window.setTimeout(retry, JUMP_NAV_POLL_MS)
+              return
+            }
+            fail(t('jump.notLoaded', { n: turn }))
+          }
+          window.setTimeout(retry, JUMP_NAV_POLL_MS)
+        }
+
+        /**
+         * 「批注备注」行右侧的「查看出处」：回到这条批注当初发出去时挂的那张已发送卡。
+         * 卡片找法与渲染时的落位保持一致：先认台账键，再认批次锚点；卡片还没渲染时先滚到锚点行，
+         * 再点官方轮次导航把它加载回来，落地后仍回到同一张卡片上闪三下。
+         * 失败提示落在触发按钮所在行，并记一条日志，方便区分「没台账」「卡片没渲染」「轮次没加载」。
+         * @param record - sentRecordOf 找到的台账记录（含 anchorKey/storedKey/turn）。
+         * @param item - 当前只读面板的条目。
+         * @param root - 触发按钮，用来把提示落在备注行里。
+         */
+        function jumpToSentCard(record, item, root) {
+          // 卡片挂在「发送这条批注的那一轮」上：锚点只能取台账的批次锚点；
+          // item.source.anchorKey 指向被引正文，用它会把页面带到引文而不是卡片。
+          const anchorKey =
+            typeof record?.anchorKey === 'string' && record.anchorKey !== '' ? record.anchorKey : null
+          const turn = Number.isFinite(record?.turn)
+            ? record.turn
+            : Number.isFinite(item?.turn)
+              ? item.turn
+              : null
+          const storedKey = typeof record?.storedKey === 'string' && record.storedKey !== '' ? record.storedKey : null
+          const fail = (message) => {
+            warn('[selection-annotations] 卡片跳转失败:', { turn, anchorKey, reason: message })
+            jumpFailure(message, root)
+          }
+          /** 在指定范围里认卡片：先按台账键认这一张，再按批次锚点认（卡片可能由别的路径重建）。*/
+          const cardIn = (scope) => {
+            if (scope === null || scope === undefined) return null
+            if (storedKey !== null) {
+              const exact =
+                safe(() =>
+                  scope.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`),
+                ) ?? null
+              if (exact !== null) return exact
+            }
+            if (anchorKey === null) return null
+            return (
+              safe(() => scope.querySelector(`[data-sa-ui="sent"][data-anchor="${cssEscape(anchorKey)}"]`)) ?? null
+            )
+          }
+          const land = () => {
+            const card = cardIn(document)
+            if (card === null || safe(() => card.isConnected === true) !== true) {
+              // 轮到这张卡渲染时补一次重绘；重试期间卡片可能刚被 repaint 造出来。
+              scheduleRepaint('jump-sent')
+              return false
+            }
+            scrollRowToCenter(card)
+            flashSentCard(card)
+            return true
+          }
+          if (land()) return
+          // 卡片还没渲染：锚点行可能已经在了，先滚过去，再在它所属轮次里找一次（卡片贴在轮次尾部）。
+          if (anchorKey !== null) {
+            const row =
+              safe(() => document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`)) ?? null
+            if (row !== null) {
+              scrollRowToCenter(row)
+              const holder = safe(() => row.closest('[data-chat-turn]')) ?? row.parentElement
+              const card = cardIn(holder)
+              if (card !== null && safe(() => card.isConnected === true) === true) {
+                scrollRowToCenter(card)
+                flashSentCard(card)
+                return
+              }
+            }
+          }
+          // 整页还没找到时，再按台账轮次收窄到对应轮次容器里找一次（卡片贴在轮次尾部）。
+          for (const holder of turnHolders(turn)) {
+            const card = cardIn(holder)
+            if (card === null || safe(() => card.isConnected === true) !== true) continue
+            scrollRowToCenter(card)
+            flashSentCard(card)
+            return
+          }
+          if (turn === null) {
+            fail(t('jump.noCard'))
+            return
+          }
+          scheduleRepaint('jump-sent')
+          navigateToTurn(turn, land, fail)
+        }
+
         /**
          * 「跳到出处」的落点：按轮次与锚点/指纹在已加载的行里找；行被宿主卸下时，拿轮次号
          * 点官方轮次导航把它加载回来，落地后重新走同一套查找。找不到就明确提示，不静默无反应。
@@ -5191,14 +5408,26 @@ const rewindHandled = new Map()
           const source = item === undefined || item === null ? null : item.source
           // 轮次提前算：失败日志要区分「没轮次」与「轮次不在导航里」，早退分支也要能记。
           const turn = Number.isFinite(turnHint) ? turnHint : Number.isFinite(source?.turn) ? source.turn : null
+          // 画得出来就该跳得回去：高亮层刚画过的那一行最可靠，优先于轮次/锚点/导航。
+          const key = highlightKeyOf(item)
+          const painted = key === null ? null : (paintedRows.get(key) ?? null)
+          const drawn = painted !== null
+          const drawnRow = drawn && safe(() => painted.isConnected === true) === true ? painted : null
           const fail = (message) => {
             warn('[selection-annotations] 跳转失败:', {
               turn,
               kind: source?.kind,
               anchorKey: source?.anchorKey,
+              drawn,
               reason: message,
             })
             jumpFailure(message, root)
+          }
+          if (drawnRow !== null) {
+            scrollRowToCenter(drawnRow)
+            const range = safe(() => locateRangeInRow(item, drawnRow)) ?? null
+            window.requestAnimationFrame(() => flashQuote(item, range))
+            return
           }
           if (source === undefined || source === null) {
             fail(t('jump.noAnchor'))
@@ -5208,7 +5437,8 @@ const rewindHandled = new Map()
             fail(t('jump.file'))
             return
           }
-          if (source.kind !== 'message') {
+          // 已发送/答复来源也有自己的落点（卡片项、答复项），行与指纹都可能找得到，不能一上来就判死。
+          if (source.kind !== 'message' && source.kind !== 'sent' && source.kind !== 'reply') {
             fail(t('jump.noAnchor'))
             return
           }
@@ -5226,22 +5456,7 @@ const rewindHandled = new Map()
             fail(t('jump.noAnchor'))
             return
           }
-          const mark = findTurnNavButton(turn)
-          if (mark === null) {
-            fail(t('jump.notLoaded', { n: turn }))
-            return
-          }
-          mark.click()
-          const deadline = Date.now() + JUMP_NAV_TIMEOUT_MS
-          const retry = () => {
-            if (land()) return
-            if (Date.now() < deadline) {
-              window.setTimeout(retry, JUMP_NAV_POLL_MS)
-              return
-            }
-            fail(t('jump.notLoaded', { n: turn }))
-          }
-          window.setTimeout(retry, JUMP_NAV_POLL_MS)
+          navigateToTurn(turn, land, fail)
         }
 
         /**
@@ -6173,7 +6388,7 @@ const rewindHandled = new Map()
          * 我们注册一个更高优先级的 HTML 预览实现，自己生成同源受限的 iframe，
          * 在文档里注入同一套拾取脚本，拾取结果经 postMessage 回传。
          */
-        const HTML_PREVIEW_ID = '@u2a5f/dsh-selection-annotations/html-preview'
+        const HTML_PREVIEW_ID = 'dsh-selection-annotations/html-preview'
         const HTML_PREVIEW_BRIDGE = String.raw`(function () {
   try {
     Object.defineProperty(window, '__saPicked', {
@@ -6371,7 +6586,7 @@ const rewindHandled = new Map()
           }
         }, 'selection-annotations: html preview body')
 
-        const SIDE_TAB_ID = '@u2a5f/dsh-selection-annotations'
+        const SIDE_TAB_ID = 'dsh-selection-annotations'
         const SIDE_TAB_KIND = 'selection-annotations'
         /** 按钮状态采样间隔：页签增删靠订阅，切换页签/收起侧栏没有公开事件，才退化到定时采样。 */
         const SIDE_TAB_SYNC_MS = 800
@@ -7655,12 +7870,65 @@ const rewindHandled = new Map()
         try {
           ctx.slots.inject('plugins.bundle.config', () =>
             ctx.slots.register(
-              { name: 'plugins.bundle.config', key: '@u2a5f/dsh-selection-annotations', inject: () => ({}) },
+              { name: 'plugins.bundle.config', key: 'dsh-selection-annotations', inject: () => ({}) },
               AnnotationInstructionSettings,
             ),
           )
           } catch (error) {
           console.error('[selection-annotations] 插件详情页设置区注册失败：', error)
+        }
+
+        /**
+         * DSH 设置窗里的独立页块：只读展示四项当前生效的设置。
+         * 编辑仍在插件详情页的配置区完成，两个入口读的是同一份本地设置。
+         */
+        function SelectionAnnotationsSettings() {
+          const image = imageSettingsOf()
+          const shot =
+            image.webShot === 'page'
+              ? t('settings.webShotPage')
+              : image.webShot === 'off'
+                ? t('settings.webShotOff')
+                : t('settings.webShotElement')
+          const compression = image.compress
+            ? t('settings.imagesOn', { n: Math.round(image.quality * 100) })
+            : t('settings.imagesOff')
+          const card = (key, title, hint, value) =>
+            h(
+              'section',
+              { className: 'sa-settings-card', key },
+              h(
+                'div',
+                { className: 'sa-settings-card-head' },
+                h('h3', { className: 'sa-settings-card-title' }, title),
+                hint ? h('p', { className: 'sa-hint' }, hint) : null,
+              ),
+              h('div', { className: 'sa-setting-readonly' }, value),
+            )
+          return h(
+            'div',
+            { className: 'sa-settings-page' },
+            h('p', { className: 'sa-hint' }, t('settings.section.hint')),
+            card('instruction', t('settings.pageTitle'), t('settings.pageHint'), instructionOf()),
+            card('adopt', t('settings.adoptLabel'), null, adoptTextOf()),
+            card('reject', t('settings.rejectLabel'), null, rejectTextOf()),
+            card(
+              'images',
+              t('settings.section.imagesTitle'),
+              t('settings.section.imagesHint'),
+              `${t('settings.section.imagesSent')}\n${t('settings.section.imagesDetail', { shot, compression })}`,
+            ),
+          )
+        }
+        try {
+          ctx.slots.inject('settings.section', () =>
+            ctx.slots.register(
+              { name: 'settings.section', id: 'selection-annotations', order: 62, label: () => t('settings.section.title') },
+              SelectionAnnotationsSettings,
+            ),
+          )
+        } catch (error) {
+          console.error('[selection-annotations] 设置页注册失败：', error)
         }
 
         locale.subscribe(() => applyLocale())

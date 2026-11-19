@@ -350,7 +350,7 @@ function loadBundle(env) {
     class {},
   )
   assert.equal(env.loaded.length, 1, 'bundle 必须注册恰好一个模块')
-  assert.equal(env.loaded[0].id, '@u2a5f/dsh-selection-annotations', 'bundle id 必须与包名逐字一致')
+  assert.equal(env.loaded[0].id, 'dsh-selection-annotations', 'bundle id 必须与包名逐字一致')
   return env.loaded[0].factory(env.require)
 }
 
@@ -651,15 +651,15 @@ test('apply 之后：悬挂 UI 建成、批注按钮注册进发送按钮旁的�
   const harness = makeHarness()
   assert.equal(harness.registrations.length, 7)
   const byName = Object.fromEntries(harness.registrations.map((registration) => [registration.opts.name, registration]))
-  assert.equal(byName['sidebar.right.tab.document'].opts.key, '@u2a5f/dsh-selection-annotations/html-preview', 'HTML 文件预览要接管成可批注的预览')
-  assert.equal(byName['sidebar.right.pane.tab'].opts.key, '@u2a5f/dsh-selection-annotations', '右侧边栏的批注标签页要有正文组件')
-  assert.equal(byName['sidebar.right.pane.tab.title'].opts.key, '@u2a5f/dsh-selection-annotations')
+  assert.equal(byName['sidebar.right.tab.document'].opts.key, 'dsh-selection-annotations/html-preview', 'HTML 文件预览要接管成可批注的预览')
+  assert.equal(byName['sidebar.right.pane.tab'].opts.key, 'dsh-selection-annotations', '右侧边栏的批注标签页要有正文组件')
+  assert.equal(byName['sidebar.right.pane.tab.title'].opts.key, 'dsh-selection-annotations')
   assert.equal(byName['conversation.chat.turnTail'].opts.id, 'selection-annotations-turn-anchor', '每轮尾部要有锚点，卡片才能按轮次精确落位')
   assert.equal(byName['conversation.input.right'].opts.name, 'conversation.input.right', '必须在发送按钮旁的紧凑控件槽位')
   assert.equal(byName['conversation.input.right'].opts.id, 'selection-annotations')
   assert.equal(typeof byName['conversation.input.right'].Component, 'function')
   assert.equal(byName['tool.call.toolview'].opts.key, 'annotation_replies', '逐条答复走工具调用卡片位')
-  assert.equal(byName['plugins.bundle.config'].opts.key, '@u2a5f/dsh-selection-annotations', '插件详情页设置区按包名接管')
+  assert.equal(byName['plugins.bundle.config'].opts.key, 'dsh-selection-annotations', '插件详情页设置区按包名接管')
   assert.ok(harness.mod.inject.includes('remote'), '声明 remote 才能拿到 ctx.remote 读工作区原文')
   assert.equal(harness.env.document.body.childNodes.length, 8, '覆盖层 / 工具条 / 右键菜单 / 批注弹层 / 补全提示 / 虚影补全 / 悬浮面板 / 图片查看层都要挂上')
 

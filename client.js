@@ -408,6 +408,10 @@
 .sa-settings-card .sa-setting-input:focus-visible, .sa-settings-card .sa-setting-textarea:focus-visible {
   outline: 2px solid var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary, #247bbf)); outline-offset: 1px; }
 .sa-settings-card .sa-settings-actions { justify-content: flex-end; margin-top: 0; }
+.sa-setting-readonly { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 10px 12px;
+  border-radius: 8px; background: var(--dsw-alias-bg-layer-1, Canvas); border: 1px solid var(--dsw-alias-border-l2, ButtonBorder);
+  font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.7;
+  color: var(--dsw-alias-label-primary, CanvasText); }
 .sa-settings-page .sa-hint { font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.6; margin: 0; }
 .sa-replies-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l1, #3333); border-radius: 10px; background: var(--dsw-alias-bg-layer-1, #0001); }
 .sa-replies { display: flex; flex-direction: column; gap: 0; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; padding: 0;
@@ -511,6 +515,10 @@
 .sa-sent { display: block; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; }
 .sa-sent-body { margin: 0; padding: 6px 8px; box-sizing: border-box; border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: var(--dsw-alias-bg-layer-1, Canvas); }
+/* 跳转落到卡片时闪三下：只提亮外圈，尺寸与底色不动，避免卡片轻微跳动。*/
+.sa-sent.sa-sent-flash .sa-sent-body {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 70%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 28%, transparent); }
 .sa-sent-item { display: flex; gap: 6px; padding: 8px 0; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;
   border-top: 1px solid var(--dsw-alias-border-secondary, #3333); }
 .sa-sent-item:first-child { border-top: none; padding-top: 0; }
@@ -748,6 +756,12 @@
       "settings.restore": "恢复默认",
       "settings.instrHint": "删掉「必须调用annotation_replies」那句会让逐条答复失效",
       "settings.pageHint": "这段文字随每条批注一起发给模型。删掉「必须调用 annotation_replies」那句，逐条答复会失效。",
+      "settings.section.hint": "只读展示当前生效的设置；修改请到插件详情页的「划选批注」配置区。",
+      "settings.section.title": "划选批注",
+      "settings.section.imagesTitle": "图片随批注发送",
+      "settings.section.imagesHint": "批注里的图片会随这条批注一起发送；这里同时列出自动截图与压缩的当前取值。",
+      "settings.section.imagesSent": "随批注发送：是（手动添加或网页元素自动截图的图片都算）。",
+      "settings.section.imagesDetail": "网页元素自动截图：{shot}；图片压缩：{compression}。",
       "chip.emptyTitle": "还没有批注：选中正文或文件里的文字后点浮动「批注」",
       "chip.title": "查看 / 管理批注",
       "chip.label": "批注",
@@ -782,6 +796,7 @@
       "jump.hint": "跳回这段引用的正文位置",
       "jump.file": "这条出自工作区文件",
       "jump.noAnchor": "这条找不到可定位的正文",
+      "jump.noCard": "没有可回访的位置",
       "jump.notLoaded": "第 {n} 轮还没加载",
       "reply.index": "批注 {n}",
       "reply.fallbackLabel": "批注 {n} · 答复",
@@ -891,6 +906,12 @@
       "settings.restore": "Restore default",
       "settings.instrHint": "Removing the sentence that requires annotation_replies disables per-annotation replies",
       "settings.pageHint": "This text is sent to the model with every annotation. Removing the sentence that requires annotation_replies disables per-annotation replies.",
+      "settings.section.hint": "Read-only view of the settings in effect; edit them in the “Selection annotations” section on the plugin detail page.",
+      "settings.section.title": "Selection annotations",
+      "settings.section.imagesTitle": "Images sent with annotations",
+      "settings.section.imagesHint": "Images attached to an annotation are sent with it; the current auto-screenshot and compression values are listed here.",
+      "settings.section.imagesSent": "Sent with annotations: yes (images you add or that are captured for a web annotation).",
+      "settings.section.imagesDetail": "Auto screenshot for web annotations: {shot}; image compression: {compression}.",
       "chip.emptyTitle": "No annotations yet: select text in the body or a file, then click the floating “Feedback”",
       "chip.title": "View / manage annotations",
       "chip.label": "Annotate",
@@ -925,6 +946,7 @@
       "jump.hint": "Jump back to where this quote came from",
       "jump.file": "This one comes from a workspace file",
       "jump.noAnchor": "No locatable text for this one",
+      "jump.noCard": "No annotation card to return to",
       "jump.notLoaded": "Turn {n} is not loaded yet",
       "reply.index": "Annotation {n}",
       "reply.fallbackLabel": "Annotation {n} · reply",
@@ -2824,8 +2846,8 @@
       panelBody.appendChild(fallbackSettingsRow());
       panelEl.appendChild(panelBody);
       const panelFoot = el("div", "sa-panel-foot");
-      const build = el("span", "sa-build", `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`);
-      build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`;
+      const build = el("span", "sa-build", `dsh-selection-annotations build.${PLUGIN_BUILD}`);
+      build.title = `dsh-selection-annotations build.${PLUGIN_BUILD}`;
       panelFoot.appendChild(build);
       if (!side) {
         const sideOpen = isSideTabOpen() === true;
@@ -4259,7 +4281,7 @@ ${PICK_SCRIPT}<\/script>`;
   function createPlugin(React, extras = {}) {
     const h = React.createElement;
     const plugin = {
-      name: "@u2a5f/dsh-selection-annotations",
+      name: "dsh-selection-annotations",
       inject: [
         "slots",
         "sessions",
@@ -6332,6 +6354,24 @@ ${PICK_SCRIPT}<\/script>`;
           }
           return items;
         }
+        function sentRecordOf(item) {
+          if (item === null || item === void 0) return null;
+          const sessionId = currentSessionId();
+          if (sessionId === void 0) return null;
+          const table = safe(() => loadSent(sessionId)) ?? null;
+          if (table === null) return null;
+          for (const [storedKey, record] of table) {
+            if (record === null || typeof record !== "object" || Array.isArray(record.items) === false) continue;
+            const anchorKey = typeof record.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : storedKey;
+            for (const candidate of record.items) {
+              if (candidate === null || typeof candidate !== "object") continue;
+              const key = highlightKeyOf(candidate) ?? sentHighlightKey(anchorKey, candidate);
+              if (key !== item.id) continue;
+              return { ...record, anchorKey, storedKey };
+            }
+          }
+          return null;
+        }
         function locateHighlightRange(item) {
           const range = locateRange(item);
           if (range !== void 0) return range;
@@ -6468,9 +6508,10 @@ ${PICK_SCRIPT}<\/script>`;
               if (box.width > 0 && box.height > 0) partRects.push(box);
             }
           }
+          const paintRow = located[firstHit].root;
           return [
-            ...mergeRunRects(hitRects).map((rect) => ({ ...rect, hit: true })),
-            ...mergeRunRects(partRects).map((rect) => ({ ...rect, hit: false }))
+            ...mergeRunRects(hitRects).map((rect) => ({ ...rect, hit: true, row: paintRow })),
+            ...mergeRunRects(partRects).map((rect) => ({ ...rect, hit: false, row: paintRow }))
           ];
         }
         function segmentsFor(item) {
@@ -6557,17 +6598,17 @@ ${PICK_SCRIPT}<\/script>`;
         function flashPhaseOn(item) {
           return flashPhase === 1 && flashKey !== null && highlightKeyOf(item) === flashKey;
         }
-        function collectHighlightNodes(nodes, hits) {
+        function collectHighlightNodes(nodes, hits, rows) {
           const target = Array.isArray(hits) ? hits : highlightHits;
           for (const item of annotations) {
             safe(
-              () => collectHighlightOf(item, nodes, target),
+              () => collectHighlightOf(item, nodes, target, rows),
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, "collectHighlightNodes", error)
             );
           }
           for (const item of collectSentHighlightItems()) {
             safe(
-              () => collectHighlightOf(item, nodes, target),
+              () => collectHighlightOf(item, nodes, target, rows),
               (error) => reportRepaintFailure(`collectHighlightNodes:${item?.id}`, "collectHighlightNodes", error)
             );
           }
@@ -6632,12 +6673,14 @@ ${PICK_SCRIPT}<\/script>`;
           }
           return foldHeaderRectsOfRow(row, turn);
         }
-        function collectHighlightOf(item, nodes, target) {
+        function collectHighlightOf(item, nodes, target, rows) {
           const sent = item.sentHighlight === true;
           const blinking = flashPhaseOn(item);
           let rects = locateSegmentsOf(item);
+          let fallbackRange = null;
           if (rects === null) {
             const range = blinking && flashRange !== null && safe(() => flashRange.startContainer.isConnected === true) === true ? flashRange : locateHighlightRange(item);
+            fallbackRange = range ?? null;
             if (range === void 0 || range === null) {
               const foldedRects = foldedHeaderRectsOfItem(item);
               if (foldedRects === null) return;
@@ -6692,16 +6735,37 @@ ${PICK_SCRIPT}<\/script>`;
               nodes.push(badge);
             }
           }
+          const row = highlightedRowOf(rects, fallbackRange);
+          const key = highlightKeyOf(item);
+          if (rows instanceof Map && key !== null && row !== null) rows.set(key, row);
         }
+        function highlightedRowOf(rects, range) {
+          if (Array.isArray(rects)) {
+            for (const rect of rects) {
+              const row2 = rect?.row;
+              if (row2 !== null && row2 !== void 0 && safe(() => row2.isConnected === true) === true) return row2;
+            }
+          }
+          const start = range?.startContainer ?? null;
+          if (start === null || start === void 0) return null;
+          const element = start.nodeType === 1 ? start : start.parentElement;
+          if (element === null || element === void 0) return null;
+          const selector = "[data-chat-anchor-key], [data-chat-flow-key], [data-chat-turn], .sa-sent-item, .sa-reply-item, [data-sa-field]";
+          const row = safe(() => element.closest(selector)) ?? null;
+          return row !== null && safe(() => row.isConnected === true) === true ? row : null;
+        }
+        let paintedRows = /* @__PURE__ */ new Map();
         function paintHighlightLayer() {
           const nodes = [];
           const hits = [];
+          const rows = /* @__PURE__ */ new Map();
           const ok = safe(() => {
-            collectHighlightNodes(nodes, hits);
+            collectHighlightNodes(nodes, hits, rows);
             return true;
           }) === true;
           if (!ok) return false;
           highlightHits = hits;
+          paintedRows = rows;
           if (typeof overlay.replaceChildren === "function") {
             overlay.replaceChildren(...nodes);
           } else {
@@ -6917,7 +6981,7 @@ ${PICK_SCRIPT}<\/script>`;
         popJumpHint.className = "sa-pop-jump-hint";
         popJumpHint.dataset.on = "0";
         const jumpButtonNodes = [];
-        const createJumpButton = () => {
+        const createJumpButton = (action) => {
           const node = document.createElement("span");
           node.className = "sa-reuse sa-jump";
           node.setAttribute("role", "button");
@@ -6933,6 +6997,10 @@ ${PICK_SCRIPT}<\/script>`;
             event.preventDefault();
             event.stopPropagation();
             if (popoverItem === null) return;
+            if (typeof action === "function") {
+              action(node);
+              return;
+            }
             jumpToQuote(popoverItem, popoverTurn === null ? void 0 : popoverTurn, node);
           };
           node.addEventListener("click", run);
@@ -6958,7 +7026,7 @@ ${PICK_SCRIPT}<\/script>`;
         const popNoteLabel = document.createElement("div");
         popNoteLabel.className = "sa-pop-label";
         popNoteLabel.textContent = t("pop.noteLabel");
-        const popNoteJump = createJumpButton();
+        const popNoteJump = createJumpButton((node) => jumpToSentCard(popoverRecord, popoverItem, node));
         const popNoteHead = document.createElement("div");
         popNoteHead.className = "sa-pop-note-head";
         popNoteHead.append(popNoteLabel, popNoteJump);
@@ -7583,6 +7651,7 @@ ${PICK_SCRIPT}<\/script>`;
         let popoverSnapshot = null;
         let popoverItem = null;
         let popoverTurn = null;
+        let popoverRecord = null;
         let popAutoSaveTimer = null;
         function schedulePopAutoSave() {
           if (popoverMode !== "edit" && popoverMode !== "create") return;
@@ -7791,6 +7860,7 @@ ${PICK_SCRIPT}<\/script>`;
           popoverTargetId = options.targetId ?? null;
           popoverItem = options.item ?? null;
           popoverTurn = options.mode === "sent" ? Number.isFinite(options.item?.turn) ? options.item.turn : Number.isFinite(options.item?.source?.turn) ? options.item.source.turn : null : null;
+          popoverRecord = options.mode === "sent" && popoverItem !== null ? sentRecordOf(popoverItem) : null;
           popoverSnapshot = options.mode === "edit" && popoverTargetId !== null ? {
             id: popoverTargetId,
             note: typeof options.note === "string" ? options.note : "",
@@ -7916,6 +7986,8 @@ ${PICK_SCRIPT}<\/script>`;
           popoverSnapshot = null;
           popoverItem = null;
           popoverTurn = null;
+          popoverRecord = null;
+          clearSentFlash();
           popoverMode = "create";
           hideSuggestion();
         }
@@ -8121,18 +8193,131 @@ ${PICK_SCRIPT}<\/script>`;
             scheduleRepaint("jump-quote");
           }, FLASH_STEPS * FLASH_STEP_MS));
         }
+        let sentFlashTimers = [];
+        let sentFlashCard = null;
+        function clearSentFlash() {
+          for (const timer of sentFlashTimers) window.clearTimeout(timer);
+          sentFlashTimers = [];
+          if (sentFlashCard !== null) safe(() => sentFlashCard.classList.remove("sa-sent-flash"));
+          sentFlashCard = null;
+        }
+        function flashSentCard(card) {
+          if (card === null || card === void 0) return;
+          clearSentFlash();
+          sentFlashCard = card;
+          safe(() => card.classList.add("sa-sent-flash"));
+          for (let step = 1; step < FLASH_STEPS; step += 1) {
+            sentFlashTimers.push(window.setTimeout(() => {
+              if (sentFlashCard !== card) return;
+              if (step % 2 === 0) safe(() => card.classList.add("sa-sent-flash"));
+              else safe(() => card.classList.remove("sa-sent-flash"));
+            }, step * FLASH_STEP_MS));
+          }
+          sentFlashTimers.push(window.setTimeout(() => {
+            if (sentFlashCard !== card) return;
+            safe(() => card.classList.remove("sa-sent-flash"));
+            sentFlashCard = null;
+            sentFlashTimers = [];
+          }, FLASH_STEPS * FLASH_STEP_MS));
+        }
+        function navigateToTurn(turn, locate, fail) {
+          const mark = findTurnNavButton(turn);
+          if (mark === null) {
+            fail(t("jump.notLoaded", { n: turn }));
+            return;
+          }
+          mark.click();
+          const deadline = Date.now() + JUMP_NAV_TIMEOUT_MS;
+          const retry = () => {
+            if (locate()) return;
+            if (Date.now() < deadline) {
+              window.setTimeout(retry, JUMP_NAV_POLL_MS);
+              return;
+            }
+            fail(t("jump.notLoaded", { n: turn }));
+          };
+          window.setTimeout(retry, JUMP_NAV_POLL_MS);
+        }
+        function jumpToSentCard(record, item, root) {
+          const anchorKey = typeof record?.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : null;
+          const turn = Number.isFinite(record?.turn) ? record.turn : Number.isFinite(item?.turn) ? item.turn : null;
+          const storedKey = typeof record?.storedKey === "string" && record.storedKey !== "" ? record.storedKey : null;
+          const fail = (message) => {
+            warn("[selection-annotations] 卡片跳转失败:", { turn, anchorKey, reason: message });
+            jumpFailure(message, root);
+          };
+          const cardIn = (scope) => {
+            if (scope === null || scope === void 0) return null;
+            if (storedKey !== null) {
+              const exact = safe(
+                () => scope.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
+              ) ?? null;
+              if (exact !== null) return exact;
+            }
+            if (anchorKey === null) return null;
+            return safe(() => scope.querySelector(`[data-sa-ui="sent"][data-anchor="${cssEscape(anchorKey)}"]`)) ?? null;
+          };
+          const land = () => {
+            const card = cardIn(document);
+            if (card === null || safe(() => card.isConnected === true) !== true) {
+              scheduleRepaint("jump-sent");
+              return false;
+            }
+            scrollRowToCenter(card);
+            flashSentCard(card);
+            return true;
+          };
+          if (land()) return;
+          if (anchorKey !== null) {
+            const row = safe(() => document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`)) ?? null;
+            if (row !== null) {
+              scrollRowToCenter(row);
+              const holder = safe(() => row.closest("[data-chat-turn]")) ?? row.parentElement;
+              const card = cardIn(holder);
+              if (card !== null && safe(() => card.isConnected === true) === true) {
+                scrollRowToCenter(card);
+                flashSentCard(card);
+                return;
+              }
+            }
+          }
+          for (const holder of turnHolders(turn)) {
+            const card = cardIn(holder);
+            if (card === null || safe(() => card.isConnected === true) !== true) continue;
+            scrollRowToCenter(card);
+            flashSentCard(card);
+            return;
+          }
+          if (turn === null) {
+            fail(t("jump.noCard"));
+            return;
+          }
+          scheduleRepaint("jump-sent");
+          navigateToTurn(turn, land, fail);
+        }
         function jumpToQuote(item, turnHint, root) {
           const source = item === void 0 || item === null ? null : item.source;
           const turn = Number.isFinite(turnHint) ? turnHint : Number.isFinite(source?.turn) ? source.turn : null;
+          const key = highlightKeyOf(item);
+          const painted = key === null ? null : paintedRows.get(key) ?? null;
+          const drawn = painted !== null;
+          const drawnRow = drawn && safe(() => painted.isConnected === true) === true ? painted : null;
           const fail = (message) => {
             warn("[selection-annotations] 跳转失败:", {
               turn,
               kind: source?.kind,
               anchorKey: source?.anchorKey,
+              drawn,
               reason: message
             });
             jumpFailure(message, root);
           };
+          if (drawnRow !== null) {
+            scrollRowToCenter(drawnRow);
+            const range = safe(() => locateRangeInRow(item, drawnRow)) ?? null;
+            window.requestAnimationFrame(() => flashQuote(item, range));
+            return;
+          }
           if (source === void 0 || source === null) {
             fail(t("jump.noAnchor"));
             return;
@@ -8141,7 +8326,7 @@ ${PICK_SCRIPT}<\/script>`;
             fail(t("jump.file"));
             return;
           }
-          if (source.kind !== "message") {
+          if (source.kind !== "message" && source.kind !== "sent" && source.kind !== "reply") {
             fail(t("jump.noAnchor"));
             return;
           }
@@ -8158,22 +8343,7 @@ ${PICK_SCRIPT}<\/script>`;
             fail(t("jump.noAnchor"));
             return;
           }
-          const mark = findTurnNavButton(turn);
-          if (mark === null) {
-            fail(t("jump.notLoaded", { n: turn }));
-            return;
-          }
-          mark.click();
-          const deadline = Date.now() + JUMP_NAV_TIMEOUT_MS;
-          const retry = () => {
-            if (land()) return;
-            if (Date.now() < deadline) {
-              window.setTimeout(retry, JUMP_NAV_POLL_MS);
-              return;
-            }
-            fail(t("jump.notLoaded", { n: turn }));
-          };
-          window.setTimeout(retry, JUMP_NAV_POLL_MS);
+          navigateToTurn(turn, land, fail);
         }
         function markRefineReason(id, reason) {
           let hit = false;
@@ -8890,7 +9060,7 @@ ${PICK_SCRIPT}<\/script>`;
           }))
         });
         previewBridge.start();
-        const HTML_PREVIEW_ID = "@u2a5f/dsh-selection-annotations/html-preview";
+        const HTML_PREVIEW_ID = "dsh-selection-annotations/html-preview";
         const HTML_PREVIEW_BRIDGE = String.raw`(function () {
   try {
     Object.defineProperty(window, '__saPicked', {
@@ -9081,7 +9251,7 @@ ${PICK_SCRIPT}`;
             return void 0;
           }
         }, "selection-annotations: html preview body");
-        const SIDE_TAB_ID = "@u2a5f/dsh-selection-annotations";
+        const SIDE_TAB_ID = "dsh-selection-annotations";
         const SIDE_TAB_KIND = "selection-annotations";
         const SIDE_TAB_SYNC_MS = 800;
         function findSideAnnotationsTab() {
@@ -10204,12 +10374,54 @@ ${PICK_SCRIPT}`;
           ctx.slots.inject(
             "plugins.bundle.config",
             () => ctx.slots.register(
-              { name: "plugins.bundle.config", key: "@u2a5f/dsh-selection-annotations", inject: () => ({}) },
+              { name: "plugins.bundle.config", key: "dsh-selection-annotations", inject: () => ({}) },
               AnnotationInstructionSettings
             )
           );
         } catch (error) {
           console.error("[selection-annotations] 插件详情页设置区注册失败：", error);
+        }
+        function SelectionAnnotationsSettings() {
+          const image = imageSettingsOf();
+          const shot = image.webShot === "page" ? t("settings.webShotPage") : image.webShot === "off" ? t("settings.webShotOff") : t("settings.webShotElement");
+          const compression = image.compress ? t("settings.imagesOn", { n: Math.round(image.quality * 100) }) : t("settings.imagesOff");
+          const card = (key, title, hint, value) => h(
+            "section",
+            { className: "sa-settings-card", key },
+            h(
+              "div",
+              { className: "sa-settings-card-head" },
+              h("h3", { className: "sa-settings-card-title" }, title),
+              hint ? h("p", { className: "sa-hint" }, hint) : null
+            ),
+            h("div", { className: "sa-setting-readonly" }, value)
+          );
+          return h(
+            "div",
+            { className: "sa-settings-page" },
+            h("p", { className: "sa-hint" }, t("settings.section.hint")),
+            card("instruction", t("settings.pageTitle"), t("settings.pageHint"), instructionOf()),
+            card("adopt", t("settings.adoptLabel"), null, adoptTextOf()),
+            card("reject", t("settings.rejectLabel"), null, rejectTextOf()),
+            card(
+              "images",
+              t("settings.section.imagesTitle"),
+              t("settings.section.imagesHint"),
+              `${t("settings.section.imagesSent")}
+${t("settings.section.imagesDetail", { shot, compression })}`
+            )
+          );
+        }
+        try {
+          ctx.slots.inject(
+            "settings.section",
+            () => ctx.slots.register(
+              { name: "settings.section", id: "selection-annotations", order: 62, label: () => t("settings.section.title") },
+              SelectionAnnotationsSettings
+            )
+          );
+        } catch (error) {
+          console.error("[selection-annotations] 设置页注册失败：", error);
         }
         locale.subscribe(() => applyLocale());
         window.__dshSelectionAnnotations = {
@@ -10245,7 +10457,7 @@ ${PICK_SCRIPT}`;
 
   // src/entry.js
   window.__ModuleLoader__.load({
-    id: "@u2a5f/dsh-selection-annotations",
+    id: "dsh-selection-annotations",
     factory(require2) {
       const React = require2("react");
       let MarkdownText;

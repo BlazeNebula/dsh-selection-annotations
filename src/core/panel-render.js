@@ -272,8 +272,8 @@ export function createPanelRenderer({
     panelEl.appendChild(panelBody)
 
     const panelFoot = el('div', 'sa-panel-foot')
-    const build = el('span', 'sa-build', `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`)
-    build.title = `@u2a5f/dsh-selection-annotations build.${PLUGIN_BUILD}`
+    const build = el('span', 'sa-build', `dsh-selection-annotations build.${PLUGIN_BUILD}`)
+    build.title = `dsh-selection-annotations build.${PLUGIN_BUILD}`
     panelFoot.appendChild(build)
     if (!side) {
       // 同一个按钮两种动作：侧栏里已经有批注页签时是「关闭」，否则是「打开」。
