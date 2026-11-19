@@ -513,6 +513,10 @@ export const CSS = `
 .sa-sent { display: block; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; }
 .sa-sent-body { margin: 0; padding: 6px 8px; box-sizing: border-box; border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: var(--dsw-alias-bg-layer-1, Canvas); }
+/* 跳转落到卡片时闪三下：只提亮外圈，尺寸与底色不动，避免卡片轻微跳动。*/
+.sa-sent.sa-sent-flash .sa-sent-body {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 70%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 28%, transparent); }
 /* 批次没落库：标题后跟一个警告色小字，只占文字宽度，不改变标题行布局。*/
 .sa-sent-unsynced { margin-left: 6px; font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
   color: var(--dsw-alias-state-warn-primary, #f59e0b); }

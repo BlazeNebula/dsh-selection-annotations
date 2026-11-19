@@ -515,6 +515,10 @@
 .sa-sent { display: block; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; }
 .sa-sent-body { margin: 0; padding: 6px 8px; box-sizing: border-box; border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: var(--dsw-alias-bg-layer-1, Canvas); }
+/* 跳转落到卡片时闪三下：只提亮外圈，尺寸与底色不动，避免卡片轻微跳动。*/
+.sa-sent.sa-sent-flash .sa-sent-body {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 70%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 28%, transparent); }
 /* 批次没落库：标题后跟一个警告色小字，只占文字宽度，不改变标题行布局。*/
 .sa-sent-unsynced { margin-left: 6px; font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
   color: var(--dsw-alias-state-warn-primary, #f59e0b); }
@@ -803,6 +807,7 @@
       "jump.file": "这条出自工作区文件",
       "jump.noAnchor": "这条找不到可定位的正文",
       "jump.noReply": "没有可回访的答复",
+      "jump.noCard": "没有可回访的位置",
       "jump.notLoaded": "第 {n} 轮还没加载",
       "reply.index": "批注 {n}",
       "reply.fallbackLabel": "批注 {n} · 答复",
@@ -954,6 +959,7 @@
       "jump.file": "This one comes from a workspace file",
       "jump.noAnchor": "No locatable text for this one",
       "jump.noReply": "No reply to return to",
+      "jump.noCard": "No annotation card to return to",
       "jump.notLoaded": "Turn {n} is not loaded yet",
       "reply.index": "Annotation {n}",
       "reply.fallbackLabel": "Annotation {n} · reply",
@@ -8156,6 +8162,7 @@ ${PICK_SCRIPT}<\/script>`;
           popoverTurn = null;
           popoverRecord = null;
           clearReplyFlash();
+          clearSentFlash();
           popoverMode = "create";
           hideSuggestion();
         }
@@ -8390,6 +8397,33 @@ ${PICK_SCRIPT}<\/script>`;
             replyFlashTimers = [];
           }, FLASH_STEPS * FLASH_STEP_MS));
         }
+        let sentFlashTimers = [];
+        let sentFlashCard = null;
+        function clearSentFlash() {
+          for (const timer of sentFlashTimers) window.clearTimeout(timer);
+          sentFlashTimers = [];
+          if (sentFlashCard !== null) safe(() => sentFlashCard.classList.remove("sa-sent-flash"));
+          sentFlashCard = null;
+        }
+        function flashSentCard(card) {
+          if (card === null || card === void 0) return;
+          clearSentFlash();
+          sentFlashCard = card;
+          safe(() => card.classList.add("sa-sent-flash"));
+          for (let step = 1; step < FLASH_STEPS; step += 1) {
+            sentFlashTimers.push(window.setTimeout(() => {
+              if (sentFlashCard !== card) return;
+              if (step % 2 === 0) safe(() => card.classList.add("sa-sent-flash"));
+              else safe(() => card.classList.remove("sa-sent-flash"));
+            }, step * FLASH_STEP_MS));
+          }
+          sentFlashTimers.push(window.setTimeout(() => {
+            if (sentFlashCard !== card) return;
+            safe(() => card.classList.remove("sa-sent-flash"));
+            sentFlashCard = null;
+            sentFlashTimers = [];
+          }, FLASH_STEPS * FLASH_STEP_MS));
+        }
         function replyCardOf(anchorKey) {
           if (typeof anchorKey !== "string" || anchorKey === "") return null;
           const cards2 = safe(() => document.querySelectorAll(`[data-sa-ui="replies"][data-anchor="${cssEscape(anchorKey)}"]`)) ?? [];
@@ -8435,6 +8469,65 @@ ${PICK_SCRIPT}<\/script>`;
           };
           window.setTimeout(retry, JUMP_NAV_POLL_MS);
         }
+        function jumpToSentCard(record, item, root) {
+          const anchorKey = typeof record?.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : null;
+          const turn = Number.isFinite(record?.turn) ? record.turn : Number.isFinite(item?.turn) ? item.turn : null;
+          const storedKey = typeof record?.storedKey === "string" && record.storedKey !== "" ? record.storedKey : null;
+          if (anchorKey === null && storedKey === null && turn === null) return false;
+          const fail = (message) => {
+            warn("[selection-annotations] 卡片跳转失败:", { turn, anchorKey, reason: message });
+            jumpFailure(message, root);
+          };
+          const cardIn = (scope) => {
+            if (scope === null || scope === void 0) return null;
+            if (storedKey !== null) {
+              const exact = safe(
+                () => scope.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`)
+              ) ?? null;
+              if (exact !== null) return exact;
+            }
+            if (anchorKey === null) return null;
+            return safe(() => scope.querySelector(`[data-sa-ui="sent"][data-anchor="${cssEscape(anchorKey)}"]`)) ?? null;
+          };
+          const land = () => {
+            const card = cardIn(document);
+            if (card === null || safe(() => card.isConnected === true) !== true) {
+              scheduleRepaint("jump-sent");
+              return false;
+            }
+            scrollRowToCenter(card);
+            flashSentCard(card);
+            return true;
+          };
+          if (land()) return true;
+          if (anchorKey !== null) {
+            const row = safe(() => document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`)) ?? null;
+            if (row !== null) {
+              scrollRowToCenter(row);
+              const holder = safe(() => row.closest("[data-chat-turn]")) ?? row.parentElement;
+              const card = cardIn(holder);
+              if (card !== null && safe(() => card.isConnected === true) === true) {
+                scrollRowToCenter(card);
+                flashSentCard(card);
+                return true;
+              }
+            }
+          }
+          for (const holder of turnHolders(turn)) {
+            const card = cardIn(holder);
+            if (card === null || safe(() => card.isConnected === true) !== true) continue;
+            scrollRowToCenter(card);
+            flashSentCard(card);
+            return true;
+          }
+          if (turn === null) {
+            fail(t("jump.noCard"));
+            return true;
+          }
+          scheduleRepaint("jump-sent");
+          navigateToTurn(turn, land, fail);
+          return true;
+        }
         function jumpToReply(record, item, root) {
           const anchorKey = typeof record?.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : null;
           const turn = Number.isFinite(record?.turn) ? record.turn : Number.isFinite(item?.turn) ? item.turn : null;
@@ -8452,6 +8545,10 @@ ${PICK_SCRIPT}<\/script>`;
             window.requestAnimationFrame(() => flashReplyTarget(row));
             return true;
           };
+          const fallbackToSentCard = (stage) => {
+            if (jumpToSentCard(record, item, root) === true) return;
+            fail(t("jump.noReply"), stage);
+          };
           const card = replyCardOf(anchorKey);
           if (card !== null) {
             landCard(card);
@@ -8466,7 +8563,7 @@ ${PICK_SCRIPT}<\/script>`;
                 landCard(late);
                 return;
               }
-              fail(t("jump.noReply"), "reply-card");
+              fallbackToSentCard("reply-card");
             }, REPAINT_MS + 60);
             return;
           }
@@ -8488,7 +8585,7 @@ ${PICK_SCRIPT}<\/script>`;
               landRow(row);
               return;
             }
-            fail(t("jump.noReply"), "reply-after-nav");
+            fallbackToSentCard("reply-after-nav");
             return;
           }
           navigateToTurn(turn, () => {
@@ -8505,7 +8602,7 @@ ${PICK_SCRIPT}<\/script>`;
               landRow(row);
               return;
             }
-            fail(t("jump.noReply"), "assistant-row");
+            fallbackToSentCard("assistant-row");
           });
         }
         function jumpToQuote(item, turnHint, root) {

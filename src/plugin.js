@@ -5172,6 +5172,7 @@ const rewindHandled = new Map()
           popoverTurn = null
           popoverRecord = null
           clearReplyFlash()
+          clearSentFlash()
           popoverMode = 'create'
           hideSuggestion()
         }
@@ -5480,6 +5481,42 @@ const rewindHandled = new Map()
           }, FLASH_STEPS * FLASH_STEP_MS))
         }
 
+        /** 已发送卡的闪烁计时器与当前卡片：同一时刻只闪一张，新的跳转先收掉旧的。*/
+        let sentFlashTimers = []
+        let sentFlashCard = null
+
+        /** 停掉卡片闪烁并摘掉类：弹层关闭或下一次跳转都从这里收尾。*/
+        function clearSentFlash() {
+          for (const timer of sentFlashTimers) window.clearTimeout(timer)
+          sentFlashTimers = []
+          if (sentFlashCard !== null) safe(() => sentFlashCard.classList.remove('sa-sent-flash'))
+          sentFlashCard = null
+        }
+
+        /**
+         * 已发送卡闪三下：与划线同一套节拍，只切换卡片根上的 class，不另画框、不改布局与配色。
+         * @param card - 已发送卡根节点（[data-sa-ui="sent"]）。
+         */
+        function flashSentCard(card) {
+          if (card === null || card === undefined) return
+          clearSentFlash()
+          sentFlashCard = card
+          safe(() => card.classList.add('sa-sent-flash'))
+          for (let step = 1; step < FLASH_STEPS; step += 1) {
+            sentFlashTimers.push(window.setTimeout(() => {
+              if (sentFlashCard !== card) return
+              if (step % 2 === 0) safe(() => card.classList.add('sa-sent-flash'))
+              else safe(() => card.classList.remove('sa-sent-flash'))
+            }, step * FLASH_STEP_MS))
+          }
+          sentFlashTimers.push(window.setTimeout(() => {
+            if (sentFlashCard !== card) return
+            safe(() => card.classList.remove('sa-sent-flash'))
+            sentFlashCard = null
+            sentFlashTimers = []
+          }, FLASH_STEPS * FLASH_STEP_MS))
+        }
+
         /** 答复卡由 renderReplySections 按台账批次锚点挂；取最后一个还挂在页面上的。*/
         function replyCardOf(anchorKey) {
           if (typeof anchorKey !== 'string' || anchorKey === '') return null
@@ -5542,6 +5579,94 @@ const rewindHandled = new Map()
         }
 
         /**
+         * 「批注备注」行「查看出处」的降级落点：回到这条批注当初发出去时挂的那张已发送卡。
+         * 卡片找法与渲染时的落位保持一致：先认台账键，再认批次锚点；卡片还没渲染时先滚到锚点行，
+         * 再点官方轮次导航把它加载回来，落地后仍回到同一张卡片上闪三下。
+         * 失败提示落在触发按钮所在行，并记一条日志，方便区分「没台账」「卡片没渲染」「轮次没加载」。
+         * @param record - sentRecordOf 找到的台账记录（含 anchorKey/storedKey/turn）。
+         * @param item - 当前只读面板的条目。
+         * @param root - 触发按钮，用来把提示落在备注行里。
+         * @returns 找到并落位、或本函数已经给出提示（含交给轮次导航继续找）时返回 true；
+         *   连台账键、锚点、轮次都没有、完全无从下手时返回 false，由调用方给统一提示。
+         */
+        function jumpToSentCard(record, item, root) {
+          // 卡片挂在「发送这条批注的那一轮」上：锚点只能取台账的批次锚点；
+          // item.source.anchorKey 指向被引正文，用它会把页面带到引文而不是卡片。
+          const anchorKey =
+            typeof record?.anchorKey === 'string' && record.anchorKey !== '' ? record.anchorKey : null
+          const turn = Number.isFinite(record?.turn)
+            ? record.turn
+            : Number.isFinite(item?.turn)
+              ? item.turn
+              : null
+          const storedKey = typeof record?.storedKey === 'string' && record.storedKey !== '' ? record.storedKey : null
+          // 没有台账键、没有锚点、也没有轮次：卡片既认不出来也加载不回来，交给调用方提示，避免两条提示叠加。
+          if (anchorKey === null && storedKey === null && turn === null) return false
+          const fail = (message) => {
+            warn('[selection-annotations] 卡片跳转失败:', { turn, anchorKey, reason: message })
+            jumpFailure(message, root)
+          }
+          /** 在指定范围里认卡片：先按台账键认这一张，再按批次锚点认（卡片可能由别的路径重建）。*/
+          const cardIn = (scope) => {
+            if (scope === null || scope === undefined) return null
+            if (storedKey !== null) {
+              const exact =
+                safe(() =>
+                  scope.querySelector(`[data-sa-ui="sent"][data-sa-key="${cssEscape(storedKey)}"]`),
+                ) ?? null
+              if (exact !== null) return exact
+            }
+            if (anchorKey === null) return null
+            return (
+              safe(() => scope.querySelector(`[data-sa-ui="sent"][data-anchor="${cssEscape(anchorKey)}"]`)) ?? null
+            )
+          }
+          const land = () => {
+            const card = cardIn(document)
+            if (card === null || safe(() => card.isConnected === true) !== true) {
+              // 轮到这张卡渲染时补一次重绘；重试期间卡片可能刚被 repaint 造出来。
+              scheduleRepaint('jump-sent')
+              return false
+            }
+            scrollRowToCenter(card)
+            flashSentCard(card)
+            return true
+          }
+          if (land()) return true
+          // 卡片还没渲染：锚点行可能已经在了，先滚过去，再在它所属轮次里找一次（卡片贴在轮次尾部）。
+          if (anchorKey !== null) {
+            const row =
+              safe(() => document.querySelector(`[data-chat-anchor-key="${cssEscape(anchorKey)}"]`)) ?? null
+            if (row !== null) {
+              scrollRowToCenter(row)
+              const holder = safe(() => row.closest('[data-chat-turn]')) ?? row.parentElement
+              const card = cardIn(holder)
+              if (card !== null && safe(() => card.isConnected === true) === true) {
+                scrollRowToCenter(card)
+                flashSentCard(card)
+                return true
+              }
+            }
+          }
+          // 整页还没找到时，再按台账轮次收窄到对应轮次容器里找一次（卡片贴在轮次尾部）。
+          for (const holder of turnHolders(turn)) {
+            const card = cardIn(holder)
+            if (card === null || safe(() => card.isConnected === true) !== true) continue
+            scrollRowToCenter(card)
+            flashSentCard(card)
+            return true
+          }
+          if (turn === null) {
+            fail(t('jump.noCard'))
+            return true
+          }
+          scheduleRepaint('jump-sent')
+          // 交给官方轮次导航异步加载：无论落地还是超时都由这里收尾，先把「已接管」报给调用方。
+          navigateToTurn(turn, land, fail)
+          return true
+        }
+
+        /**
          * 「批注备注」行右侧的「查看出处」：回到这条批注的答复卡。
          * 与「引用原文」同一套流程：先在当前 DOM 里按批次锚点找答复卡；找不到就用台账轮次
          * 点官方轮次导航加载，回来再找一次；答复卡始终没有时退到该轮最后一条正文行。
@@ -5574,6 +5699,15 @@ const rewindHandled = new Map()
             window.requestAnimationFrame(() => flashReplyTarget(row))
             return true
           }
+          /**
+           * 答复找不到时的降级：先回到这条批注发出去时的那张已发送卡。
+           * jumpToSentCard 接管（含自行提示 jump.noCard、或交给轮次导航继续找）时不再叠加提示；
+           * 只有它完全无从下手时才由这里报 jump.noReply。
+           */
+          const fallbackToSentCard = (stage) => {
+            if (jumpToSentCard(record, item, root) === true) return
+            fail(t('jump.noReply'), stage)
+          }
           const card = replyCardOf(anchorKey)
           if (card !== null) {
             landCard(card)
@@ -5589,7 +5723,7 @@ const rewindHandled = new Map()
                 landCard(late)
                 return
               }
-              fail(t('jump.noReply'), 'reply-card')
+              fallbackToSentCard('reply-card')
             }, REPAINT_MS + 60)
             return
           }
@@ -5612,7 +5746,7 @@ const rewindHandled = new Map()
               landRow(row)
               return
             }
-            fail(t('jump.noReply'), 'reply-after-nav')
+            fallbackToSentCard('reply-after-nav')
             return
           }
           // 轮次还没加载：与「引用原文」一致，代点官方导航后轮询 DOM，超时再退正文。
@@ -5631,7 +5765,7 @@ const rewindHandled = new Map()
               landRow(row)
               return
             }
-            fail(t('jump.noReply'), 'assistant-row')
+            fallbackToSentCard('assistant-row')
           })
         }
 
