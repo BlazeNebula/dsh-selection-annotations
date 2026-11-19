@@ -513,10 +513,11 @@ export const CSS = `
 .sa-sent { display: block; margin: 8px 0 0; width: 100%; max-width: none; box-sizing: border-box; }
 .sa-sent-body { margin: 0; padding: 6px 8px; box-sizing: border-box; border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l1, ButtonBorder); background: var(--dsw-alias-bg-layer-1, Canvas); }
-/* 跳转落到卡片时闪三下：只提亮外圈，尺寸与底色不动，避免卡片轻微跳动。*/
-.sa-sent.sa-sent-flash .sa-sent-body {
-  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 70%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 28%, transparent); }
+/* 跳转落到答复卡/正文行时闪三下：只提亮外圈，尺寸与底色不动，避免落点轻微跳动。*/
+.sa-reply-flash {
+  outline: 2px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 8px; }
 .sa-sent-item { display: flex; gap: 6px; padding: 8px 0; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.5;
   border-top: 1px solid var(--dsw-alias-border-secondary, #3333); }
 .sa-sent-item:first-child { border-top: none; padding-top: 0; }
