@@ -218,6 +218,16 @@ export function createPlugin(React, extras = {}) {
         let stagedAt = 0
         /** 用户最近一次点发送/按 Enter 提交的时刻；排队发送时输入态可能还没被观察到「在场」。*/
         let sendGestureAt = 0
+        /**
+         * 发送闸记住的这一批：`{ sessionId, batchUuid, at }`。
+         * 批注先入库、回读确认过才放行消息；同一个 batchUuid 在发送后仍由台账沿用，
+         * 所以重试不会在库里堆出第二批次。
+         */
+        let gateBatch = null
+        /** 闸正在入库：这期间重复的发送手势一律忽略，避免同一批请求打两遍。*/
+        let gateBusy = false
+        /** 闸自己重放发送时置真：那一次点击不再进闸。*/
+        let gateBypass = false
         /** 本插件正在自己摘/挂附件时为真：这段发布不能被当成「消息已发送」。*/
         let maintaining = false
         let watchUnsub = undefined
@@ -339,6 +349,35 @@ const rewindHandled = new Map()
         }
 
         /**
+         * 把一批批注整理成「随消息发送」的条目：负载字段 + 缩略图 + 出处指纹。
+         * 发送闸（入库前）和收发记账共用这一份，两边内容不会走样。
+         */
+        function draftSentItems(list) {
+          const payload = safe(() => JSON.parse(buildPayload(list)))
+          if (payload === null || typeof payload !== 'object' || !Array.isArray(payload.annotations)) return null
+          return payload.annotations.map((annotation, index) => {
+            const origin = list[index]
+            const images = Array.isArray(origin?.images) ? origin.images : []
+            const thumbs = []
+            for (const image of images) {
+              if (typeof image?.thumb !== 'string' || image.thumb === '') continue
+              thumbs.push({
+                name: typeof image.name === 'string' ? image.name : t('image.alt'),
+                dataUrl: image.thumb,
+                preview: typeof image.preview === 'string' && image.preview !== '' ? image.preview : image.dataUrl,
+              })
+            }
+            // 指纹跟着台账条目走：payloadSource 只保留白名单字段，留在 source 上的指纹到不了这里。
+            // 台账条目会原样落盘，之后即使消息行换了锚点键，也能靠它把划线找回来。
+            const fingerprint = {}
+            if (typeof origin?.source?.contextBefore === 'string') fingerprint.contextBefore = origin.source.contextBefore
+            if (typeof origin?.source?.contextAfter === 'string') fingerprint.contextAfter = origin.source.contextAfter
+            const sentItem = { ...annotation, ...fingerprint }
+            return thumbs.length > 0 ? { ...sentItem, thumbs } : sentItem
+          })
+        }
+
+        /**
          * 判定「这批批注已经被消息消费掉」并清空 ——带一次性保护。
          * @param reason - 触发原因，仅用于日志。
          */
@@ -352,28 +391,16 @@ const rewindHandled = new Map()
           if (annotations.length === 0) return
           // 发送前留一份负载与「挂附件时页面上已有的批注消息行」：新消息行出现后再按锚点键落台账。
           // 图片只带缩略图（dataUrl），原图不进台账 —— 清单里要的是「看得出是哪张」。
-          const payload = safe(() => JSON.parse(buildPayload(annotations)))
-          if (payload !== null && typeof payload === 'object' && Array.isArray(payload.annotations)) {
-            const items = payload.annotations.map((annotation, index) => {
-              const origin = annotations[index]
-              const images = Array.isArray(origin?.images) ? origin.images : []
-              const thumbs = []
-              for (const image of images) {
-                if (typeof image?.thumb !== 'string' || image.thumb === '') continue
-                thumbs.push({
-                  name: typeof image.name === 'string' ? image.name : t('image.alt'),
-                  dataUrl: image.thumb,
-                  preview: typeof image.preview === 'string' && image.preview !== '' ? image.preview : image.dataUrl,
-                })
-              }
-              // 指纹跟着台账条目走：payloadSource 只保留白名单字段，留在 source 上的指纹到不了这里。
-              // 台账条目会原样落盘，之后即使消息行换了锚点键，也能靠它把划线找回来。
-              const fingerprint = {}
-              if (typeof origin?.source?.contextBefore === 'string') fingerprint.contextBefore = origin.source.contextBefore
-              if (typeof origin?.source?.contextAfter === 'string') fingerprint.contextAfter = origin.source.contextAfter
-              const sentItem = { ...annotation, ...fingerprint }
-              return thumbs.length > 0 ? { ...sentItem, thumbs } : sentItem
-            })
+          const items = draftSentItems(annotations)
+          if (items !== null) {
+            // 发送闸如果已经把这批写进库，台账沿用它给的批号：发送后只回填锚点，不再新建批次。
+            const gateUuid =
+              gateBatch !== null &&
+              typeof gateBatch.batchUuid === 'string' &&
+              gateBatch.batchUuid !== '' &&
+              (attachedSessionId ?? currentSessionId()) === gateBatch.sessionId
+                ? gateBatch.batchUuid
+                : undefined
             pendingSent.push({
               items,
               known: lastAnnotatedKeys,
@@ -384,9 +411,11 @@ const rewindHandled = new Map()
               // 把「这一屏会话」的范围也记下来：别的会话还挂在页面里时，只在这块范围内找新消息。
               scope: chatScopeOfInput(),
               turnHint: turnHintForScope(chatScopeOfInput()),
+              ...(gateUuid !== undefined ? { batchUuid: gateUuid } : {}),
             })
             lastAnnotatedKeys = new Set()
           }
+          gateBatch = null
           // 界面上按发送成功清空，但留一份快照：若一直没能记账，扫描超时后把快照放回来。
           consumedSnapshot = { items: annotations.slice(), at: Date.now() }
           annotations = []
@@ -1054,6 +1083,9 @@ const rewindHandled = new Map()
         })
         const loadSent = (sessionId) => sentStore.loadSent(sessionId)
         const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table)
+        /** 台账沿发送闸给过的批号：同一条消息只能有一个批次编号。 */
+        const batchOptionsOf = (entry) =>
+          typeof entry?.batchUuid === 'string' && entry.batchUuid !== '' ? { batchUuid: entry.batchUuid } : undefined
         const recordSent = (sessionId, anchorKey, items, turn, options) => {
           const extra = options ?? {}
           // 批次编号在这一批第一次进台账时生成，之后重发/刷新都从台账读回同一个值；
@@ -1296,6 +1328,143 @@ const rewindHandled = new Map()
           syncSentBatch(sessionId, storedKey, record.items, turnOfRecord(record, storedKey), record.savedAt)
         }
 
+        /* ----------------------------------------------------- 发送闸：没入库就不发*/
+
+        /** 发送按钮的 aria-label 关键词；忙碌时会变成「排队发送 / 插话发送」等文案，所以按词判断。*/
+        const SEND_LABEL_RE = /(发送|送信|전송|senden|envoyer|inviare|send)/i
+
+        /** 输入区里那颗发送按钮：Enter 提交时用它把发送动作重放一遍。*/
+        function submitButtonOf(scope) {
+          const root =
+            scope !== null && scope !== undefined && typeof scope.querySelectorAll === 'function' ? scope : document
+          for (const button of root.querySelectorAll('button')) {
+            if (button.disabled === true) continue
+            const label = button.getAttribute('aria-label')
+            if (typeof label === 'string' && SEND_LABEL_RE.test(label)) return button
+          }
+          return null
+        }
+
+        /** 闸没放行：界面上一句提示 + 一条 trace，别让「没发出去」悄悄发生。*/
+        function blockSendGate(reason, detail) {
+          scrollTrace.push({
+            t: Date.now(),
+            kind: 'gate-block',
+            session: attachedSessionId ?? currentSessionId(),
+            reason: String(reason ?? ''),
+            ...(typeof detail === 'string' && detail !== '' ? { detail } : {}),
+          })
+          const suffix = typeof detail === 'string' && detail !== '' ? `（${detail}）` : ''
+          flashJumpToast(`${t('gate.failed')}${suffix}`)
+          log(`[selection-annotations] 批注没入库，这条消息没有发出：${reason} ${detail ?? ''}`)
+        }
+
+        /** 闸放行：补一句正文，再把用户刚才那次发送动作原样重放。*/
+        function replaySend(button, scope) {
+          const shell = inputShell()
+          if (shell !== undefined) ensureFallbackPrompt(shell)
+          const target = button !== null && button !== undefined && button.isConnected === true ? button : submitButtonOf(scope)
+          if (target === null) {
+            blockSendGate('no-submit-button')
+            return
+          }
+          gateBypass = true
+          try {
+            target.click()
+          } finally {
+            gateBypass = false
+          }
+        }
+
+        /** 入库并回读确认：返回 true 表示这批确实在库里，可以放行。*/
+        async function storePendingBatch(items) {
+          const sessionId = attachedSessionId ?? currentSessionId()
+          if (sessionId === undefined) {
+            blockSendGate('no-session')
+            return false
+          }
+          if (typeof fetch !== 'function') {
+            blockSendGate('no-fetch')
+            return false
+          }
+          const wireItems = items.map((item) => ({
+            ...(typeof item.uuid === 'string' && item.uuid !== '' ? { uuid: item.uuid } : {}),
+            index: item.index,
+            quote: item.quote,
+            note: item.note,
+            source: item.source,
+            ...(Array.isArray(item.images) ? { images: item.images } : {}),
+          }))
+          // 同一批重试沿用同一个编号：宿主按 batch_uuid 幂等合并，不会堆出第二批次。
+          const reuse = gateBatch !== null && gateBatch.sessionId === sessionId
+          const batchUuid = reuse ? gateBatch.batchUuid : uuidV4()
+          const batchAt = reuse ? gateBatch.at : Date.now()
+          gateBatch = { sessionId, batchUuid, at: batchAt }
+          scrollTrace.push({ t: Date.now(), kind: 'gate-post', session: sessionId, items: wireItems.length })
+          const result = await remoteSync.createBatch(sessionId, {
+            batch_at: batchAt,
+            batch_uuid: batchUuid,
+            items: wireItems,
+          })
+          const status = Number.isFinite(result?.status) ? result.status : 0
+          const storedUuid =
+            typeof result?.batch_uuid === 'string' && result.batch_uuid !== '' ? result.batch_uuid : undefined
+          if (result?.ok !== true || storedUuid === undefined) {
+            const reason = typeof result?.reason === 'string' && result.reason !== '' ? result.reason : 'unknown'
+            scrollTrace.push({ t: Date.now(), kind: 'gate-done', session: sessionId, ok: false, status, reason })
+            blockSendGate(reason, status > 0 ? `HTTP ${status}` : '')
+            return false
+          }
+          // 回读确认：宿主写回几条，就要和请求的条数对上；数量不符按「没入库」处理。
+          const storedItems = Array.isArray(result.items) ? result.items.length : -1
+          if (storedItems !== wireItems.length) {
+            const detail = `${storedItems}/${wireItems.length}`
+            scrollTrace.push({ t: Date.now(), kind: 'gate-done', session: sessionId, ok: false, status, reason: 'count-mismatch' })
+            blockSendGate('count-mismatch', detail)
+            return false
+          }
+          gateBatch = { sessionId, batchUuid: storedUuid, at: batchAt }
+          scrollTrace.push({ t: Date.now(), kind: 'gate-done', session: sessionId, ok: true, status, reason: '' })
+          return true
+        }
+
+        /**
+         * 发送手势进闸：有批注就先把批注入库、确认后才放行消息。
+         * 返回 true 表示这次手势已被接管（调用方不要再补正文/放行）。
+         */
+        function holdSendForGate(event, button, scope) {
+          if (gateBypass) return false
+          if (annotations.length === 0) return false
+          if (event !== null && event !== undefined && typeof event.preventDefault === 'function') {
+            event.preventDefault()
+            event.stopPropagation()
+          }
+          if (gateBusy) return true
+          void (async () => {
+            gateBusy = true
+            try {
+              // 附件还没挂上就先挂：没挂附件就发，批注压根进不了消息。
+              if (draftIds.length === 0) await syncAttachment()
+              if (draftIds.length === 0) {
+                blockSendGate('no-attachment')
+                return
+              }
+              const items = draftSentItems(annotations)
+              if (items === null || items.length === 0) {
+                replaySend(button, scope)
+                return
+              }
+              if (!(await storePendingBatch(items))) return
+              replaySend(button, scope)
+            } catch (error) {
+              blockSendGate('gate-error', error instanceof Error ? error.message : '')
+            } finally {
+              gateBusy = false
+            }
+          })()
+          return true
+        }
+
         /**
          * 页面上所有用户消息行（锚点键）。
          *
@@ -1458,7 +1627,7 @@ const rewindHandled = new Map()
               hint = turnHintForScope(entry.scope)
             }
             if (!Number.isFinite(hint)) continue
-            recordSent(entrySession, `turn:${hint}:${entry.at}`, entry.items, hint)
+            recordSent(entrySession, `turn:${hint}:${entry.at}`, entry.items, hint, batchOptionsOf(entry))
             expiredRecorded = true
           }
           if (expiredRecorded) scheduleRepaint('mutation')
@@ -1485,7 +1654,7 @@ const rewindHandled = new Map()
             const sentRow = scope === null ? null : findSentAnnotationRow(scope, known, pending.items)
             if (sentRow !== null) {
               pendingSent.shift()
-              recordSent(sessionId, sentRow.anchorKey, pending.items, sentRow.turn)
+              recordSent(sessionId, sentRow.anchorKey, pending.items, sentRow.turn, batchOptionsOf(pending))
               syncSentBatch(sessionId, sentRow.anchorKey, pending.items, sentRow.turn, pending.at)
               scheduleRepaint('emit')
               return true
@@ -1496,7 +1665,7 @@ const rewindHandled = new Map()
             }
             if (!Number.isFinite(hint)) return false
             pendingSent.shift()
-            recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint)
+            recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint, batchOptionsOf(pending))
             syncSentBatch(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint, pending.at)
             scheduleRepaint('emit')
             return true
@@ -1561,7 +1730,7 @@ const rewindHandled = new Map()
           }
           pendingSent.shift()
           const turn = turnOfRow(target.row)
-          recordSent(sessionId, target.anchorKey, pending.items, turn)
+          recordSent(sessionId, target.anchorKey, pending.items, turn, batchOptionsOf(pending))
           syncSentBatch(sessionId, target.anchorKey, pending.items, turn, pending.at)
           scheduleRepaint('emit')
         }
@@ -7917,18 +8086,26 @@ const rewindHandled = new Map()
             const target = elementOf(event.target)
             if (target === null) return
             const button = target.closest('button')
-            if (button === null || button.closest('[data-composer-card]') === null) return
+            if (button === null) return
+            const card = button.closest('[data-composer-card]')
+            if (card === null) return
             const label = button.getAttribute('aria-label')
             // 发送按钮在忙碌时会变成「排队发送 / 插话发送」等文案；按关键词判断，避免只认固定词。
-            if (typeof label !== 'string' || !/(发送|送信|전송|senden|envoyer|inviare|send)/i.test(label)) return
+            if (typeof label !== 'string' || !SEND_LABEL_RE.test(label)) return
+            // 有批注就先过闸：没入库不发，闸自己重放这次点击（那一次不再进闸）。
+            if (holdSendForGate(event, button, card)) return
             fillFallbackIfSending()
           }
           const onDocumentKeydown = (event) => {
             if (event.key === 'Escape') closeContextMenu()
             if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return
             const target = elementOf(event.target)
-            if (target === null || target.closest('[data-composer-card]') === null) return
+            if (target === null) return
+            const card = target.closest('[data-composer-card]')
+            if (card === null) return
             if (target.closest('[contenteditable="true"], textarea, input') === null) return
+            // Enter 提交同样过闸：放行时点发送按钮重放，不再重派按键。
+            if (holdSendForGate(event, null, card)) return
             fillFallbackIfSending()
           }
           document.addEventListener('pointerdown', onMenuPointerDown, true)

@@ -777,6 +777,7 @@
       "chip.count": "批注 ×{n}",
       "sent.title": "已发送批注 ×{n}",
       "sent.unsynced": "未同步",
+      "gate.failed": "批注没存进库，这条消息没有发出去",
       "sent.reuse": "回放所有批注",
       "sent.replayItem": "回放批注",
       "sent.replayCopied": "因批注已被答复，当前仅将重放数据写入剪贴板，必要时可自主粘贴",
@@ -929,6 +930,7 @@
       "chip.count": "Annotate ×{n}",
       "sent.title": "Sent annotations ×{n}",
       "sent.unsynced": "Not synced",
+      "gate.failed": "Annotations were not saved, so this message was not sent",
       "sent.reuse": "Replay all annotations",
       "sent.replayItem": "Replay annotation",
       "sent.replayCopied": "This annotation has already been answered, so the replay data was copied to the clipboard only — paste it yourself if needed",
@@ -4376,6 +4378,9 @@ ${PICK_SCRIPT}<\/script>`;
         let draftSeen = false;
         let stagedAt = 0;
         let sendGestureAt = 0;
+        let gateBatch = null;
+        let gateBusy = false;
+        let gateBypass = false;
         let maintaining = false;
         let watchUnsub = void 0;
         let watchTimer = null;
@@ -4455,6 +4460,28 @@ ${PICK_SCRIPT}<\/script>`;
             log(`[selection-annotations] 摘掉一个被恢复回来的孤儿批注附件（${id}）`);
           }
         }
+        function draftSentItems(list) {
+          const payload = safe(() => JSON.parse(buildPayload(list)));
+          if (payload === null || typeof payload !== "object" || !Array.isArray(payload.annotations)) return null;
+          return payload.annotations.map((annotation, index) => {
+            const origin = list[index];
+            const images = Array.isArray(origin?.images) ? origin.images : [];
+            const thumbs = [];
+            for (const image of images) {
+              if (typeof image?.thumb !== "string" || image.thumb === "") continue;
+              thumbs.push({
+                name: typeof image.name === "string" ? image.name : t("image.alt"),
+                dataUrl: image.thumb,
+                preview: typeof image.preview === "string" && image.preview !== "" ? image.preview : image.dataUrl
+              });
+            }
+            const fingerprint = {};
+            if (typeof origin?.source?.contextBefore === "string") fingerprint.contextBefore = origin.source.contextBefore;
+            if (typeof origin?.source?.contextAfter === "string") fingerprint.contextAfter = origin.source.contextAfter;
+            const sentItem = { ...annotation, ...fingerprint };
+            return thumbs.length > 0 ? { ...sentItem, thumbs } : sentItem;
+          });
+        }
         function markConsumed(reason) {
           if (draftIds.length === 0) return;
           const ids = draftIds;
@@ -4463,26 +4490,9 @@ ${PICK_SCRIPT}<\/script>`;
           const until = Date.now() + STRAY_GUARD_MS;
           for (const id of ids) strayIds.set(id, until);
           if (annotations.length === 0) return;
-          const payload = safe(() => JSON.parse(buildPayload(annotations)));
-          if (payload !== null && typeof payload === "object" && Array.isArray(payload.annotations)) {
-            const items = payload.annotations.map((annotation, index) => {
-              const origin = annotations[index];
-              const images = Array.isArray(origin?.images) ? origin.images : [];
-              const thumbs = [];
-              for (const image of images) {
-                if (typeof image?.thumb !== "string" || image.thumb === "") continue;
-                thumbs.push({
-                  name: typeof image.name === "string" ? image.name : t("image.alt"),
-                  dataUrl: image.thumb,
-                  preview: typeof image.preview === "string" && image.preview !== "" ? image.preview : image.dataUrl
-                });
-              }
-              const fingerprint = {};
-              if (typeof origin?.source?.contextBefore === "string") fingerprint.contextBefore = origin.source.contextBefore;
-              if (typeof origin?.source?.contextAfter === "string") fingerprint.contextAfter = origin.source.contextAfter;
-              const sentItem = { ...annotation, ...fingerprint };
-              return thumbs.length > 0 ? { ...sentItem, thumbs } : sentItem;
-            });
+          const items = draftSentItems(annotations);
+          if (items !== null) {
+            const gateUuid = gateBatch !== null && typeof gateBatch.batchUuid === "string" && gateBatch.batchUuid !== "" && (attachedSessionId ?? currentSessionId()) === gateBatch.sessionId ? gateBatch.batchUuid : void 0;
             pendingSent.push({
               items,
               known: lastAnnotatedKeys,
@@ -4492,10 +4502,12 @@ ${PICK_SCRIPT}<\/script>`;
               sessionId: attachedSessionId ?? currentSessionId(),
               // 把「这一屏会话」的范围也记下来：别的会话还挂在页面里时，只在这块范围内找新消息。
               scope: chatScopeOfInput(),
-              turnHint: turnHintForScope(chatScopeOfInput())
+              turnHint: turnHintForScope(chatScopeOfInput()),
+              ...gateUuid !== void 0 ? { batchUuid: gateUuid } : {}
             });
             lastAnnotatedKeys = /* @__PURE__ */ new Set();
           }
+          gateBatch = null;
           consumedSnapshot = { items: annotations.slice(), at: Date.now() };
           annotations = [];
           emit();
@@ -5014,6 +5026,7 @@ ${PICK_SCRIPT}<\/script>`;
         });
         const loadSent = (sessionId) => sentStore.loadSent(sessionId);
         const saveSent = (sessionId, table) => sentStore.saveSent(sessionId, table);
+        const batchOptionsOf = (entry) => typeof entry?.batchUuid === "string" && entry.batchUuid !== "" ? { batchUuid: entry.batchUuid } : void 0;
         const recordSent = (sessionId, anchorKey, items, turn, options) => {
           const extra = options ?? {};
           const existing = sentStore.loadSent(sessionId).get(anchorKey);
@@ -5198,6 +5211,121 @@ ${PICK_SCRIPT}<\/script>`;
           sentBatchRetries.set(retryKey, used + 1);
           syncSentBatch(sessionId, storedKey, record.items, turnOfRecord(record, storedKey), record.savedAt);
         }
+        const SEND_LABEL_RE = /(发送|送信|전송|senden|envoyer|inviare|send)/i;
+        function submitButtonOf(scope) {
+          const root = scope !== null && scope !== void 0 && typeof scope.querySelectorAll === "function" ? scope : document;
+          for (const button3 of root.querySelectorAll("button")) {
+            if (button3.disabled === true) continue;
+            const label = button3.getAttribute("aria-label");
+            if (typeof label === "string" && SEND_LABEL_RE.test(label)) return button3;
+          }
+          return null;
+        }
+        function blockSendGate(reason, detail) {
+          scrollTrace.push({
+            t: Date.now(),
+            kind: "gate-block",
+            session: attachedSessionId ?? currentSessionId(),
+            reason: String(reason ?? ""),
+            ...typeof detail === "string" && detail !== "" ? { detail } : {}
+          });
+          const suffix = typeof detail === "string" && detail !== "" ? `（${detail}）` : "";
+          flashJumpToast(`${t("gate.failed")}${suffix}`);
+          log(`[selection-annotations] 批注没入库，这条消息没有发出：${reason} ${detail ?? ""}`);
+        }
+        function replaySend(button3, scope) {
+          const shell = inputShell();
+          if (shell !== void 0) ensureFallbackPrompt(shell);
+          const target = button3 !== null && button3 !== void 0 && button3.isConnected === true ? button3 : submitButtonOf(scope);
+          if (target === null) {
+            blockSendGate("no-submit-button");
+            return;
+          }
+          gateBypass = true;
+          try {
+            target.click();
+          } finally {
+            gateBypass = false;
+          }
+        }
+        async function storePendingBatch(items) {
+          const sessionId = attachedSessionId ?? currentSessionId();
+          if (sessionId === void 0) {
+            blockSendGate("no-session");
+            return false;
+          }
+          if (typeof fetch !== "function") {
+            blockSendGate("no-fetch");
+            return false;
+          }
+          const wireItems = items.map((item) => ({
+            ...typeof item.uuid === "string" && item.uuid !== "" ? { uuid: item.uuid } : {},
+            index: item.index,
+            quote: item.quote,
+            note: item.note,
+            source: item.source,
+            ...Array.isArray(item.images) ? { images: item.images } : {}
+          }));
+          const reuse = gateBatch !== null && gateBatch.sessionId === sessionId;
+          const batchUuid = reuse ? gateBatch.batchUuid : uuidV4();
+          const batchAt = reuse ? gateBatch.at : Date.now();
+          gateBatch = { sessionId, batchUuid, at: batchAt };
+          scrollTrace.push({ t: Date.now(), kind: "gate-post", session: sessionId, items: wireItems.length });
+          const result = await remoteSync.createBatch(sessionId, {
+            batch_at: batchAt,
+            batch_uuid: batchUuid,
+            items: wireItems
+          });
+          const status = Number.isFinite(result?.status) ? result.status : 0;
+          const storedUuid = typeof result?.batch_uuid === "string" && result.batch_uuid !== "" ? result.batch_uuid : void 0;
+          if (result?.ok !== true || storedUuid === void 0) {
+            const reason = typeof result?.reason === "string" && result.reason !== "" ? result.reason : "unknown";
+            scrollTrace.push({ t: Date.now(), kind: "gate-done", session: sessionId, ok: false, status, reason });
+            blockSendGate(reason, status > 0 ? `HTTP ${status}` : "");
+            return false;
+          }
+          const storedItems = Array.isArray(result.items) ? result.items.length : -1;
+          if (storedItems !== wireItems.length) {
+            const detail = `${storedItems}/${wireItems.length}`;
+            scrollTrace.push({ t: Date.now(), kind: "gate-done", session: sessionId, ok: false, status, reason: "count-mismatch" });
+            blockSendGate("count-mismatch", detail);
+            return false;
+          }
+          gateBatch = { sessionId, batchUuid: storedUuid, at: batchAt };
+          scrollTrace.push({ t: Date.now(), kind: "gate-done", session: sessionId, ok: true, status, reason: "" });
+          return true;
+        }
+        function holdSendForGate(event, button3, scope) {
+          if (gateBypass) return false;
+          if (annotations.length === 0) return false;
+          if (event !== null && event !== void 0 && typeof event.preventDefault === "function") {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          if (gateBusy) return true;
+          void (async () => {
+            gateBusy = true;
+            try {
+              if (draftIds.length === 0) await syncAttachment();
+              if (draftIds.length === 0) {
+                blockSendGate("no-attachment");
+                return;
+              }
+              const items = draftSentItems(annotations);
+              if (items === null || items.length === 0) {
+                replaySend(button3, scope);
+                return;
+              }
+              if (!await storePendingBatch(items)) return;
+              replaySend(button3, scope);
+            } catch (error) {
+              blockSendGate("gate-error", error instanceof Error ? error.message : "");
+            } finally {
+              gateBusy = false;
+            }
+          })();
+          return true;
+        }
         function collectAnchorRows() {
           const rows = [];
           const seen = /* @__PURE__ */ new Set();
@@ -5309,7 +5437,7 @@ ${PICK_SCRIPT}<\/script>`;
               hint = turnHintForScope(entry.scope);
             }
             if (!Number.isFinite(hint)) continue;
-            recordSent(entrySession, `turn:${hint}:${entry.at}`, entry.items, hint);
+            recordSent(entrySession, `turn:${hint}:${entry.at}`, entry.items, hint, batchOptionsOf(entry));
             expiredRecorded = true;
           }
           if (expiredRecorded) scheduleRepaint("mutation");
@@ -5331,7 +5459,7 @@ ${PICK_SCRIPT}<\/script>`;
             const sentRow = scope === null ? null : findSentAnnotationRow(scope, known, pending.items);
             if (sentRow !== null) {
               pendingSent.shift();
-              recordSent(sessionId, sentRow.anchorKey, pending.items, sentRow.turn);
+              recordSent(sessionId, sentRow.anchorKey, pending.items, sentRow.turn, batchOptionsOf(pending));
               syncSentBatch(sessionId, sentRow.anchorKey, pending.items, sentRow.turn, pending.at);
               scheduleRepaint("emit");
               return true;
@@ -5342,7 +5470,7 @@ ${PICK_SCRIPT}<\/script>`;
             }
             if (!Number.isFinite(hint)) return false;
             pendingSent.shift();
-            recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint);
+            recordSent(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint, batchOptionsOf(pending));
             syncSentBatch(sessionId, `turn:${hint}:${pending.at}`, pending.items, hint, pending.at);
             scheduleRepaint("emit");
             return true;
@@ -5394,7 +5522,7 @@ ${PICK_SCRIPT}<\/script>`;
           }
           pendingSent.shift();
           const turn = turnOfRow(target.row);
-          recordSent(sessionId, target.anchorKey, pending.items, turn);
+          recordSent(sessionId, target.anchorKey, pending.items, turn, batchOptionsOf(pending));
           syncSentBatch(sessionId, target.anchorKey, pending.items, turn, pending.at);
           scheduleRepaint("emit");
         }
@@ -10384,17 +10512,23 @@ ${PICK_SCRIPT}`;
             const target = elementOf2(event.target);
             if (target === null) return;
             const button3 = target.closest("button");
-            if (button3 === null || button3.closest("[data-composer-card]") === null) return;
+            if (button3 === null) return;
+            const card = button3.closest("[data-composer-card]");
+            if (card === null) return;
             const label = button3.getAttribute("aria-label");
-            if (typeof label !== "string" || !/(发送|送信|전송|senden|envoyer|inviare|send)/i.test(label)) return;
+            if (typeof label !== "string" || !SEND_LABEL_RE.test(label)) return;
+            if (holdSendForGate(event, button3, card)) return;
             fillFallbackIfSending();
           };
           const onDocumentKeydown = (event) => {
             if (event.key === "Escape") closeContextMenu();
             if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
             const target = elementOf2(event.target);
-            if (target === null || target.closest("[data-composer-card]") === null) return;
+            if (target === null) return;
+            const card = target.closest("[data-composer-card]");
+            if (card === null) return;
             if (target.closest('[contenteditable="true"], textarea, input') === null) return;
+            if (holdSendForGate(event, null, card)) return;
             fillFallbackIfSending();
           };
           document.addEventListener("pointerdown", onMenuPointerDown, true);
