@@ -7879,7 +7879,20 @@ const rewindHandled = new Map()
          */
         function applyRewind(sessionId, mark) {
           if (sessionId !== currentSessionId()) return
-          const cutoff = Number.isFinite(mark?.turn) ? Number(mark.turn) : currentMaxTurn() + 1
+          // 宿主写来的标记可能没有起点轮次（turn 为 null）。没有轮次就判不出"从哪一轮开始撤"，
+          // 一旦用 currentMaxTurn() + 1 兜底，页面刚打开时它返回 0，会把全部已发送记录误判成回退之后的。
+          const turn = Number.isFinite(mark?.turn) ? Number(mark.turn) : null
+          if (turn === null || turn < 1) {
+            scrollTrace.push({ t: Date.now(), kind: 'rewind-skip', session: sessionId, turn: turn ?? null })
+            return
+          }
+          const maxTurn = currentMaxTurn()
+          if (maxTurn === 0) {
+            // 消息行还没挂载，判据不可靠：等下一轮再说，不做任何删除。
+            scrollTrace.push({ t: Date.now(), kind: 'rewind-skip', session: sessionId, turn: turn ?? null })
+            return
+          }
+          const cutoff = turn
           const table = loadSent(sessionId)
           const removed = []
           for (const [key, record] of [...table]) {

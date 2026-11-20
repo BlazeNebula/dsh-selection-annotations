@@ -10335,7 +10335,17 @@ ${PICK_SCRIPT}`;
         }
         function applyRewind(sessionId, mark) {
           if (sessionId !== currentSessionId()) return;
-          const cutoff = Number.isFinite(mark?.turn) ? Number(mark.turn) : currentMaxTurn() + 1;
+          const turn = Number.isFinite(mark?.turn) ? Number(mark.turn) : null;
+          if (turn === null || turn < 1) {
+            scrollTrace.push({ t: Date.now(), kind: "rewind-skip", session: sessionId, turn: turn ?? null });
+            return;
+          }
+          const maxTurn = currentMaxTurn();
+          if (maxTurn === 0) {
+            scrollTrace.push({ t: Date.now(), kind: "rewind-skip", session: sessionId, turn: turn ?? null });
+            return;
+          }
+          const cutoff = turn;
           const table = loadSent(sessionId);
           const removed = [];
           for (const [key, record] of [...table]) {
@@ -10353,8 +10363,8 @@ ${PICK_SCRIPT}`;
             for (const card of document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${cssEscape(key)}"]`)) card.remove();
           }
           for (const section of document.querySelectorAll('[data-sa-ui="replies"]')) {
-            const turn = Number(section.dataset.saTurn);
-            if (Number.isFinite(turn) && turn >= cutoff) section.remove();
+            const turn2 = Number(section.dataset.saTurn);
+            if (Number.isFinite(turn2) && turn2 >= cutoff) section.remove();
           }
           const items = removed.sort((left, right) => left.record.savedAt - right.record.savedAt).flatMap(({ record }) => Array.isArray(record.items) ? record.items : []);
           if (items.length > 0) reuseSentItems(items, null, true);
