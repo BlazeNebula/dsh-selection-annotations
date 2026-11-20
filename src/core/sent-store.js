@@ -11,6 +11,7 @@ export function isSentItem(value) {
  * 记录形如 { savedAt, items, turn?, anchorKey?, batchUuid?, batchSeq? }；turn 用来把卡片固定在所属轮次的「已完成」前后，
  * anchorKey 在没有轮次号（旧记录、跨端合并）时用来回到消息行。
  * batchUuid / batchSeq 与条目上的 uuid 只在宿主新接口可用时才有，随记录一起持久化。
+ * rewoundAt / rewoundTurn 是「这条批次被会话回退标记过」的意思：回退不删条目，只靠这两个字段让渲染跳过它。
  */
 export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxBytes, maxItems, onChanged }) {
 
@@ -32,6 +33,10 @@ export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxB
           const batchUuid =
             typeof value.batchUuid === 'string' && value.batchUuid !== '' ? value.batchUuid : undefined
           const batchSeq = Number.isSafeInteger(value.batchSeq) ? value.batchSeq : undefined
+          // 回退标记（rewoundAt/rewoundTurn）必须跟着记录落盘：回退不删任何条目，
+          // 「这一批被撤回过了」全靠这两个字段表达，丢了下一次重绘就会把它当成正常批次。
+          const rewoundAt = Number.isFinite(value.rewoundAt) ? Number(value.rewoundAt) : undefined
+          const rewoundTurn = Number.isFinite(value.rewoundTurn) ? Number(value.rewoundTurn) : undefined
           table.set(key, {
             savedAt: Number(value.savedAt) || 0,
             items,
@@ -39,6 +44,8 @@ export function createSentStore({ getStorage, tableFor, prefix, maxEntries, maxB
             ...(anchorKey !== undefined ? { anchorKey } : {}),
             ...(batchUuid !== undefined ? { batchUuid } : {}),
             ...(batchSeq !== undefined ? { batchSeq } : {}),
+            ...(rewoundAt !== undefined ? { rewoundAt } : {}),
+            ...(rewoundTurn !== undefined ? { rewoundTurn } : {}),
             // 批次没落库的记录要跟着本地台账活到下一次重试，重启后也不能丢。
             ...(value.unsynced === true ? { unsynced: true } : {}),
           })

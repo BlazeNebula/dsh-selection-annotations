@@ -520,6 +520,12 @@ export const CSS = `
 /* 批次没落库：标题后跟一个警告色小字，只占文字宽度，不改变标题行布局。*/
 .sa-sent-unsynced { margin-left: 6px; font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
   color: var(--dsw-alias-state-warn-primary, #f59e0b); }
+/* 会话回退标记过的批次：卡片与条目原样保留，标题后跟一个次要色小字，表示这一轮已经撤回。
+   用次要色而非警告色：撤回是用户自己的动作，不是失败。*/
+.sa-sent-rewound { margin-left: 6px; font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
+  color: var(--dsw-alias-text-secondary, #8a8a8a); }
+/* 已撤回的卡片整体压暗一点，但不隐藏：用户还要能读到当时批注了什么。*/
+.sa-sent[data-sa-rewound="1"] .sa-sent-body { opacity: 0.72; }
 /* 跳转落到答复卡/正文行时闪三下：只提亮外圈，尺寸与底色不动，避免落点轻微跳动。*/
 .sa-reply-flash {
   outline: 2px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 70%, transparent);

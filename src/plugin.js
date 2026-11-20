@@ -202,8 +202,6 @@ export function createPlugin(React, extras = {}) {
         const draftSessions = new Map()
         /** 已提交批注台账（sessionId → Map(anchorKey → 记录)）。 */
         const sentBySession = new Map()
-        /** 回退删除过的台账键：宿主按名单删，避免下一次整表合并把删掉的记录带回来。 */
-        const sentRemovals = new Map()
         /** 刚随消息发出、还在等对应消息行出现的负载。*/
         let pendingSent = []
         /** 上一批已清空但还没记账的批注；扫描超时后放回界面，避免用户什么都看不到。*/
@@ -555,14 +553,17 @@ const rewindHandled = new Map()
         const storeUrl = (sessionId) => remoteSync.storeUrl(sessionId)
         const pullRemoteSession = (sessionId) => remoteSync.pull(sessionId)
 
-        /** 当前会话的可落盘快照：草稿与已提交台账（落盘不做体积裁剪）。*/
+        /**
+         * 当前会话的可落盘快照：草稿与已提交台账（落盘不做体积裁剪）。
+         * 曾经在这里附带 sentRemoved（回退时要删的台账键），那份清单让宿主把批注真删掉过；
+         * 回退现在只在记录上打标记，这条删除通道从协议里撤掉了，不再发送这个字段。
+         */
         function sessionSnapshot(sessionId) {
           const drafts =
             annotationsSession === sessionId ? draftItems(annotations) : draftSessions.get(sessionId) ?? []
           const sent = {}
           for (const [key, value] of sentBySession.get(sessionId) ?? []) sent[key] = value
-          const sentRemoved = [...(sentRemovals.get(sessionId) ?? [])]
-          return { schemaVersion: 1, sessionId, updatedAt: new Date().toISOString(), drafts, sent, sentRemoved }
+          return { schemaVersion: 1, sessionId, updatedAt: new Date().toISOString(), drafts, sent }
         }
 
         const pushRemoteSession = (sessionId) => remoteSync.push(sessionId)
@@ -626,7 +627,15 @@ const rewindHandled = new Map()
               for (const [key, value] of table) {
                 const current = localTable.get(key)
                 if (current === undefined || value.savedAt > current.savedAt) {
-                  localTable.set(key, value)
+                  // 回退标记只存在本机：远端记录里没有这两个字段，合并时先把本地的带过来，
+                  // 否则远端的旧副本会把「已撤回」冲掉，卡片又变回正常样式。
+                  const rewound = recordWasRewound(current)
+                    ? {
+                        rewoundAt: current.rewoundAt,
+                        ...(Number.isFinite(current.rewoundTurn) ? { rewoundTurn: current.rewoundTurn } : {}),
+                      }
+                    : {}
+                  localTable.set(key, { ...value, ...rewound })
                   merged = true
                 }
               }
@@ -1148,6 +1157,36 @@ const rewindHandled = new Map()
           table.set(storedKey, next)
           sentStore.saveSent(sessionId, table)
           return true
+        }
+
+        /**
+         * 这条已发送记录是否被会话回退标记过。
+         * 回退只写 rewoundAt/rewoundTurn，台账键与条目都保留，所以判据只看标记。
+         */
+        function recordWasRewound(record) {
+          return record !== null && record !== undefined && typeof record === 'object' && Number.isFinite(record.rewoundAt)
+        }
+
+        /** 记录上记下的回退起点轮次；没记轮次（标记残缺）时返回 null，调用方按「整条已撤回」处理。*/
+        function recordRewoundTurn(record) {
+          if (!recordWasRewound(record)) return null
+          return Number.isFinite(record.rewoundTurn) ? Number(record.rewoundTurn) : null
+        }
+
+        /** 卡片标题旁的「已撤回」小标记：和「未同步」并排，只加在标题行，不参与布局计算。*/
+        function paintRewoundBadge(card, rewound) {
+          if (card === null || typeof card?.querySelector !== 'function') return
+          const existing = card.querySelector('.sa-sent-rewound')
+          if (rewound !== true) {
+            if (existing !== null) existing.remove()
+            return
+          }
+          if (existing !== null) return
+          const title = card.querySelector('.sa-section-title')
+          if (title === null || title.parentElement === null) return
+          const badge = el('span', 'sa-sent-rewound', t('sent.rewound'))
+          badge.setAttribute('data-sa-field', 'rewound')
+          title.parentElement.insertBefore(badge, title.nextSibling)
         }
 
         /** 卡片标题旁的小标记：只加在已发送卡片的标题行，不参与布局计算。*/
@@ -2138,6 +2177,8 @@ const rewindHandled = new Map()
             let card = existing
             const sentSignature = hashString({
               anchorKey,
+              // 回退标记也算内容：标记变了就得重画卡片，否则「已撤回」要等下一次正文变化才露面。
+              rewoundAt: recordWasRewound(record) ? record.rewoundAt : 0,
               items: record.items.map((item) => ({
                 quote: item.quote,
                 note: item.note,
@@ -2160,6 +2201,12 @@ const rewindHandled = new Map()
             if (Number.isFinite(turn)) card.setAttribute('data-sa-turn', String(turn))
             else if (typeof card.removeAttribute === 'function') card.removeAttribute('data-sa-turn')
             paintUnsyncedBadge(card, record.unsynced === true)
+            // 回退过的批次不摘卡：卡片与条目原样留在会话区，只在标题旁标「已撤回」，
+            // 用户还能看到自己当时批注了什么，也知道这一轮已经不在会话里了。
+            const rewound = recordWasRewound(record)
+            paintRewoundBadge(card, rewound)
+            if (rewound) card.setAttribute('data-sa-rewound', '1')
+            else if (typeof card.removeAttribute === 'function') card.removeAttribute('data-sa-rewound')
             // 批注优先挂在用户消息气泡下方：插队（steering）消息还没有轮次尾行时也能出现，
             // 位置也贴着「自己这一条」，不必等整轮结束。等待态气泡在上面已跳过。
             const bubbleKind = row === null ? '' : (row.getAttribute('data-chat-flow-kind') ?? '')
@@ -2504,6 +2551,20 @@ const rewindHandled = new Map()
               ),
             )
           }
+          /**
+           * 这张卡所属的轮次是否已被会话回退。
+           * 回退只写标记不删数据，但被撤回的那几轮答复不再挂出来；卡片本身仍按「已撤回」显示。
+           * 判据全取自本地台账现有的记录与轮次，不额外发请求。
+           */
+          const replyAnchorWithdrawn = (anchorKey) => {
+            const entry = anchorKey === undefined ? undefined : byAnchor.get(anchorKey)
+            if (entry === undefined || !recordWasRewound(entry.record)) return false
+            const rewindTurn = recordRewoundTurn(entry.record)
+            // 标记里没记到轮次：整张卡都算已撤回。
+            if (rewindTurn === null) return true
+            // 记录没有轮次时判不出先后，按已撤回处理，宁可少挂答复。
+            return !Number.isFinite(entry.turn) || entry.turn >= rewindTurn
+          }
           const anchors = [...byAnchor.entries()]
             .map(([anchorKey, entry]) => ({ anchorKey, savedAt: entry.record.savedAt }))
             .sort((a, b) => a.savedAt - b.savedAt)
@@ -2531,6 +2592,8 @@ const rewindHandled = new Map()
                 if (candidate !== undefined && hasUuidByAnchor.get(candidate) !== true) target = candidate
               }
               if (target === undefined) continue
+              // 回退掉的轮次：答复不再挂出来。数据仍在库里、卡片也还在，只是不再展示。
+              if (replyAnchorWithdrawn(target)) continue
               let buckets = grouped.get(target)
               if (buckets === undefined) {
                 buckets = new Map()
@@ -7863,62 +7926,44 @@ const rewindHandled = new Map()
           }
         })
 
-        /** 当前页面里可见的最大轮次；没有轮次行时返回 0。 */
-        function currentMaxTurn() {
-          let max = 0
-          for (const row of document.querySelectorAll('[data-chat-turn]')) {
-            const value = Number(row.getAttribute('data-chat-turn'))
-            if (Number.isFinite(value)) max = Math.max(max, value)
-          }
-          return max
-        }
-
         /**
-         * 会话回退后的清理与回放：宿主在会话记录里写 rewind（at + 起点轮次），
-         * 这里把该轮及之后的已发送记录撤掉、删掉对应卡片，并把批注原样放回待发送。
+         * 会话回退后的处理：宿主在会话记录里写 rewind（at + 起点轮次）。
+         *
+         * 这里只给该轮及之后的已发送记录打一个「被回退过」的标记，不做别的：
+         * 不删台账、不往删除清单里加键、不摘页面卡片、不把条目塞回草稿。
+         * 原因：回退是会话侧的动作，批注是用户自己的数据，删掉就回不来了；
+         * 旧实现按删除清单让宿主真删，已经因此丢过四个会话的批注。
+         * 标记只影响渲染：卡片照旧占位并标成「已撤回」，这些轮次的答复也不再挂出来。
          */
         function applyRewind(sessionId, mark) {
           if (sessionId !== currentSessionId()) return
-          // 宿主写来的标记可能没有起点轮次（turn 为 null）。没有轮次就判不出"从哪一轮开始撤"，
-          // 一旦用 currentMaxTurn() + 1 兜底，页面刚打开时它返回 0，会把全部已发送记录误判成回退之后的。
+          // 宿主写来的标记可能没有起点轮次（turn 为 null）。没有轮次就判不出「从哪一轮开始算」，
+          // 不能拿页面上的最大轮次去兜底，否则会把全部已发送记录误判成回退之后的。
           const turn = Number.isFinite(mark?.turn) ? Number(mark.turn) : null
           if (turn === null || turn < 1) {
             scrollTrace.push({ t: Date.now(), kind: 'rewind-skip', session: sessionId, turn: turn ?? null })
             return
           }
-          const maxTurn = currentMaxTurn()
-          if (maxTurn === 0) {
-            // 消息行还没挂载，判据不可靠：等下一轮再说，不做任何删除。
-            scrollTrace.push({ t: Date.now(), kind: 'rewind-skip', session: sessionId, turn: turn ?? null })
-            return
-          }
-          const cutoff = turn
+          // 回退发生的时刻：宿主写进 rewind 的 at。回退之后新发的消息会重新占用同一批轮次号，
+          // 所以光看 turn 会把回退后新建的批次一起标成已撤回；savedAt 晚于 at 的必然不属于被回退的轮次。
+          const rewindAt = Number.isFinite(mark?.at) ? Number(mark.at) : null
           const table = loadSent(sessionId)
-          const removed = []
-          for (const [key, record] of [...table]) {
-            if (!Number.isFinite(record?.turn) || record.turn < cutoff) continue
-            removed.push({ key, record })
-            table.delete(key)
+          const now = Date.now()
+          let marked = 0
+          for (const record of table.values()) {
+            if (!Number.isFinite(record?.turn) || record.turn < turn) continue
+            if (rewindAt !== null && !(Number(record.savedAt) <= rewindAt)) continue
+            // 只写标记：items 一条不动，台账键也不删，撤回后还能从卡片上看到原文。
+            record.rewoundAt = now
+            record.rewoundTurn = turn
+            marked += 1
           }
-          if (removed.length > 0) {
-            const gone = sentRemovals.get(sessionId) ?? new Set()
-            for (const { key } of removed) gone.add(key)
-            sentRemovals.set(sessionId, gone)
+          // 记录变了但位置没变，卡片内容要重画：置会话区脏标记，下一遍重绘才会重建卡片。
+          if (marked > 0) {
             saveSent(sessionId, table)
+            markConversationDirty()
           }
-          for (const { key } of removed) {
-            for (const card of document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${cssEscape(key)}"]`)) card.remove()
-          }
-          for (const section of document.querySelectorAll('[data-sa-ui="replies"]')) {
-            const turn = Number(section.dataset.saTurn)
-            if (Number.isFinite(turn) && turn >= cutoff) section.remove()
-          }
-          const items = removed
-            .sort((left, right) => left.record.savedAt - right.record.savedAt)
-            .flatMap(({ record }) => (Array.isArray(record.items) ? record.items : []))
-          if (items.length > 0) reuseSentItems(items, null, true)
-          // 这里直接摘掉了卡片与答复区，正文位置变了：高亮必须重新量。
-          if (removed.length > 0) markHighlightsDirty()
+          scrollTrace.push({ t: now, kind: 'rewind-mark', session: sessionId, turn, marked })
           scheduleRepaint('poll')
         }
 

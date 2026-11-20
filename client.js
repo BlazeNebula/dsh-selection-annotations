@@ -522,6 +522,12 @@
 /* 批次没落库：标题后跟一个警告色小字，只占文字宽度，不改变标题行布局。*/
 .sa-sent-unsynced { margin-left: 6px; font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
   color: var(--dsw-alias-state-warn-primary, #f59e0b); }
+/* 会话回退标记过的批次：卡片与条目原样保留，标题后跟一个次要色小字，表示这一轮已经撤回。
+   用次要色而非警告色：撤回是用户自己的动作，不是失败。*/
+.sa-sent-rewound { margin-left: 6px; font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
+  color: var(--dsw-alias-text-secondary, #8a8a8a); }
+/* 已撤回的卡片整体压暗一点，但不隐藏：用户还要能读到当时批注了什么。*/
+.sa-sent[data-sa-rewound="1"] .sa-sent-body { opacity: 0.72; }
 /* 跳转落到答复卡/正文行时闪三下：只提亮外圈，尺寸与底色不动，避免落点轻微跳动。*/
 .sa-reply-flash {
   outline: 2px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 70%, transparent);
@@ -777,6 +783,7 @@
       "chip.count": "批注 ×{n}",
       "sent.title": "已发送批注 ×{n}",
       "sent.unsynced": "未同步",
+      "sent.rewound": "已撤回",
       "gate.failed": "批注没存进库，这条消息没有发出去",
       "sent.reuse": "回放所有批注",
       "sent.replayItem": "回放批注",
@@ -930,6 +937,7 @@
       "chip.count": "Annotate ×{n}",
       "sent.title": "Sent annotations ×{n}",
       "sent.unsynced": "Not synced",
+      "sent.rewound": "Withdrawn",
       "gate.failed": "Annotations were not saved, so this message was not sent",
       "sent.reuse": "Replay all annotations",
       "sent.replayItem": "Replay annotation",
@@ -3573,6 +3581,8 @@ ${PICK_SCRIPT}<\/script>`;
             const anchorKey = typeof value.anchorKey === "string" && value.anchorKey !== "" ? value.anchorKey : void 0;
             const batchUuid = typeof value.batchUuid === "string" && value.batchUuid !== "" ? value.batchUuid : void 0;
             const batchSeq = Number.isSafeInteger(value.batchSeq) ? value.batchSeq : void 0;
+            const rewoundAt = Number.isFinite(value.rewoundAt) ? Number(value.rewoundAt) : void 0;
+            const rewoundTurn = Number.isFinite(value.rewoundTurn) ? Number(value.rewoundTurn) : void 0;
             table.set(key, {
               savedAt: Number(value.savedAt) || 0,
               items,
@@ -3580,6 +3590,8 @@ ${PICK_SCRIPT}<\/script>`;
               ...anchorKey !== void 0 ? { anchorKey } : {},
               ...batchUuid !== void 0 ? { batchUuid } : {},
               ...batchSeq !== void 0 ? { batchSeq } : {},
+              ...rewoundAt !== void 0 ? { rewoundAt } : {},
+              ...rewoundTurn !== void 0 ? { rewoundTurn } : {},
               // 批次没落库的记录要跟着本地台账活到下一次重试，重启后也不能丢。
               ...value.unsynced === true ? { unsynced: true } : {}
             });
@@ -3866,7 +3878,10 @@ ${PICK_SCRIPT}<\/script>`;
       if (typeof uuid !== "string" || uuid === "") return void 0;
       if (typeof fetch !== "function") return void 0;
       try {
-        const response = await fetch(entryUrl(uuid), { method: "DELETE", headers: { accept: "application/json" } });
+        const response = await fetch(entryUrl(uuid), {
+          method: "DELETE",
+          headers: { accept: "application/json", "x-sa-explicit-delete": "true" }
+        });
         if (!response.ok) return void 0;
         return await readObject(response);
       } catch {
@@ -4370,7 +4385,6 @@ ${PICK_SCRIPT}<\/script>`;
         let annotationsSession = void 0;
         const draftSessions = /* @__PURE__ */ new Map();
         const sentBySession = /* @__PURE__ */ new Map();
-        const sentRemovals = /* @__PURE__ */ new Map();
         let pendingSent = [];
         let consumedSnapshot = null;
         let attachedSessionId = void 0;
@@ -4610,8 +4624,7 @@ ${PICK_SCRIPT}<\/script>`;
           const drafts = annotationsSession === sessionId ? draftItems(annotations) : draftSessions.get(sessionId) ?? [];
           const sent = {};
           for (const [key, value] of sentBySession.get(sessionId) ?? []) sent[key] = value;
-          const sentRemoved = [...sentRemovals.get(sessionId) ?? []];
-          return { schemaVersion: 1, sessionId, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), drafts, sent, sentRemoved };
+          return { schemaVersion: 1, sessionId, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), drafts, sent };
         }
         const pushRemoteSession = (sessionId) => remoteSync.push(sessionId);
         const scheduleRemotePush = (sessionId) => remoteSync.schedule(sessionId);
@@ -4667,7 +4680,11 @@ ${PICK_SCRIPT}<\/script>`;
               for (const [key, value] of table) {
                 const current = localTable.get(key);
                 if (current === void 0 || value.savedAt > current.savedAt) {
-                  localTable.set(key, value);
+                  const rewound = recordWasRewound(current) ? {
+                    rewoundAt: current.rewoundAt,
+                    ...Number.isFinite(current.rewoundTurn) ? { rewoundTurn: current.rewoundTurn } : {}
+                  } : {};
+                  localTable.set(key, { ...value, ...rewound });
                   merged = true;
                 }
               }
@@ -5069,6 +5086,27 @@ ${PICK_SCRIPT}<\/script>`;
           table.set(storedKey, next);
           sentStore.saveSent(sessionId, table);
           return true;
+        }
+        function recordWasRewound(record) {
+          return record !== null && record !== void 0 && typeof record === "object" && Number.isFinite(record.rewoundAt);
+        }
+        function recordRewoundTurn(record) {
+          if (!recordWasRewound(record)) return null;
+          return Number.isFinite(record.rewoundTurn) ? Number(record.rewoundTurn) : null;
+        }
+        function paintRewoundBadge(card, rewound) {
+          if (card === null || typeof card?.querySelector !== "function") return;
+          const existing = card.querySelector(".sa-sent-rewound");
+          if (rewound !== true) {
+            if (existing !== null) existing.remove();
+            return;
+          }
+          if (existing !== null) return;
+          const title = card.querySelector(".sa-section-title");
+          if (title === null || title.parentElement === null) return;
+          const badge = el("span", "sa-sent-rewound", t("sent.rewound"));
+          badge.setAttribute("data-sa-field", "rewound");
+          title.parentElement.insertBefore(badge, title.nextSibling);
         }
         function paintUnsyncedBadge(card, unsynced) {
           if (card === null || typeof card?.querySelector !== "function") return;
@@ -5843,6 +5881,8 @@ ${PICK_SCRIPT}<\/script>`;
             let card = existing;
             const sentSignature = hashString({
               anchorKey,
+              // 回退标记也算内容：标记变了就得重画卡片，否则「已撤回」要等下一次正文变化才露面。
+              rewoundAt: recordWasRewound(record) ? record.rewoundAt : 0,
               items: record.items.map((item) => ({
                 quote: item.quote,
                 note: item.note,
@@ -5862,6 +5902,10 @@ ${PICK_SCRIPT}<\/script>`;
             if (Number.isFinite(turn)) card.setAttribute("data-sa-turn", String(turn));
             else if (typeof card.removeAttribute === "function") card.removeAttribute("data-sa-turn");
             paintUnsyncedBadge(card, record.unsynced === true);
+            const rewound = recordWasRewound(record);
+            paintRewoundBadge(card, rewound);
+            if (rewound) card.setAttribute("data-sa-rewound", "1");
+            else if (typeof card.removeAttribute === "function") card.removeAttribute("data-sa-rewound");
             const bubbleKind = row === null ? "" : row.getAttribute("data-chat-flow-kind") ?? "";
             const onBubble = !Number.isFinite(turn) && row !== null && (bubbleKind === "user" || bubbleKind === "steering");
             if (onBubble && row.parentElement !== null && row.parentElement !== document.body) {
@@ -6131,6 +6175,13 @@ ${PICK_SCRIPT}<\/script>`;
               )
             );
           }
+          const replyAnchorWithdrawn = (anchorKey) => {
+            const entry = anchorKey === void 0 ? void 0 : byAnchor.get(anchorKey);
+            if (entry === void 0 || !recordWasRewound(entry.record)) return false;
+            const rewindTurn = recordRewoundTurn(entry.record);
+            if (rewindTurn === null) return true;
+            return !Number.isFinite(entry.turn) || entry.turn >= rewindTurn;
+          };
           const anchors = [...byAnchor.entries()].map(([anchorKey, entry]) => ({ anchorKey, savedAt: entry.record.savedAt })).sort((a, b) => a.savedAt - b.savedAt);
           const grouped = /* @__PURE__ */ new Map();
           for (const batch of batches) {
@@ -6151,6 +6202,7 @@ ${PICK_SCRIPT}<\/script>`;
                 if (candidate !== void 0 && hasUuidByAnchor.get(candidate) !== true) target = candidate;
               }
               if (target === void 0) continue;
+              if (replyAnchorWithdrawn(target)) continue;
               let buckets = grouped.get(target);
               if (buckets === void 0) {
                 buckets = /* @__PURE__ */ new Map();
@@ -10325,14 +10377,6 @@ ${PICK_SCRIPT}`;
             imageViewer.remove();
           };
         });
-        function currentMaxTurn() {
-          let max = 0;
-          for (const row of document.querySelectorAll("[data-chat-turn]")) {
-            const value = Number(row.getAttribute("data-chat-turn"));
-            if (Number.isFinite(value)) max = Math.max(max, value);
-          }
-          return max;
-        }
         function applyRewind(sessionId, mark) {
           if (sessionId !== currentSessionId()) return;
           const turn = Number.isFinite(mark?.turn) ? Number(mark.turn) : null;
@@ -10340,35 +10384,22 @@ ${PICK_SCRIPT}`;
             scrollTrace.push({ t: Date.now(), kind: "rewind-skip", session: sessionId, turn: turn ?? null });
             return;
           }
-          const maxTurn = currentMaxTurn();
-          if (maxTurn === 0) {
-            scrollTrace.push({ t: Date.now(), kind: "rewind-skip", session: sessionId, turn: turn ?? null });
-            return;
-          }
-          const cutoff = turn;
+          const rewindAt = Number.isFinite(mark?.at) ? Number(mark.at) : null;
           const table = loadSent(sessionId);
-          const removed = [];
-          for (const [key, record] of [...table]) {
-            if (!Number.isFinite(record?.turn) || record.turn < cutoff) continue;
-            removed.push({ key, record });
-            table.delete(key);
+          const now = Date.now();
+          let marked = 0;
+          for (const record of table.values()) {
+            if (!Number.isFinite(record?.turn) || record.turn < turn) continue;
+            if (rewindAt !== null && !(Number(record.savedAt) <= rewindAt)) continue;
+            record.rewoundAt = now;
+            record.rewoundTurn = turn;
+            marked += 1;
           }
-          if (removed.length > 0) {
-            const gone = sentRemovals.get(sessionId) ?? /* @__PURE__ */ new Set();
-            for (const { key } of removed) gone.add(key);
-            sentRemovals.set(sessionId, gone);
+          if (marked > 0) {
             saveSent(sessionId, table);
+            markConversationDirty();
           }
-          for (const { key } of removed) {
-            for (const card of document.querySelectorAll(`[data-sa-ui="sent"][data-anchor="${cssEscape(key)}"]`)) card.remove();
-          }
-          for (const section of document.querySelectorAll('[data-sa-ui="replies"]')) {
-            const turn2 = Number(section.dataset.saTurn);
-            if (Number.isFinite(turn2) && turn2 >= cutoff) section.remove();
-          }
-          const items = removed.sort((left, right) => left.record.savedAt - right.record.savedAt).flatMap(({ record }) => Array.isArray(record.items) ? record.items : []);
-          if (items.length > 0) reuseSentItems(items, null, true);
-          if (removed.length > 0) markHighlightsDirty();
+          scrollTrace.push({ t: now, kind: "rewind-mark", session: sessionId, turn, marked });
           scheduleRepaint("poll");
         }
         ctx.effect(() => {

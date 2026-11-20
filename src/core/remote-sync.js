@@ -182,12 +182,19 @@ export function createRemoteSync(getSnapshot) {
     }
   }
 
-  /** 删除一条已提交批注；成功返回宿主响应（`{ok,uuid}`），失败返回 undefined。 */
+  /**
+   * 删除一条已提交批注；成功返回宿主响应（`{ok,uuid}`），失败返回 undefined。
+   * 宿主只接受带 `x-sa-explicit-delete: true` 的单条删除（否则 400）：
+   * 批量删除通道因为一次误判把整会话批注删光，已经撤掉，这条单条通道必须自带明确意图。
+   */
   async function deleteEntry(uuid) {
     if (typeof uuid !== 'string' || uuid === '') return undefined
     if (typeof fetch !== 'function') return undefined
     try {
-      const response = await fetch(entryUrl(uuid), { method: 'DELETE', headers: { accept: 'application/json' } })
+      const response = await fetch(entryUrl(uuid), {
+        method: 'DELETE',
+        headers: { accept: 'application/json', 'x-sa-explicit-delete': 'true' },
+      })
       if (!response.ok) return undefined
       return await readObject(response)
     } catch {
