@@ -425,5 +425,68 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return card
   }
 
-  return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection }
+  /**
+   * 只读面板里的答复正文：与答复卡同一套结论标签和 markdown 渲染，
+   * 不再重复「引用原文／批注」两层——弹层上面已经显示过这条批注。
+   * @param reply - 答复条目（verdict / reason / next）。
+   */
+  function buildReplyDetail(reply) {
+    const [labelKey, tone] = VERDICT_LABELS[reply.verdict] ?? ['verdict.unknown', 'accepted']
+    const group = document.createElement('div')
+    group.className = `sa-reply-item sa-tone-${tone}`
+    group.setAttribute('data-sa-reply-detail', '1')
+    if (typeof reply.uuid === 'string' && reply.uuid !== '') group.setAttribute('data-sa-reply-uuid', reply.uuid)
+
+    const a = document.createElement('div')
+    a.className = 'sa-a'
+    const aHead = document.createElement('div')
+    aHead.className = 'sa-a-head'
+    // 「答复」这个标题已经由只读面板的小标题给出，这里只留结论胶囊，避免同一行出现两遍「答复」。
+    const verdict = document.createElement('span')
+    verdict.className = `sa-a-verdict sa-reply-${tone}`
+    verdict.textContent = t(labelKey)
+    aHead.append(verdict)
+    a.appendChild(aHead)
+
+    const reason = document.createElement('div')
+    reason.className = 'sa-a-reason'
+    reason.setAttribute('data-sa-field', 'reason')
+    if (markdown !== undefined && typeof markdown.mount === 'function') {
+      markdown.mount(reason, typeof reply.reason === 'string' ? reply.reason : '')
+    } else {
+      reason.textContent = typeof reply.reason === 'string' ? reply.reason : ''
+    }
+    a.appendChild(reason)
+
+    if (typeof reply.next === 'string' && reply.next.trim() !== '') {
+      const next = document.createElement('div')
+      next.className = 'sa-a-next'
+      next.setAttribute('data-sa-field', 'next')
+      const label = document.createElement('span')
+      label.className = 'sa-a-next-label'
+      label.textContent = t('next.label')
+      const body = document.createElement('div')
+      body.className = 'sa-a-next-text'
+      if (markdown !== undefined && typeof markdown.mount === 'function') {
+        markdown.mount(body, reply.next)
+      } else {
+        body.textContent = reply.next
+      }
+      next.append(label, body)
+      a.appendChild(next)
+    }
+
+    group.appendChild(a)
+    return group
+  }
+
+  return {
+    sectionChevron,
+    buildSectionHead,
+    collapsible,
+    applyCollapsed,
+    buildSentCard,
+    buildReplySection,
+    buildReplyDetail,
+  }
 }

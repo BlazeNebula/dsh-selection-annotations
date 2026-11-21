@@ -167,6 +167,10 @@ export const CSS = `
 /* 「批注」标题行：同一套左标题右跳转，只读态用它放第二个「查看出处」。*/
 .sa-pop-note-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-note-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
+/* 只读面板的答复区：接在批注备注下面，正文用答复卡那套 markdown 渲染。*/
+.sa-pop-reply { flex: none; margin: 2px 0 4px; }
+.sa-pop-reply .sa-a { gap: 4px; }
+.sa-pop-reply .sa-a-reason { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.65; }
 .sa-pop-jump-hint { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }

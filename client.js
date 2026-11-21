@@ -169,6 +169,10 @@
 /* 「批注」标题行：同一套左标题右跳转，只读态用它放第二个「查看出处」。*/
 .sa-pop-note-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-note-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
+/* 只读面板的答复区：接在批注备注下面，正文用答复卡那套 markdown 渲染。*/
+.sa-pop-reply { flex: none; margin: 2px 0 4px; }
+.sa-pop-reply .sa-a { gap: 4px; }
+.sa-pop-reply .sa-a-reason { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.65; }
 .sa-pop-jump-hint { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }
@@ -2573,7 +2577,59 @@
       card.append(wrap);
       return card;
     }
-    return { sectionChevron, buildSectionHead, collapsible, applyCollapsed, buildSentCard, buildReplySection };
+    function buildReplyDetail(reply) {
+      const [labelKey, tone] = VERDICT_LABELS[reply.verdict] ?? ["verdict.unknown", "accepted"];
+      const group = document.createElement("div");
+      group.className = `sa-reply-item sa-tone-${tone}`;
+      group.setAttribute("data-sa-reply-detail", "1");
+      if (typeof reply.uuid === "string" && reply.uuid !== "") group.setAttribute("data-sa-reply-uuid", reply.uuid);
+      const a = document.createElement("div");
+      a.className = "sa-a";
+      const aHead = document.createElement("div");
+      aHead.className = "sa-a-head";
+      const verdict = document.createElement("span");
+      verdict.className = `sa-a-verdict sa-reply-${tone}`;
+      verdict.textContent = t(labelKey);
+      aHead.append(verdict);
+      a.appendChild(aHead);
+      const reason = document.createElement("div");
+      reason.className = "sa-a-reason";
+      reason.setAttribute("data-sa-field", "reason");
+      if (markdown !== void 0 && typeof markdown.mount === "function") {
+        markdown.mount(reason, typeof reply.reason === "string" ? reply.reason : "");
+      } else {
+        reason.textContent = typeof reply.reason === "string" ? reply.reason : "";
+      }
+      a.appendChild(reason);
+      if (typeof reply.next === "string" && reply.next.trim() !== "") {
+        const next = document.createElement("div");
+        next.className = "sa-a-next";
+        next.setAttribute("data-sa-field", "next");
+        const label = document.createElement("span");
+        label.className = "sa-a-next-label";
+        label.textContent = t("next.label");
+        const body = document.createElement("div");
+        body.className = "sa-a-next-text";
+        if (markdown !== void 0 && typeof markdown.mount === "function") {
+          markdown.mount(body, reply.next);
+        } else {
+          body.textContent = reply.next;
+        }
+        next.append(label, body);
+        a.appendChild(next);
+      }
+      group.appendChild(a);
+      return group;
+    }
+    return {
+      sectionChevron,
+      buildSectionHead,
+      collapsible,
+      applyCollapsed,
+      buildSentCard,
+      buildReplySection,
+      buildReplyDetail
+    };
   }
 
   // src/core/markdown.js
@@ -6726,6 +6782,30 @@ ${PICK_SCRIPT}<\/script>`;
           }
           return null;
         }
+        function sentReplyOf(item, record) {
+          if (item === null || item === void 0 || typeof item !== "object") return null;
+          const sessionId = currentSessionId();
+          if (sessionId === void 0) return null;
+          const batches = remoteReplyCache.get(sessionId);
+          if (!Array.isArray(batches) || batches.length === 0) return null;
+          const uuid = typeof item.uuid === "string" && item.uuid !== "" ? item.uuid : "";
+          const quote = typeof item.quote === "string" ? item.quote : "";
+          const anchorKey = typeof record?.anchorKey === "string" && record.anchorKey !== "" ? record.anchorKey : typeof record?.storedKey === "string" ? record.storedKey : "";
+          let loose = null;
+          for (let index = batches.length - 1; index >= 0; index -= 1) {
+            const replies = Array.isArray(batches[index]?.replies) ? batches[index].replies : [];
+            for (const reply of replies) {
+              if (uuid !== "" && reply?.uuid === uuid) return reply;
+              if (uuid !== "" || loose !== null) continue;
+              if (quote === "" || reply?.quote !== quote) continue;
+              if (anchorKey !== "" && typeof reply?.cardKey === "string" && reply.cardKey !== "" && reply.cardKey !== anchorKey) {
+                continue;
+              }
+              loose = reply;
+            }
+          }
+          return loose;
+        }
         function locateHighlightRange(item) {
           const range = locateRange(item);
           if (range !== void 0) return range;
@@ -7373,6 +7453,16 @@ ${PICK_SCRIPT}<\/script>`;
         const popReadNote = document.createElement("div");
         popReadNote.className = "sa-pop-read";
         popReadNote.style.display = "none";
+        const popReplyHead = document.createElement("div");
+        popReplyHead.className = "sa-pop-note-head";
+        popReplyHead.style.display = "none";
+        const popReplyLabel = document.createElement("div");
+        popReplyLabel.className = "sa-pop-label";
+        popReplyLabel.textContent = t("label.answer");
+        popReplyHead.append(popReplyLabel);
+        const popReplyBody = document.createElement("div");
+        popReplyBody.className = "sa-pop-reply";
+        popReplyBody.style.display = "none";
         const popDivider = document.createElement("div");
         popDivider.className = "sa-pop-divider";
         const popSource = document.createElement("div");
@@ -7592,7 +7682,19 @@ ${PICK_SCRIPT}<\/script>`;
         popSave.className = "sa-btn sa-pop-primary";
         popSave.textContent = t("pop.save");
         popActions.append(popDelete, popSpacer, popCancel, popSave);
-        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteHead, popReadNote, popInput, popImages, popActions);
+        popBody.append(
+          popSource,
+          popQuoteHead,
+          popQuote,
+          popDivider,
+          popNoteHead,
+          popReadNote,
+          popReplyHead,
+          popReplyBody,
+          popInput,
+          popImages,
+          popActions
+        );
         popover.append(popHead, popBody);
         const POPOVER_MIN_WIDTH = 260;
         const POPOVER_MIN_HEIGHT = 160;
@@ -8215,6 +8317,14 @@ ${PICK_SCRIPT}<\/script>`;
           popoverItem = options.item ?? null;
           popoverTurn = options.mode === "sent" ? Number.isFinite(options.item?.turn) ? options.item.turn : Number.isFinite(options.item?.source?.turn) ? options.item.source.turn : null : null;
           popoverRecord = options.mode === "sent" && popoverItem !== null ? sentRecordOf(popoverItem) : null;
+          const sentReply = readonly && popoverItem !== null ? sentReplyOf(popoverItem, popoverRecord) : null;
+          if (sentReply === null) {
+            popReplyBody.replaceChildren();
+          } else {
+            popReplyBody.replaceChildren(cards.buildReplyDetail(sentReply));
+          }
+          popReplyHead.style.display = sentReply === null ? "none" : "";
+          popReplyBody.style.display = sentReply === null ? "none" : "";
           popoverSnapshot = options.mode === "edit" && popoverTargetId !== null ? {
             id: popoverTargetId,
             note: typeof options.note === "string" ? options.note : "",

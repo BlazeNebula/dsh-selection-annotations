@@ -3317,6 +3317,48 @@ const rewindHandled = new Map()
           return null
         }
 
+        /**
+         * 这条已发送批注的答复：先按条目 uuid 认；老数据没有 uuid 时，
+         * 退一步按「同一张已发送卡的锚点 + 引文相同」对齐。
+         * @param item - 只读面板的条目（来自已发送台账的绘制副本）。
+         * @param record - sentRecordOf 找到的台账记录，老数据要靠它判归属。
+         */
+        function sentReplyOf(item, record) {
+          if (item === null || item === undefined || typeof item !== 'object') return null
+          const sessionId = currentSessionId()
+          if (sessionId === undefined) return null
+          const batches = remoteReplyCache.get(sessionId)
+          if (!Array.isArray(batches) || batches.length === 0) return null
+          const uuid = typeof item.uuid === 'string' && item.uuid !== '' ? item.uuid : ''
+          const quote = typeof item.quote === 'string' ? item.quote : ''
+          const anchorKey =
+            typeof record?.anchorKey === 'string' && record.anchorKey !== ''
+              ? record.anchorKey
+              : typeof record?.storedKey === 'string'
+                ? record.storedKey
+                : ''
+          let loose = null
+          // 从最新一批往前找：答复只会被后来的写覆盖，取到即最新。
+          for (let index = batches.length - 1; index >= 0; index -= 1) {
+            const replies = Array.isArray(batches[index]?.replies) ? batches[index].replies : []
+            for (const reply of replies) {
+              if (uuid !== '' && reply?.uuid === uuid) return reply
+              if (uuid !== '' || loose !== null) continue
+              if (quote === '' || reply?.quote !== quote) continue
+              if (
+                anchorKey !== '' &&
+                typeof reply?.cardKey === 'string' &&
+                reply.cardKey !== '' &&
+                reply.cardKey !== anchorKey
+              ) {
+                continue
+              }
+              loose = reply
+            }
+          }
+          return loose
+        }
+
         /** 先按锚点重建，锚点键对不上时退到文本指纹；找到的 Range 写回条目缓存。*/
         function locateHighlightRange(item) {
           const range = locateRange(item)
@@ -4158,6 +4200,17 @@ const rewindHandled = new Map()
         const popReadNote = document.createElement('div')
         popReadNote.className = 'sa-pop-read'
         popReadNote.style.display = 'none'
+        /** 只读面板的「答复」区：排在批注备注下面，正文复用答复卡的 markdown 渲染。*/
+        const popReplyHead = document.createElement('div')
+        popReplyHead.className = 'sa-pop-note-head'
+        popReplyHead.style.display = 'none'
+        const popReplyLabel = document.createElement('div')
+        popReplyLabel.className = 'sa-pop-label'
+        popReplyLabel.textContent = t('label.answer')
+        popReplyHead.append(popReplyLabel)
+        const popReplyBody = document.createElement('div')
+        popReplyBody.className = 'sa-pop-reply'
+        popReplyBody.style.display = 'none'
         const popDivider = document.createElement('div')
         popDivider.className = 'sa-pop-divider'
         const popSource = document.createElement('div')
@@ -4416,7 +4469,19 @@ const rewindHandled = new Map()
         popSave.textContent = t('pop.save')
         popActions.append(popDelete, popSpacer, popCancel, popSave)
         // 只有标题固定在顶部；来源、引用原文、备注、图片、按钮行同住正文区一起滚。
-        popBody.append(popSource, popQuoteHead, popQuote, popDivider, popNoteHead, popReadNote, popInput, popImages, popActions)
+        popBody.append(
+          popSource,
+          popQuoteHead,
+          popQuote,
+          popDivider,
+          popNoteHead,
+          popReadNote,
+          popReplyHead,
+          popReplyBody,
+          popInput,
+          popImages,
+          popActions,
+        )
         popover.append(popHead, popBody)
 
         /* ------------------------------------------------------------------ 弹层尺寸调整*/
@@ -5226,6 +5291,16 @@ const rewindHandled = new Map()
               : null
           // 备注行的「查看出处」要回到这条批注的答复卡：批次锚点与轮次都从台账里捞出来备用。
           popoverRecord = options.mode === 'sent' && popoverItem !== null ? sentRecordOf(popoverItem) : null
+          // 只读态的「答复」区：答复从轮询下来的答复缓存里按条目 uuid 取，
+          // 取不到就整块收起，不留一行空的「答复」标题。
+          const sentReply = readonly && popoverItem !== null ? sentReplyOf(popoverItem, popoverRecord) : null
+          if (sentReply === null) {
+            popReplyBody.replaceChildren()
+          } else {
+            popReplyBody.replaceChildren(cards.buildReplyDetail(sentReply))
+          }
+          popReplyHead.style.display = sentReply === null ? 'none' : ''
+          popReplyBody.style.display = sentReply === null ? 'none' : ''
           // 编辑态先留一份快照：之后每敲一下都即时写进条目，只有「取消」才回到这一份。
           popoverSnapshot =
             options.mode === 'edit' && popoverTargetId !== null
