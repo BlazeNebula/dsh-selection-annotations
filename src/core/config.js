@@ -1,4 +1,4 @@
-﻿    /** 批注负载的文件名；只是给用户看的，宿主靠 JSON 里的 kind 字段认领。 */
+    /** 批注负载的文件名；只是给用户看的，宿主靠 JSON 里的 kind 字段认领。 */
 export const ANNOTATION_FILE = '批注.json'
     /** 负载类型标记；客户端与宿主半边共用这个值。*/
 export const PAYLOAD_KIND = 'dsh-selection-annotations'
@@ -74,7 +74,7 @@ export const DEFAULT_INSTRUCTION_EN = [
     /** 界面文案命名空间；DSH 按语言注册后由 bind 解析。*/
 export const LOCALE_NS = 'selection-annotations'
     /** 构建标记：显示在批注总览底部，用来确认当前页面加载的是哪一版代码。*/
-export const PLUGIN_BUILD = '2.0.0'
+export const PLUGIN_BUILD = '2.1.0'
 
     /** 未提交草稿的本地存储前缀：按会话分键。*/
 export const DRAFT_STORAGE_PREFIX = 'dsh-selection-annotations:draft:'

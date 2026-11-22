@@ -1,316 +1,214 @@
-# dsh-selection-annotations
+# Selection Annotations (dsh-selection-annotations)
 
-[English](README.md) · [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md)
 
-> Select text anywhere in the DSH Web UI — an assistant reply, a workspace file, a message from
-> an earlier conversation — leave a note, and send the whole set with your next message as a
-> **machine-readable JSON block attached to that message**. Your prose stays exactly as written.
+> Select text in a DSH conversation, write a note, and send it with your next message. The model's answers come back one by one, attached to the notes they belong to.
 
-A plugin for [DeepSeek Harness](https://github.com/deepseek-ai) (DSH). Zero dependencies,
-zero changes to DSH itself.
+For someone who never writes code, the problem is one sentence long: **make the thing you want changed easy to point at.** No more "the second sentence in the third paragraph above" — select it instead.
 
-## Why not just append the notes to the prompt?
+This document is written in order of involvement: use it, then understand it, then install or change it.
 
-The obvious way to ship "select text → annotate" in a chat UI is to append the annotation block
-to the composer draft at submit time, then hide it again in the rendered bubble. It looks right,
-but the model still receives **one** text block with your notes glued into your prose, and your
-bubble is rewritten by a DOM script after the fact.
+---
 
-This plugin puts the annotations on the message as a real content block instead:
+## Part 1 · I just want to use it
 
-| | draft-text injection | **this plugin** |
-|---|---|---|
-| message `content` | `[{type:'text'}]` | `[{type:'text'}, {type:'file'}]` |
-| what the model receives | your prose with notes inline | your text, **then the JSON payload in the same user message** |
-| your own bubble | rewritten post-send | untouched |
-| position data | free-form text | `lineStart/lineEnd`, `charStart/charEnd`, `anchorKey` |
+### Install once
 
-## Features
+1. Open DSH → Settings → Plugins.
+2. Install this plugin: either by package name `dsh-selection-annotations`, or from the local directory (see [Part 4](#part-4--install-configure-develop)).
+3. **Quit DSH completely** (including the tray icon) and start it again. Reloading the page is not enough — plugin code loads at startup.
 
-| Feature | Detail |
-|---|---|
-| Select to annotate | Assistant replies, user messages, and workspace file previews. The note may be empty — that just marks the quote. |
-| Highlight + numbered badge | Light-yellow overlay plus a numbered badge, anchored on semantic `data-*` attributes. Re-located after scroll or re-render by character range + quote context. |
-| **Click the badge to edit** | Clicking a badge opens *that* annotation for editing (change the note, or delete it). The list panel has the same entry point. |
-| Precise positions | Every annotation records `charStart`/`charEnd` (half-open) plus the workspace-relative `path` and 1-based `lineStart`/`lineEnd` for file sources. Coordinates are resolved against the **original file** whenever it can be read — which is also where Markdown previews get their line numbers — and fall back to rendered-DOM coordinates otherwise; `source.textOrigin` says which. |
-| Trigger next to Send | Registered into `conversation.input.right`, so it occupies one compact control slot and never disturbs the composer layout. |
-| Floating panel | The "批注 ×N" panel is plain DOM appended to `body` with `position: fixed` — it is completely out of flow and never pushes the input box around. |
-| Sent as a separate block | The annotation set is packed into a `File` (`批注.json`) and handed to the runtime's own `createDrafts` + the input shell's `addFiles` — the exact path drag-and-drop attachments use. It is attached only once the upload reports `ready`. |
-| Payload rides on the message | The host half strips that file block from the model-visible content during `agent/pre-step` and appends the JSON as one extra text block on the **same** user message, keeping `source.kind: 'user'` so the auto reviewer reads it as a user instruction. |
-| Consumed on send | Once the attachment is consumed (or manually removed), the set clears — it never sticks to the next message. |
+### One minute to learn
 
-## Payload format
+1. Drag-select a passage of the assistant's answer.
+2. A small toolbar appears under the selection. Click **Annotate**.
+3. Write what you want, e.g. "these numbers are wrong, assume 12 months".
+4. Select the next spot, or just press send.
 
-The model receives the self-describing JSON block appended to your message as its own text block:
+The annotations travel with your message. Your own text is never rewritten.
 
-```json
-{
-  "kind": "dsh-selection-annotations",
-  "version": 1,
-  "instruction": "This is an annotation block sent by the user. It is independent of the user's message text: they may have sent text alongside it, or only this block — in which case the block is the entire message. annotations[].quote is the text the user selected; annotations[].source gives its position ...",
-  "count": 2,
-  "annotations": [
-    {
-      "index": 1,
-      "quote": "设计要点",
-      "note": "测试批注",
-      "source": {
-        "kind": "file",
-        "path": "dsh-selection-annotations/client.js",
-        "lineStart": 4,
-        "lineEnd": 4,
-        "charStart": 126,
-        "charEnd": 130,
-        "textOrigin": "source"
-      }
-    },
-    {
-      "index": 2,
-      "quote": "另一半职责是",
-      "note": "",
-      "source": {
-        "kind": "message",
-        "role": "assistant",
-        "anchorKey": "14:assistant-step6:12",
-        "flowKind": "assistant-step",
-        "charStart": 40,
-        "charEnd": 46,
-        "textOrigin": "rendered"
-      }
-    }
-  ]
-}
+### Five things you will use
+
+- **Point at what should change** — one sentence is enough to say "rewrite this line" or "turn this into a table".
+- **Accept / reject** — the toolbar has both buttons; they fill in 【意见采纳】/【意见否决】 and you add the reason. Colour follows the verdict, so you can see at a glance what was rejected.
+- **Attach a screenshot** — paste an image into the note; faster than describing it.
+- **Look back at what you sent** — each turn shows a "sent annotations" card listing what you marked for it.
+- **See how it answered** — open any entry in that card and the model's reply for that specific note appears right under it: accepted or not, why, and what happens next.
+
+### If something looks wrong
+
+- A toast says "Annotations were not saved, so this message was not sent": that is the safety gate. Your notes and attachments stay in the compose box; press send again — nothing is duplicated.
+- Nothing happens after installing: DSH was probably not fully restarted.
+- Highlights are off by a line: reload the page; this is the scrolling re-anchor edge case.
+
+---
+
+## Part 2 · Once you know your way around
+
+### Selection and toolbar
+
+- Release the drag and the toolbar (reject, accept, annotate, copy) appears below the selection.
+- It follows your selection horizontally, but **deliberately one beat late**: it waits one second after you stop, then slides over. While you are still dragging it stays out of the way.
+- Right-clicking the body text also offers annotate and copy; with nothing selected you get the native menu.
+
+### The annotation popover
+
+- Clicking outside saves; Esc cancels.
+- A brand-new annotation with no text and no image is dropped when you click outside — no empty rows.
+- Hovering an already-annotated passage for half a second opens its editor; moving away saves and closes.
+- Once you **drag the panel or resize it by its corner**, it stops closing when the mouse leaves — and clicking elsewhere no longer dismisses it either. After that only Esc, or opening another annotation, closes it. You placed it yourself; it should stay.
+- Scrolling the wheel inside the panel scrolls the panel only, not the conversation behind it.
+
+### Overview panel
+
+The "Annotations N" pill next to the composer opens the overview:
+
+- Every annotation shows its source, quote, note and thumbnails.
+- Drag the handle to reorder; hover for edit and delete; clear all at the bottom.
+- The footer carries a build stamp (plugin version) — that is how you confirm which code the page actually loaded. Include it in bug reports.
+
+### Sent annotations
+
+- One card per turn, anchored above that turn's "Completed" section, expanded by default.
+- Each entry lists what was sent: quote, note, images.
+- When a conversation is rewound, affected annotations are marked as withdrawn and dimmed. **No data is deleted.**
+
+### Replies
+
+- After processing a batch of annotations the model files one reply per annotation, each with a verdict: accepted / partially accepted / rejected / needs clarification.
+- Reply cards sit under "Completed" for that turn, showing the source, the verdict, the reasoning and the next step.
+- Collapsing "Completed" only hides the body of a reply card; its title stays visible. A card you collapsed yourself is never force-opened because its parent expanded.
+- You can annotate text inside a reply card too; the position records the exact batch and entry.
+
+### Images
+
+- Paste or drop images into the popover; up to 4 per annotation, 8 MB each.
+- Compressed to JPEG (quality 80%) by default; images whose shorter edge is below 100 px are left untouched.
+- Click a thumbnail for full screen; click anywhere or press Esc to close.
+- Images live with the draft in the browser, so they survive a reload or a session switch; when a draft grows too large the oldest images are dropped first and the text is kept.
+
+### Settings
+
+Under Settings → Plugins → Selection Annotations:
+
+- Images: whether to compress, quality, and the shorter-edge threshold.
+- Annotation instruction: the text shown to the model; editable, restorable.
+- Accept / reject wording: the literal text inserted by those buttons (default 【意见采纳】/【意见否决】).
+
+---
+
+## Part 3 · How it works
+
+### What happens when you press send
+
+1. Select, write the note. The annotation is stored in the browser first (draft).
+2. On send, the plugin writes this batch into the local database and **reads it back to verify the count**.
+3. If the count does not match, nothing is sent: a toast appears, the notes stay in the composer, and you can retry. This exists so that a message never leaves with its annotations lost.
+4. Only then is the message sent; the annotations travel as a machine-readable block inside it.
+5. The model reads them and files replies per annotation through the `annotation_replies` tool; replies are stored in the local database.
+6. The UI polls for new replies every 6 seconds and renders reply cards; opening a sent entry shows that entry's reply right under its note.
+
+### Where data lives
+
+| What | Where | Notes |
+| --- | --- | --- |
+| Unsent drafts | Browser `localStorage`: `dsh-selection-annotations:draft:<session id>` | up to 24 sessions, 200 items, ~3.5 MB |
+| Sent ledger | Browser `localStorage`: `dsh-selection-annotations:sent:<session id>` | 120 entries / 2 MB per session |
+| Batches, entries, replies | `$DSH_HOME/selection-annotations/annotations.db` | SQLite (WAL), tables `sessions` / `batches` / `entries` / `drafts` |
+| Annotation images | session attachment directory | sent as attachments with the message |
+| Diagnostics log | `$DSH_HOME/selection-annotations/scroll-trace.log` | keeps the last 2000 lines |
+| Plugin settings | a few `localStorage` keys | images, instruction, verdict wording |
+
+### Privacy and boundaries
+
+- The plugin makes no external network requests; data stays on this machine and inside the current session.
+- Host-side write endpoints accept loopback requests only.
+- Annotations become part of your message, so the model can read them. That is the point.
+
+---
+
+## Part 4 · Install, configure, develop
+
+### Ways to install
+
+- **From npm** (after release): install by package name `dsh-selection-annotations` in the DSH plugin page.
+- **From a local directory**: point the plugin page at the repository path, e.g. `E:\heshujiang\Develop\dsh-selection-annotations`.
+- After installing or upgrading, **fully quit DSH** and start it again; reloading the page does not reload plugin code.
+- Requirements: Node ≥ 22.13 (uses built-in `node:sqlite`).
+
+### Configuration
+
+- `cordis.patch.yml` inserts the plugin into the active profile (`insert` with id `selection-annotations`). DSH itself is not patched.
+- Host option `config.maxPayloadBytes`: payload limit per annotation, 512 KB by default; larger attachments are rejected.
+- Diagnostics switch: run `window.__dshSelectionAnnotations.traceScroll(false)` in the console to stop writing scroll traces.
+- Reply polling interval: `REPLY_POLL_MS` in `src/core/config.js` (6000 ms by default).
+
+### Host HTTP routes
+
+All of them accept loopback requests only (Host must be `127.0.0.1`, `localhost` or `[::1]`):
+
+| Route | Purpose |
+| --- | --- |
+| `GET /selection-annotations/session/<session id>` | read the whole snapshot (old shapes tolerated) |
+| `PUT/POST /selection-annotations/session/<session id>` | write the whole snapshot |
+| `POST /selection-annotations/session/<session id>/batch` | create one batch (idempotent by batch UUID) |
+| `PATCH /selection-annotations/entry/<uuid>` | write one entry's reply |
+| `PATCH /selection-annotations/batch/<batch_uuid>` | backfill the batch's turn and anchor |
+| `POST /selection-annotations/debug/trace` | append diagnostics |
+
+### Source layout and build
+
+Browser code lives in `src/` and is bundled into the single file `client.js` that DSH loads:
+
+| Path | Responsibility |
+| --- | --- |
+| `src/entry.js` | DSH loader entry |
+| `src/plugin.js` | composition root: injected deps, slots, lifecycle, UI |
+| `src/core/` | modules by concern: session, drafts, ledger, remote sync, anchors, cards, popover, styles, messages |
+| `lib/index.js` | host half: claims the annotation attachment, folds the block into the user message, reply storage, tool definition |
+| `lib/annotations-db.js` | SQLite access layer |
+| `scripts/build.mjs` | esbuild bundling |
+| `scripts/check-build.mjs` | verifies `client.js` matches `src/` |
+
+```bash
+npm install          # esbuild is the only dev dependency
+npm run build        # regenerate client.js
+npm run check:build  # verify the bundle matches the sources
+npm test             # build check + all tests
 ```
 
-Notes on the contract:
+`client.js` is generated; do not hand-edit it. React is injected by DSH and treated as external at build time.
 
-- **JSON, not prose.** Positions are things a program consumes — line numbers, character
-  ranges, anchor keys. Structured fields do not get lost in natural language.
-- `charStart`/`charEnd` is a **half-open range** `[charStart, charEnd)`. Which text it indexes is
-  declared by `source.textOrigin`: `"source"` means offsets into the **file's own text**, so they
-  can be applied to the file directly; `"rendered"` means offsets into the rendered DOM text of
-  the anchor element. A hit in the file requires the plugin to read it and find the quote there,
-  so it falls back to `"rendered"` when the file is unreadable or the quote straddles inline
-  Markdown markup. A quote can repeat; a character range cannot.
-- `lineStart`/`lineEnd` are **1-based** and only present for workspace file sources.
-- The host claims the payload **by content**: the parsed JSON must carry
-  `kind: "dsh-selection-annotations"`. The file name is only a cheap pre-filter, so renaming the
-  attachment still works.
-- Multiple annotation attachments are merged into one block and `index` is renumbered `1..N`.
+### Debugging
 
-## Install
+- Scroll diagnostics: `$DSH_HOME/selection-annotations/scroll-trace.log`, one JSON object per line, with `session` and `build` fields.
+- The send gate writes three kinds of records: `gate-post` (started writing), `gate-done` (write and verification result), `gate-block` (why it was blocked).
+- A failed batch write marks the card as unsynced and leaves `batch-post` / `batch-done` in the log.
+- To confirm which build the page loaded, read the build stamp at the bottom of the overview panel.
 
-```sh
-dsh plugin --profile <profile> add dsh-selection-annotations
-```
+### Known limitations
 
-Or install the directory directly with DSH's plugin manager:
+- Anchoring relies on DSH's private DOM structure; a DSH upgrade may require adaptation.
+- Text inside iframes and canvases cannot be annotated.
+- When history is virtualised, card placement follows what DSH actually renders.
+- The annotation database is per device: a conversation can be shared across devices (e.g. over a remote connection), but annotations sent on another device do not show a sent card here. Moving the database with the session is planned work.
+- Where English copy and the Chinese UI differ, the Chinese one is authoritative.
 
-```
-plugin_manager  action: install_bundle  target: <absolute path to this directory>
-```
+### Reporting issues
 
-Installing with `link:` from a source checkout is how this plugin is developed — see
-[Development](#development).
+This plugin is polished through real usage. When opening an issue, include:
 
-## How it works
+1. Plugin version (the build stamp in the overview panel) and DSH version.
+2. What you did, what you expected, what actually happened.
+3. A minimal reproduction when possible.
+4. Relevant log lines: the few dozen lines near the failure in `$DSH_HOME/selection-annotations/scroll-trace.log`.
 
-```
-selection ──▶ annotation { quote, source, note }
-                    │
-                    ├─ locally: highlight + numbered badge + floating panel
-                    │
-                    └─ debounced 450ms ──▶ new File([JSON], '批注.json')
-                                                │
-                                                ▼
-                        conversation.createDrafts(sessionId, [file])
-                                                │  wait for fileUploads[id].status === "ready"
-                                                ▼
-                                  shell.addFiles([], [draftId])
-                                                │
-   user text + annotation attachment = one message with content [ {type:'text'}, {type:'file'} ]
-                                                │
-                                                ▼
-   host `agent/pre-step`: drop the file block ──▶ append the JSON as a text block on this message
-                                                │
-                                                ▼
-       model receives one user message: your text, then the annotation JSON; source stays 'user'
-```
+Strip private conversation content before pasting logs.
 
-### Why this seam
+### Relationship to upstream
 
-DSH's `session.prompt` request schema is a **closed union** of `text | image | file`
-(`dsh-api-session-controller`), so a plugin cannot introduce a custom content block type; and
-`dsh-llm-deepseek` throws `UNSUPPORTED_CONTENT` on unknown user blocks. The supported way to get
-plugin-authored content in front of the model is the `agent/pre-step` waterfall — the same seam
-`@deepseek-ai/dsh-session-reference` uses for cross-session recall.
+This repository is a fork of [2A5F/dsh-selection-annotations](https://github.com/2A5F/dsh-selection-annotations) 1.1.0. Since then storage, anchoring and UI were rewritten for our own workflow: annotations in SQLite, replies addressed by UUID, sent-history review, the reply area, the send gate, and withdrawal markers. Upstream's later 2.x line goes in a different direction and features do not map one to one.
 
-So the plugin uses a `file` block as the carrier: the UI already renders it as its own card, and
-the host half turns it into its own message.
+### License
 
-### Pitfalls worth knowing
-
-1. **`addAttachments(ids)` alone is not enough.** It only appends ids to the input state; the
-   runtime's private `draftAttachments` map has no matching entry, so `resolveDraftAttachments`
-   fails at send time and the annotation never reaches the message. Let the runtime register the
-   draft itself: `conversation.createDrafts(sessionId, [file])` → `shell.addFiles([], ids)`.
-2. **Attaching before the upload is ready breaks the whole send.** `sendSession` throws
-   "one or more files have not finished uploading". Wait for `fileUploads[id].status === 'ready'`.
-3. **Releasing your own attachment must be masked from the consumption watcher**, otherwise the
-   removal is mistaken for "the message was sent" and the annotation set is cleared.
-4. **Do not decide "the attachment was consumed" from a notification — and do not use the
-   runtime's private draft table either.** The submit path removes the attachment ids from the
-   input state and only retires them later; for an attachment-only send (no text) the runtime
-   keeps its draft entry alive until admission settles, so `resolveDraftAttachments` keeps
-   returning it and that check never fires. Conversely, when the outcome is not a success the
-   composer calls `restoreAttachments` and the ids come back. The rule that works: read the
-   input shell's **live** `attachmentIds` field (not the published snapshot — it lags whenever
-   nothing publishes), confirm after a short delay that it still does not hold your ids, and
-   only then clear. That restore can also land long after the turn looks finished, so keep a
-   short guard afterwards: if the ids come back, remove them — the annotations were already
-   delivered, and a chip with nothing behind it just misleads.
-5. **Rendered-DOM offsets are not source offsets.** For a multi-line selection they differ by the
-   newline characters alone, and Markdown rendering drops `#`, `**`, and link URLs entirely. If a
-   consumer will use the offsets against the file, resolve them against the file text
-   (`ctx.remote.workspaceFiles.read`) rather than the DOM — that is what `textOrigin: "source"` marks.
-   Reaching that API needs `'remote'` in the client module's `inject` list: the restricted client
-   context only exposes declared services, so without it `ctx.remote` is simply absent and the
-   lookup falls back to rendered coordinates without any error.
-6. **The client sandbox has `console.log` and `console.error` — and no `console.warn`.**
-   Calling a method that is not there throws, and a throw inside a `catch` turns a handled
-   failure into an unhandled rejection that silently skips whatever came after it. Wrap every
-   log call so it can never break a flow, and never let logging be the only trace of a failure
-   path: on a surface without a console, the trace has to travel with the data.
-7. **A `link:`-installed plugin cannot statically import `@deepseek-ai/*`.** Module resolution
-   follows the plugin's real path (your source checkout), which has no `node_modules`, so those
-   specifiers fail to resolve; a static import makes the whole host half fail to load
-   (`fiberPhase` stays `null`) and the feature silently disappears from the UI. This plugin
-   therefore imports nothing.
-
-## Configuration
-
-| Key | Default | Meaning |
-|---|---|---|
-| `maxPayloadBytes` | `524288` | Read cap for a single annotation attachment. A payload above it is treated as invalid and the message passes through untouched (never a truncated half-block). |
-
-The plugin deliberately does **not** export a `Config` schema — that would require importing
-`@deepseek-ai/schemastery`, which breaks `link:` installs (pitfall 4 above). You can still set
-the option from a profile patch entry; `apply(ctx, config)` receives it as usual:
-
-```yaml
-- id: selection-annotations
-  config:
-    maxPayloadBytes: 1048576
-```
-
-## Troubleshooting
-
-In the browser console:
-
-```js
-window.__dshSelectionAnnotations.list()      // current annotation set
-window.__dshSelectionAnnotations.payload()   // the JSON block about to be submitted (string)
-window.__dshSelectionAnnotations.drafts()    // attached draft ids — [] means nothing is attached
-window.__dshSelectionAnnotations.receipt()   // same, first id only
-window.__dshSelectionAnnotations.session()   // resolved current session id
-window.__dshSelectionAnnotations.add({...})  // add one by hand (debugging)
-window.__dshSelectionAnnotations.update(id, note)  // edit one by hand (debugging)
-```
-
-`drafts()` is the hard indicator: an empty array means the annotations will **not** ride the next
-message, whatever the UI looks like.
-
-Warnings from the plugin are prefixed `[selection-annotations]`.
-
-## Known limitations
-
-- The **quote and source of an annotation cannot be edited** — only the note text, or delete and
-  re-annotate.
-- **A quote that straddles inline Markdown markup may lack line numbers.** Markdown line numbers
-  come from reading the original file and locating the quote in it; if the quote crosses `**bold**`,
-  a link, or a code span, the lookup misses and the annotation keeps rendered-DOM coordinates.
-- Anchoring depends on semantic `data-*` attributes (`data-chat-anchor-key`,
-  `data-chat-flow-kind`, `data-textpreview-url`, `data-code-preview`). If DSH renames them, the
-  anchor layer in `client.js` needs updating.
-- Character ranges are measured against the anchor element's `textContent`. If DSH changes what a
-  message row renders, previously recorded ranges go stale and location falls back to
-  quote + surrounding context.
-- Conversation messages carry character ranges but no line numbers: after Markdown rendering, a
-  visual line number is not a stable coordinate.
-- The `instruction` inside the payload and the plugin's own UI strings are currently hard-coded
-  Chinese; they are not routed through the DSH locale service yet.
-
-## Development
-
-```sh
-npm test           # verifies client.js matches src/, then runs the suite
-npm run build      # regenerate client.js from src/ (required after editing src/)
-```
-
-### Source layout
-
-The client is written as ES modules; `scripts/build.mjs` bundles them with esbuild into the
-single `client.js` that DSH loads. **Do not edit `client.js` directly** — `npm run build`
-overwrites it and `npm test` fails when the two drift apart.
-
-- `src/entry.js` — the `window.__ModuleLoader__.load` shell; React arrives through the host's `factory(require)`.
-- `src/plugin.js` — composition root, exports `createPlugin(React)` returning `name` / `inject` / `apply`; state, selection, popover and panel code that is tightly coupled to the UI still lives here.
-- `src/core/config.js` — file name, limits, default instruction, storage prefixes, build marker.
-- `src/core/messages.js` — zh/en dictionaries.
-- `src/core/styles.js` — all CSS.
-- `src/core/constants.js` — timing and polling constants.
-- `src/core/log.js` — non-throwing `log` / `warn`.
-- `src/core/util.js` — stateless helpers (`safe`, escaping, truncation).
-- `src/core/locale.js` — DSH locale wiring and default instructions.
-- `src/core/settings.js` — image compression and instruction settings.
-- `src/core/payload.js` — annotation payload and source descriptions.
-- `src/core/sent-store.js` — committed-annotation ledger (session / anchor / turn).
-- `src/core/remote-sync.js` — ledger and draft persistence.
-- `src/core/draft-codec.js` / `draft-store.js` — draft serialization, restore and local storage.
-- `src/core/annotation-utils.js` — reply merging and empty-annotation checks.
-- `src/core/image-codec.js` — image compression and data-URL conversion.
-- `src/core/source-locate.js` / `source-capture.js` / `source-resolve.js` — source location, selection anchors, source-coordinate refinement.
-- `src/core/cards.js` — section headers, sent cards and per-reply cards.
-
-Next: selection, popover and the overview panel (the most UI-state-coupled parts), plus the runtime
-that assembles these capabilities.
-
-The suite runs in plain Node — no browser, no DSH install:
-
-- `test/host-pre-step.test.mjs` — host half: stripping the file block, folding the JSON into the
-  same user message, content-based claiming, merging, config branches.
-- `test/client-half.test.mjs` — a minimal DOM + React + Cordis harness around `client.js` that
-  drives the whole data path (annotation → JSON payload → runtime draft attachment → input state →
-  cleared after send) plus anchor re-location and character-range capture.
-- `test/loader.mjs` / `test/schemastery-shim.mjs` — resolve `@deepseek-ai/schemastery` to a local
-  stub so tests can run outside the host. Currently inert (the plugin imports nothing) but kept so
-  that re-adding a host-side schema would not break local tests.
-
-Reload behaviour while developing:
-
-| Half | How a change takes effect |
-|---|---|
-| Client `src/` → `client.js` | Run `npm run build`, then `@deepseek-ai/dsh-client-hmr` hot-swaps it (~500ms poll). **Refresh the page.** |
-| Host `lib/index.js`, already loaded once | **Does not hot-reload.** Neither disable→enable nor `remove_bundle` + `install_bundle` helps (Node ESM module cache). **Restart the host process.** |
-| Host `lib/index.js`, previously failed to load (`fiberPhase: null`) | A single disable→enable re-imports it — **takes effect immediately** |
-
-Do **not** use `remove_bundle` to force a reload of a `link:`-installed plugin: it has been
-observed to remove the profile's dependency and `bundles` entries — leaving the plugin
-uninstalled, with both halves unregistered — while still reporting `application: failed` /
-`not-removable`. Recover with `install_bundle` pointed at the directory. Re-running
-`install_bundle` is enough to re-materialize the client half.
-
-To tell whether the plugin is actually running, check `fiberPhase` for its entry in
-`plugin_manager list_plugins`: `active` means running, `null` means the module failed to load
-(and the client half disappears with it).
-
-To reproduce the host's module resolution locally, run this from the profile directory:
-
-```sh
-cd "$DSH_PROFILE_DIR"
-node --input-type=module -e "import('dsh-selection-annotations').then(m => console.log('OK', Object.keys(m))).catch(e => console.error('FAIL', e.message))"
-```
-
-## License
-
-MIT
+MIT — see [LICENSE](LICENSE).
