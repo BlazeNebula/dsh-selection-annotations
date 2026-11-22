@@ -167,10 +167,24 @@ export const CSS = `
 /* 「批注」标题行：同一套左标题右跳转，只读态用它放第二个「查看出处」。*/
 .sa-pop-note-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-note-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
-/* 只读面板的答复区：接在批注备注下面，正文用答复卡那套 markdown 渲染。*/
+/* 只读面板的答复区：标题与结论胶囊同一行，正文只借文字，不搬答复卡的底色与内边距。*/
+.sa-pop-reply-head { display: flex; align-items: center; gap: 6px; margin: 8px 0 4px; }
+.sa-pop-reply-head .sa-pop-label { flex: none; margin: 0; }
 .sa-pop-reply { flex: none; margin: 2px 0 4px; }
-.sa-pop-reply .sa-a { gap: 4px; }
-.sa-pop-reply .sa-a-reason { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.65; }
+.sa-pop-reply-body { display: flex; flex-direction: column; gap: 4px; }
+.sa-pop-reply-reason { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.65;
+  color: var(--dsw-alias-label-primary, CanvasText); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.sa-pop-reply-reason[data-sa-md="1"] { white-space: normal; }
+.sa-pop-reply-next { display: flex; align-items: baseline; gap: 6px; }
+.sa-pop-reply-next-label { flex: none; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
+  color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-pop-reply-next-text { flex: 1 1 auto; min-width: 0; font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6);
+  line-height: 1.6; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-pop-reply-next-text[data-sa-md="1"] { white-space: normal; }
+.sa-pop-reply-next-text[data-sa-md="1"] :where(p, ul, ol, li, div, span, strong, em, code, a, blockquote) {
+  font-size: inherit; line-height: inherit; color: inherit; }
+.sa-pop-reply-next-text[data-sa-md="1"] :where(p, ul, ol, blockquote) { margin: 0; }
+.sa-pop-reply-next-text[data-sa-md="1"] :where(p + p) { margin-top: 4px; }
 .sa-pop-jump-hint { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }

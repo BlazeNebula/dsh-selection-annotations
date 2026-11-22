@@ -169,10 +169,24 @@
 /* 「批注」标题行：同一套左标题右跳转，只读态用它放第二个「查看出处」。*/
 .sa-pop-note-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 4px; }
 .sa-pop-note-head .sa-pop-label { flex: 1 1 auto; min-width: 0; margin: 0; }
-/* 只读面板的答复区：接在批注备注下面，正文用答复卡那套 markdown 渲染。*/
+/* 只读面板的答复区：标题与结论胶囊同一行，正文只借文字，不搬答复卡的底色与内边距。*/
+.sa-pop-reply-head { display: flex; align-items: center; gap: 6px; margin: 8px 0 4px; }
+.sa-pop-reply-head .sa-pop-label { flex: none; margin: 0; }
 .sa-pop-reply { flex: none; margin: 2px 0 4px; }
-.sa-pop-reply .sa-a { gap: 4px; }
-.sa-pop-reply .sa-a-reason { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.65; }
+.sa-pop-reply-body { display: flex; flex-direction: column; gap: 4px; }
+.sa-pop-reply-reason { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.65;
+  color: var(--dsw-alias-label-primary, CanvasText); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.sa-pop-reply-reason[data-sa-md="1"] { white-space: normal; }
+.sa-pop-reply-next { display: flex; align-items: baseline; gap: 6px; }
+.sa-pop-reply-next-label { flex: none; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
+  color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-pop-reply-next-text { flex: 1 1 auto; min-width: 0; font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6);
+  line-height: 1.6; color: var(--dsw-alias-label-secondary, GrayText); }
+.sa-pop-reply-next-text[data-sa-md="1"] { white-space: normal; }
+.sa-pop-reply-next-text[data-sa-md="1"] :where(p, ul, ol, li, div, span, strong, em, code, a, blockquote) {
+  font-size: inherit; line-height: inherit; color: inherit; }
+.sa-pop-reply-next-text[data-sa-md="1"] :where(p, ul, ol, blockquote) { margin: 0; }
+.sa-pop-reply-next-text[data-sa-md="1"] :where(p + p) { margin-top: 4px; }
 .sa-pop-jump-hint { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-state-warn-primary, #d29922); opacity: 0; transition: opacity 120ms ease; }
@@ -2578,48 +2592,44 @@
       return card;
     }
     function buildReplyDetail(reply) {
-      const [labelKey, tone] = VERDICT_LABELS[reply.verdict] ?? ["verdict.unknown", "accepted"];
-      const group = document.createElement("div");
-      group.className = `sa-reply-item sa-tone-${tone}`;
-      group.setAttribute("data-sa-reply-detail", "1");
-      if (typeof reply.uuid === "string" && reply.uuid !== "") group.setAttribute("data-sa-reply-uuid", reply.uuid);
-      const a = document.createElement("div");
-      a.className = "sa-a";
-      const aHead = document.createElement("div");
-      aHead.className = "sa-a-head";
+      const wrap = document.createElement("div");
+      wrap.className = "sa-pop-reply-body";
+      wrap.setAttribute("data-sa-reply-detail", "1");
+      if (typeof reply.uuid === "string" && reply.uuid !== "") wrap.setAttribute("data-sa-reply-uuid", reply.uuid);
+      const render = (node, text) => {
+        if (markdown !== void 0 && typeof markdown.mount === "function") markdown.mount(node, text);
+        else node.textContent = text;
+      };
+      const reasonText = typeof reply.reason === "string" ? reply.reason : "";
+      if (reasonText.trim() !== "") {
+        const reason = document.createElement("div");
+        reason.className = "sa-pop-reply-reason";
+        reason.setAttribute("data-sa-field", "reason");
+        render(reason, reasonText);
+        wrap.appendChild(reason);
+      }
+      const nextText = typeof reply.next === "string" ? reply.next : "";
+      if (nextText.trim() !== "") {
+        const next = document.createElement("div");
+        next.className = "sa-pop-reply-next";
+        next.setAttribute("data-sa-field", "next");
+        const label = document.createElement("span");
+        label.className = "sa-pop-reply-next-label";
+        label.textContent = t("next.label");
+        const body = document.createElement("div");
+        body.className = "sa-pop-reply-next-text";
+        render(body, nextText);
+        next.append(label, body);
+        wrap.appendChild(next);
+      }
+      return wrap;
+    }
+    function buildReplyVerdict(reply) {
+      const [labelKey, tone] = VERDICT_LABELS[reply?.verdict] ?? ["verdict.unknown", "accepted"];
       const verdict = document.createElement("span");
       verdict.className = `sa-a-verdict sa-reply-${tone}`;
       verdict.textContent = t(labelKey);
-      aHead.append(verdict);
-      a.appendChild(aHead);
-      const reason = document.createElement("div");
-      reason.className = "sa-a-reason";
-      reason.setAttribute("data-sa-field", "reason");
-      if (markdown !== void 0 && typeof markdown.mount === "function") {
-        markdown.mount(reason, typeof reply.reason === "string" ? reply.reason : "");
-      } else {
-        reason.textContent = typeof reply.reason === "string" ? reply.reason : "";
-      }
-      a.appendChild(reason);
-      if (typeof reply.next === "string" && reply.next.trim() !== "") {
-        const next = document.createElement("div");
-        next.className = "sa-a-next";
-        next.setAttribute("data-sa-field", "next");
-        const label = document.createElement("span");
-        label.className = "sa-a-next-label";
-        label.textContent = t("next.label");
-        const body = document.createElement("div");
-        body.className = "sa-a-next-text";
-        if (markdown !== void 0 && typeof markdown.mount === "function") {
-          markdown.mount(body, reply.next);
-        } else {
-          body.textContent = reply.next;
-        }
-        next.append(label, body);
-        a.appendChild(next);
-      }
-      group.appendChild(a);
-      return group;
+      return verdict;
     }
     return {
       sectionChevron,
@@ -2628,7 +2638,8 @@
       applyCollapsed,
       buildSentCard,
       buildReplySection,
-      buildReplyDetail
+      buildReplyDetail,
+      buildReplyVerdict
     };
   }
 
@@ -7454,7 +7465,7 @@ ${PICK_SCRIPT}<\/script>`;
         popReadNote.className = "sa-pop-read";
         popReadNote.style.display = "none";
         const popReplyHead = document.createElement("div");
-        popReplyHead.className = "sa-pop-note-head";
+        popReplyHead.className = "sa-pop-reply-head";
         popReplyHead.style.display = "none";
         const popReplyLabel = document.createElement("div");
         popReplyLabel.className = "sa-pop-label";
@@ -8319,8 +8330,10 @@ ${PICK_SCRIPT}<\/script>`;
           popoverRecord = options.mode === "sent" && popoverItem !== null ? sentRecordOf(popoverItem) : null;
           const sentReply = readonly && popoverItem !== null ? sentReplyOf(popoverItem, popoverRecord) : null;
           if (sentReply === null) {
+            popReplyHead.replaceChildren(popReplyLabel);
             popReplyBody.replaceChildren();
           } else {
+            popReplyHead.replaceChildren(popReplyLabel, cards.buildReplyVerdict(sentReply));
             popReplyBody.replaceChildren(cards.buildReplyDetail(sentReply));
           }
           popReplyHead.style.display = sentReply === null ? "none" : "";

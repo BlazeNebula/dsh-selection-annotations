@@ -426,58 +426,57 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
   }
 
   /**
-   * 只读面板里的答复正文：与答复卡同一套结论标签和 markdown 渲染，
-   * 不再重复「引用原文／批注」两层——弹层上面已经显示过这条批注。
-   * @param reply - 答复条目（verdict / reason / next）。
+   * 只读面板里的答复正文：只把文本按 markdown 渲染，不搬答复卡的底色、内边距与分区造型。
+   * @param reply - 答复条目（reason / next）。
    */
   function buildReplyDetail(reply) {
-    const [labelKey, tone] = VERDICT_LABELS[reply.verdict] ?? ['verdict.unknown', 'accepted']
-    const group = document.createElement('div')
-    group.className = `sa-reply-item sa-tone-${tone}`
-    group.setAttribute('data-sa-reply-detail', '1')
-    if (typeof reply.uuid === 'string' && reply.uuid !== '') group.setAttribute('data-sa-reply-uuid', reply.uuid)
+    const wrap = document.createElement('div')
+    wrap.className = 'sa-pop-reply-body'
+    wrap.setAttribute('data-sa-reply-detail', '1')
+    if (typeof reply.uuid === 'string' && reply.uuid !== '') wrap.setAttribute('data-sa-reply-uuid', reply.uuid)
 
-    const a = document.createElement('div')
-    a.className = 'sa-a'
-    const aHead = document.createElement('div')
-    aHead.className = 'sa-a-head'
-    // 「答复」这个标题已经由只读面板的小标题给出，这里只留结论胶囊，避免同一行出现两遍「答复」。
+    const render = (node, text) => {
+      if (markdown !== undefined && typeof markdown.mount === 'function') markdown.mount(node, text)
+      else node.textContent = text
+    }
+
+    const reasonText = typeof reply.reason === 'string' ? reply.reason : ''
+    if (reasonText.trim() !== '') {
+      const reason = document.createElement('div')
+      reason.className = 'sa-pop-reply-reason'
+      reason.setAttribute('data-sa-field', 'reason')
+      render(reason, reasonText)
+      wrap.appendChild(reason)
+    }
+
+    const nextText = typeof reply.next === 'string' ? reply.next : ''
+    if (nextText.trim() !== '') {
+      const next = document.createElement('div')
+      next.className = 'sa-pop-reply-next'
+      next.setAttribute('data-sa-field', 'next')
+      const label = document.createElement('span')
+      label.className = 'sa-pop-reply-next-label'
+      label.textContent = t('next.label')
+      const body = document.createElement('div')
+      body.className = 'sa-pop-reply-next-text'
+      render(body, nextText)
+      next.append(label, body)
+      wrap.appendChild(next)
+    }
+
+    return wrap
+  }
+
+  /**
+   * 只读面板里答复的结论胶囊：由调用方放到「答复」标题同一行。
+   * @param reply - 答复条目（verdict）。
+   */
+  function buildReplyVerdict(reply) {
+    const [labelKey, tone] = VERDICT_LABELS[reply?.verdict] ?? ['verdict.unknown', 'accepted']
     const verdict = document.createElement('span')
     verdict.className = `sa-a-verdict sa-reply-${tone}`
     verdict.textContent = t(labelKey)
-    aHead.append(verdict)
-    a.appendChild(aHead)
-
-    const reason = document.createElement('div')
-    reason.className = 'sa-a-reason'
-    reason.setAttribute('data-sa-field', 'reason')
-    if (markdown !== undefined && typeof markdown.mount === 'function') {
-      markdown.mount(reason, typeof reply.reason === 'string' ? reply.reason : '')
-    } else {
-      reason.textContent = typeof reply.reason === 'string' ? reply.reason : ''
-    }
-    a.appendChild(reason)
-
-    if (typeof reply.next === 'string' && reply.next.trim() !== '') {
-      const next = document.createElement('div')
-      next.className = 'sa-a-next'
-      next.setAttribute('data-sa-field', 'next')
-      const label = document.createElement('span')
-      label.className = 'sa-a-next-label'
-      label.textContent = t('next.label')
-      const body = document.createElement('div')
-      body.className = 'sa-a-next-text'
-      if (markdown !== undefined && typeof markdown.mount === 'function') {
-        markdown.mount(body, reply.next)
-      } else {
-        body.textContent = reply.next
-      }
-      next.append(label, body)
-      a.appendChild(next)
-    }
-
-    group.appendChild(a)
-    return group
+    return verdict
   }
 
   return {
@@ -488,5 +487,6 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     buildSentCard,
     buildReplySection,
     buildReplyDetail,
+    buildReplyVerdict,
   }
 }

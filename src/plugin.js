@@ -4200,9 +4200,9 @@ const rewindHandled = new Map()
         const popReadNote = document.createElement('div')
         popReadNote.className = 'sa-pop-read'
         popReadNote.style.display = 'none'
-        /** 只读面板的「答复」区：排在批注备注下面，正文复用答复卡的 markdown 渲染。*/
+        /** 只读面板的「答复」区：排在批注备注下面，结论胶囊与标题同行，正文只按 markdown 渲染文字。*/
         const popReplyHead = document.createElement('div')
-        popReplyHead.className = 'sa-pop-note-head'
+        popReplyHead.className = 'sa-pop-reply-head'
         popReplyHead.style.display = 'none'
         const popReplyLabel = document.createElement('div')
         popReplyLabel.className = 'sa-pop-label'
@@ -5295,8 +5295,11 @@ const rewindHandled = new Map()
           // 取不到就整块收起，不留一行空的「答复」标题。
           const sentReply = readonly && popoverItem !== null ? sentReplyOf(popoverItem, popoverRecord) : null
           if (sentReply === null) {
+            popReplyHead.replaceChildren(popReplyLabel)
             popReplyBody.replaceChildren()
           } else {
+            // 结论胶囊跟「答复」标题并排；正文与「接下来」只渲染文字，不搬答复卡的底色与内边距。
+            popReplyHead.replaceChildren(popReplyLabel, cards.buildReplyVerdict(sentReply))
             popReplyBody.replaceChildren(cards.buildReplyDetail(sentReply))
           }
           popReplyHead.style.display = sentReply === null ? 'none' : ''
