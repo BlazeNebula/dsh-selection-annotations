@@ -7424,6 +7424,8 @@ ${PICK_SCRIPT}<\/script>`;
           const rect = popover.getBoundingClientRect();
           popDrag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top, width: rect.width, height: rect.height };
           popover.dataset.dragged = "1";
+          popoverTouched = true;
+          cancelHoverClose();
           popover.classList.add("sa-pop-dragging");
           event.preventDefault();
           if (typeof popHead.setPointerCapture === "function") safe(() => popHead.setPointerCapture(event.pointerId));
@@ -7483,6 +7485,9 @@ ${PICK_SCRIPT}<\/script>`;
         const popReplyBody = document.createElement("div");
         popReplyBody.className = "sa-pop-reply";
         popReplyBody.style.display = "none";
+        const popReplyDivider = document.createElement("div");
+        popReplyDivider.className = "sa-pop-divider";
+        popReplyDivider.style.display = "none";
         const popDivider = document.createElement("div");
         popDivider.className = "sa-pop-divider";
         const popSource = document.createElement("div");
@@ -7709,6 +7714,7 @@ ${PICK_SCRIPT}<\/script>`;
           popDivider,
           popNoteHead,
           popReadNote,
+          popReplyDivider,
           popReplyHead,
           popReplyBody,
           popInput,
@@ -7873,6 +7879,8 @@ ${PICK_SCRIPT}<\/script>`;
           popover.style.maxHeight = `${Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)}px`;
           popoverSized = true;
           popover.dataset.dragged = "1";
+          popoverTouched = true;
+          cancelHoverClose();
           popover.classList.add("sa-pop-resizing");
           event.preventDefault();
           event.stopPropagation();
@@ -7892,6 +7900,8 @@ ${PICK_SCRIPT}<\/script>`;
           applyPopoverSize(width, height);
           popover.style.maxHeight = `${Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)}px`;
           popover.dataset.dragged = "1";
+          popoverTouched = true;
+          cancelHoverClose();
           if (popoverMode !== "sent") savePopoverSize(width, height);
         }
         function createPopoverResizer(edge, extraClass, label) {
@@ -8347,6 +8357,7 @@ ${PICK_SCRIPT}<\/script>`;
             popReplyBody.className = `sa-pop-reply sa-tone-${cards.replyTone(sentReply)}`;
             popReplyBody.replaceChildren(cards.buildReplyDetail(sentReply));
           }
+          popReplyDivider.style.display = sentReply === null ? "none" : "";
           popReplyHead.style.display = sentReply === null ? "none" : "";
           popReplyBody.style.display = sentReply === null ? "none" : "";
           popoverSnapshot = options.mode === "edit" && popoverTargetId !== null ? {

@@ -4146,6 +4146,9 @@ const rewindHandled = new Map()
           const rect = popover.getBoundingClientRect()
           popDrag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top, width: rect.width, height: rect.height }
           popover.dataset.dragged = '1'
+          // 亲手挪过位置就算接手了：之后鼠标离开也不自动收起。
+          popoverTouched = true
+          cancelHoverClose()
           popover.classList.add('sa-pop-dragging')
           event.preventDefault()
           if (typeof popHead.setPointerCapture === 'function') safe(() => popHead.setPointerCapture(event.pointerId))
@@ -4211,6 +4214,10 @@ const rewindHandled = new Map()
         const popReplyBody = document.createElement('div')
         popReplyBody.className = 'sa-pop-reply'
         popReplyBody.style.display = 'none'
+        /** 「备注」与「答复」之间沿用批注与引文之间那条虚线，只在有答复时出现。*/
+        const popReplyDivider = document.createElement('div')
+        popReplyDivider.className = 'sa-pop-divider'
+        popReplyDivider.style.display = 'none'
         const popDivider = document.createElement('div')
         popDivider.className = 'sa-pop-divider'
         const popSource = document.createElement('div')
@@ -4476,6 +4483,7 @@ const rewindHandled = new Map()
           popDivider,
           popNoteHead,
           popReadNote,
+          popReplyDivider,
           popReplyHead,
           popReplyBody,
           popInput,
@@ -4686,6 +4694,9 @@ const rewindHandled = new Map()
           popover.style.maxHeight = `${Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)}px`
           popoverSized = true
           popover.dataset.dragged = '1'
+          // 调过尺寸同样算接手：悬停预览不再因为鼠标离开而收起。
+          popoverTouched = true
+          cancelHoverClose()
           popover.classList.add('sa-pop-resizing')
           event.preventDefault()
           event.stopPropagation()
@@ -4707,6 +4718,8 @@ const rewindHandled = new Map()
           applyPopoverSize(width, height)
           popover.style.maxHeight = `${Math.max(POPOVER_MIN_HEIGHT, window.innerHeight - POPOVER_MARGIN * 2)}px`
           popover.dataset.dragged = '1'
+          popoverTouched = true
+          cancelHoverClose()
           // 只读面板的拖拽尺寸只在本会话内存里生效，不写编辑面板记住的那一份。
           if (popoverMode !== 'sent') savePopoverSize(width, height)
         }
@@ -5304,6 +5317,7 @@ const rewindHandled = new Map()
             popReplyBody.className = `sa-pop-reply sa-tone-${cards.replyTone(sentReply)}`
             popReplyBody.replaceChildren(cards.buildReplyDetail(sentReply))
           }
+          popReplyDivider.style.display = sentReply === null ? 'none' : ''
           popReplyHead.style.display = sentReply === null ? 'none' : ''
           popReplyBody.style.display = sentReply === null ? 'none' : ''
           // 编辑态先留一份快照：之后每敲一下都即时写进条目，只有「取消」才回到这一份。
