@@ -1,174 +1,113 @@
-# Selection Annotations (dsh-selection-annotations)
+# Selection Annotations
 
 **English** · [简体中文](README.zh-CN.md)
 
-> Select text in a DSH conversation, write a note, and send it with your next message. The model's answers come back one by one, attached to the notes they belong to.
+Select a passage in the conversation, write what you think about it, and it travels with your next message. The model's answers come back one by one, attached to the exact spot you pointed at.
 
-For someone who never writes code, the problem is one sentence long: **make the thing you want changed easy to point at.** No more "the second sentence in the third paragraph above" — select it instead.
-
-This document is written in order of involvement: use it, then understand it, then install or change it.
+You no longer have to write "change the second sentence in the third paragraph above". Select it instead.
 
 ---
 
-## Part 1 · I just want to use it
+## Install
 
-### Install once
+Install it from DSH → Settings → Plugins. If you can reach npm, use the package name `dsh-selection-annotations`; if not, install from the local folder instead.
 
-1. Open DSH → Settings → Plugins.
-2. Install this plugin: either by package name `dsh-selection-annotations`, or from the local directory (see [Part 4](#part-4--install-configure-develop)).
-3. **Quit DSH completely** (including the tray icon) and start it again. Reloading the page is not enough — plugin code loads at startup.
+Then **quit DSH completely** — including the tray icon — and start it again. Reloading the page is not enough; plugin code loads at startup.
 
-### One minute to learn
+## Three steps to start
 
 1. Drag-select a passage of the assistant's answer.
-2. A small toolbar appears under the selection. Click **Annotate**.
-3. Write what you want, e.g. "these numbers are wrong, assume 12 months".
-4. Select the next spot, or just press send.
+2. A row of buttons appears under the selection. Click **Annotate**.
+3. Write what you mean, for example "recompute these numbers with 12 months".
 
-The annotations travel with your message. Your own text is never rewritten.
+Then select the next spot, or just send. Your own text is left untouched; the annotations are extra context that rides along with the message.
 
-### Five things you will use
+## Things you will run into
 
-- **Point at what should change** — one sentence is enough to say "rewrite this line" or "turn this into a table".
-- **Accept / reject** — the toolbar has both buttons; they fill in 【意见采纳】/【意见否决】 and you add the reason. Colour follows the verdict, so you can see at a glance what was rejected.
-- **Attach a screenshot** — paste an image into the note; faster than describing it.
-- **Look back at what you sent** — each turn shows a "sent annotations" card listing what you marked for it.
-- **See how it answered** — open any entry in that card and the model's reply for that specific note appears right under it: accepted or not, why, and what happens next.
+### The toolbar waits a beat
 
-### If something looks wrong
+Under the selection you get reject, accept, annotate and copy. The toolbar follows your selection horizontally, but only after you hold still for a second — it does not chase the pointer while you are still dragging, so it never covers the words you are trying to select.
 
-- A toast says "Annotations were not saved, so this message was not sent": that is the safety gate. Your notes and attachments stay in the compose box; press send again — nothing is duplicated.
-- Nothing happens after installing: DSH was probably not fully restarted.
-- Highlights are off by a line: reload the page; this is the scrolling re-anchor edge case.
+### Clicking outside saves
 
----
+Clicking outside the note box saves it; Esc throws it away. A fresh annotation with no text and no image is dropped when you click outside, so you never end up with empty rows.
 
-## Part 2 · Once you know your way around
+Hover an already-annotated passage for half a second and its editor opens; move away and it saves and closes.
 
-### Selection and toolbar
+Once you have **dragged the box or resized it by the corner**, it stops closing on its own: clicking elsewhere no longer dismisses it either. At that point only Esc, or opening another annotation, closes it — you placed it yourself, and it should not wander off. It still gives way when you hover a different annotation.
 
-- Release the drag and the toolbar (reject, accept, annotate, copy) appears below the selection.
-- It follows your selection horizontally, but **deliberately one beat late**: it waits one second after you stop, then slides over. While you are still dragging it stays out of the way.
-- Right-clicking the body text also offers annotate and copy; with nothing selected you get the native menu.
+Scrolling the wheel inside the box scrolls the box only; the conversation behind it stays put.
 
-### The annotation popover
+### Overview
 
-- Clicking outside saves; Esc cancels.
-- A brand-new annotation with no text and no image is dropped when you click outside — no empty rows.
-- Hovering an already-annotated passage for half a second opens its editor; moving away saves and closes.
-- Once you **drag the panel or resize it by its corner**, it stops closing when the mouse leaves — and clicking elsewhere no longer dismisses it either. After that only Esc, or opening another annotation, closes it. You placed it yourself; it should stay.
-- Scrolling the wheel inside the panel scrolls the panel only, not the conversation behind it.
+A small "Annotations N" pill sits next to the composer. It opens every annotation in the session: source, quote, your note, thumbnails. Drag the rows to reorder, hover to edit or delete, clear all at the bottom. The last line is the plugin version — quote it when you report a problem.
 
-### Overview panel
+### What you already sent
 
-The "Annotations N" pill next to the composer opens the overview:
+Each turn has a card listing what you marked for it. When a conversation is rewound, the affected entries are marked as withdrawn and dimmed. That is only a marker; nothing is deleted.
 
-- Every annotation shows its source, quote, note and thumbnails.
-- Drag the handle to reorder; hover for edit and delete; clear all at the bottom.
-- The footer carries a build stamp (plugin version) — that is how you confirm which code the page actually loaded. Include it in bug reports.
+### How it answered
 
-### Sent annotations
+Open any entry in that card and the reply for that specific note sits under your note: the verdict, the reasoning, and what comes next. The reasoning is rendered as Markdown, so lists and code blocks show up properly.
 
-- One card per turn, anchored above that turn's "Completed" section, expanded by default.
-- Each entry lists what was sent: quote, note, images.
-- When a conversation is rewound, affected annotations are marked as withdrawn and dimmed. **No data is deleted.**
-
-### Replies
-
-- After processing a batch of annotations the model files one reply per annotation, each with a verdict: accepted / partially accepted / rejected / needs clarification.
-- Reply cards sit under "Completed" for that turn, showing the source, the verdict, the reasoning and the next step.
-- Collapsing "Completed" only hides the body of a reply card; its title stays visible. A card you collapsed yourself is never force-opened because its parent expanded.
-- You can annotate text inside a reply card too; the position records the exact batch and entry.
+Reply cards also appear under that turn's "Completed" section. Collapsing "Completed" only folds the body of a reply card; the title stays out. A card you collapsed yourself is never popped open again because its parent expanded.
 
 ### Images
 
-- Paste or drop images into the popover; up to 4 per annotation, 8 MB each.
-- Compressed to JPEG (quality 80%) by default; images whose shorter edge is below 100 px are left untouched.
-- Click a thumbnail for full screen; click anywhere or press Esc to close.
-- Images live with the draft in the browser, so they survive a reload or a session switch; when a draft grows too large the oldest images are dropped first and the text is kept.
+Paste or drop images straight into the note box. Up to 4 per annotation, 8 MB each, compressed to JPEG by default; images whose shorter edge is under 100 px are left alone. Click a thumbnail for full screen, click anywhere or press Esc to leave.
+
+Images live with the draft in the browser, so a reload or a session switch keeps them. When a draft grows too large the oldest images go first and the text stays.
 
 ### Settings
 
-Under Settings → Plugins → Selection Annotations:
+Under Settings → Plugins → Selection Annotations there are three things: image compression and quality, the instruction shown to the model, and the wording inserted by the accept / reject buttons.
 
-- Images: whether to compress, quality, and the shorter-edge threshold.
-- Annotation instruction: the text shown to the model; editable, restorable.
-- Accept / reject wording: the literal text inserted by those buttons (default 【意见采纳】/【意见否决】).
+## Where the data lives
 
----
-
-## Part 3 · How it works
-
-### What happens when you press send
-
-1. Select, write the note. The annotation is stored in the browser first (draft).
-2. On send, the plugin writes this batch into the local database and **reads it back to verify the count**.
-3. If the count does not match, nothing is sent: a toast appears, the notes stay in the composer, and you can retry. This exists so that a message never leaves with its annotations lost.
-4. Only then is the message sent; the annotations travel as a machine-readable block inside it.
-5. The model reads them and files replies per annotation through the `annotation_replies` tool; replies are stored in the local database.
-6. The UI polls for new replies every 6 seconds and renders reply cards; opening a sent entry shows that entry's reply right under its note.
-
-### Where data lives
-
-| What | Where | Notes |
-| --- | --- | --- |
-| Unsent drafts | Browser `localStorage`: `dsh-selection-annotations:draft:<session id>` | up to 24 sessions, 200 items, ~3.5 MB |
-| Sent ledger | Browser `localStorage`: `dsh-selection-annotations:sent:<session id>` | 120 entries / 2 MB per session |
-| Batches, entries, replies | `$DSH_HOME/selection-annotations/annotations.db` | SQLite (WAL), tables `sessions` / `batches` / `entries` / `drafts` |
-| Annotation images | session attachment directory | sent as attachments with the message |
-| Diagnostics log | `$DSH_HOME/selection-annotations/scroll-trace.log` | keeps the last 2000 lines |
-| Plugin settings | a few `localStorage` keys | images, instruction, verdict wording |
-
-### Privacy and boundaries
-
-- The plugin makes no external network requests; data stays on this machine and inside the current session.
-- Host-side write endpoints accept loopback requests only.
-- Annotations become part of your message, so the model can read them. That is the point.
-
----
-
-## Part 4 · Install, configure, develop
-
-### Ways to install
-
-- **From npm** (after release): install by package name `dsh-selection-annotations` in the DSH plugin page.
-- **From a local directory**: point the plugin page at the repository path, e.g. `E:\heshujiang\Develop\dsh-selection-annotations`.
-- After installing or upgrading, **fully quit DSH** and start it again; reloading the page does not reload plugin code.
-- Requirements: Node ≥ 22.13 (uses built-in `node:sqlite`).
-
-### Configuration
-
-- `cordis.patch.yml` inserts the plugin into the active profile (`insert` with id `selection-annotations`). DSH itself is not patched.
-- Host option `config.maxPayloadBytes`: payload limit per annotation, 512 KB by default; larger attachments are rejected.
-- Diagnostics switch: run `window.__dshSelectionAnnotations.traceScroll(false)` in the console to stop writing scroll traces.
-- Reply polling interval: `REPLY_POLL_MS` in `src/core/config.js` (6000 ms by default).
-
-### Host HTTP routes
-
-All of them accept loopback requests only (Host must be `127.0.0.1`, `localhost` or `[::1]`):
-
-| Route | Purpose |
+| What | Where |
 | --- | --- |
-| `GET /selection-annotations/session/<session id>` | read the whole snapshot (old shapes tolerated) |
-| `PUT/POST /selection-annotations/session/<session id>` | write the whole snapshot |
-| `POST /selection-annotations/session/<session id>/batch` | create one batch (idempotent by batch UUID) |
-| `PATCH /selection-annotations/entry/<uuid>` | write one entry's reply |
-| `PATCH /selection-annotations/batch/<batch_uuid>` | backfill the batch's turn and anchor |
-| `POST /selection-annotations/debug/trace` | append diagnostics |
+| Drafts not yet sent | `localStorage`: `dsh-selection-annotations:draft:<session id>` — up to 24 sessions, 200 items, ~3.5 MB |
+| Records of what was sent | `localStorage`: `dsh-selection-annotations:sent:<session id>` — 120 entries and 2 MB per session |
+| Batches, entries, replies | `$DSH_HOME/selection-annotations/annotations.db` (SQLite, WAL; tables `sessions`, `batches`, `entries`, `drafts`) |
+| Annotation images | The session attachment folder, stored with the message |
+| Diagnostics | `$DSH_HOME/selection-annotations/scroll-trace.log`, last 2000 lines |
+| Plugin settings | A few `localStorage` keys |
 
-### Source layout and build
+The plugin makes no outbound requests; data stays on this machine and inside the current session, and the host-side write endpoints accept loopback only. Annotations do become part of your message, so the model reads them — that is the point.
 
-Browser code lives in `src/` and is bundled into the single file `client.js` that DSH loads:
+## What happens when you press send
+
+1. You select and write; the content is stored in the browser first (draft).
+2. On send, the plugin writes the batch into the local database and reads it back to check the count.
+3. If the count does not match, nothing is sent. A toast explains it, the notes and attachments stay in the composer, and you can retry — the retry reuses the same batch id, so nothing is duplicated.
+4. Only then does the message go out, with the annotations as a machine-readable block inside it.
+5. The model reads them and files one reply per annotation; replies land in the local database.
+6. The UI polls for new replies every 6 seconds and renders reply cards.
+
+Step 3 can feel like a nuisance. It costs you one extra press, and it buys you the guarantee that a message never leaves with its annotations lost.
+
+## Other machines and upgrades
+
+- After an upgrade, fully quit DSH and start it again.
+- Node ≥ 22.13 is required (built-in `node:sqlite`).
+- The plugin is inserted into the active profile through `cordis.patch.yml` (`insert`, id `selection-annotations`); DSH itself is not patched.
+- The host option `config.maxPayloadBytes` caps one annotation's payload at 512 KB by default; larger ones are rejected.
+- To stop the scroll diagnostics, run `window.__dshSelectionAnnotations.traceScroll(false)` in the console.
+- Reply polling interval is `REPLY_POLL_MS` in `src/core/config.js`, 6000 ms by default.
+
+## If you want to change the code
+
+Browser code lives in `src/` and is bundled into the single file `client.js` that DSH loads.
 
 | Path | Responsibility |
 | --- | --- |
 | `src/entry.js` | DSH loader entry |
 | `src/plugin.js` | composition root: injected deps, slots, lifecycle, UI |
-| `src/core/` | modules by concern: session, drafts, ledger, remote sync, anchors, cards, popover, styles, messages |
-| `lib/index.js` | host half: claims the annotation attachment, folds the block into the user message, reply storage, tool definition |
+| `src/core/` | modules by concern: session, drafts, ledger, sync, anchors, cards, popover, styles, copy… |
+| `lib/index.js` | the host half: claims the annotation attachment, folds the block into the user message, stores replies, defines the tool |
 | `lib/annotations-db.js` | SQLite access layer |
 | `scripts/build.mjs` | esbuild bundling |
-| `scripts/check-build.mjs` | verifies `client.js` matches `src/` |
+| `scripts/check-build.mjs` | verifies `client.js` matches the sources |
 
 ```bash
 npm install          # esbuild is the only dev dependency
@@ -177,38 +116,46 @@ npm run check:build  # verify the bundle matches the sources
 npm test             # build check + all tests
 ```
 
-`client.js` is generated; do not hand-edit it. React is injected by DSH and treated as external at build time.
+`client.js` is generated; do not hand-edit it. React is supplied by DSH and treated as external.
 
-### Debugging
+### Host routes
 
-- Scroll diagnostics: `$DSH_HOME/selection-annotations/scroll-trace.log`, one JSON object per line, with `session` and `build` fields.
-- The send gate writes three kinds of records: `gate-post` (started writing), `gate-done` (write and verification result), `gate-block` (why it was blocked).
-- A failed batch write marks the card as unsynced and leaves `batch-post` / `batch-done` in the log.
-- To confirm which build the page loaded, read the build stamp at the bottom of the overview panel.
+All of them accept loopback requests only (Host must be `127.0.0.1`, `localhost` or `[::1]`):
 
-### Known limitations
+| Route | Purpose |
+| --- | --- |
+| `GET /selection-annotations/session/<session id>` | read the whole snapshot, old shapes included |
+| `PUT` / `POST` on the same path | write the whole snapshot |
+| `POST /selection-annotations/session/<session id>/batch` | create one batch, idempotent by batch id |
+| `PATCH /selection-annotations/entry/<uuid>` | write one entry's reply |
+| `PATCH /selection-annotations/batch/<batch_uuid>` | backfill that batch's turn and anchor |
+| `POST /selection-annotations/debug/trace` | append diagnostics |
 
-- Anchoring relies on DSH's private DOM structure; a DSH upgrade may require adaptation.
-- Text inside iframes and canvases cannot be annotated.
+### When something breaks
+
+The diagnostics log is one JSON object per line, carrying `session` and `build`. The send gate leaves three kinds of records: `gate-post` (started writing), `gate-done` (write and check result), `gate-block` (why it was blocked). A failed batch write leaves `batch-post` / `batch-done` and marks the card unsynced. To find out which build the page loaded, read the build stamp at the bottom of the overview panel.
+
+## What it cannot do yet
+
+- Anchoring relies on DSH's private DOM structure; a major DSH upgrade may need adaptation.
+- Text inside iframes and canvases cannot be selected for annotation.
 - When history is virtualised, card placement follows what DSH actually renders.
-- The annotation database is per device: a conversation can be shared across devices (e.g. over a remote connection), but annotations sent on another device do not show a sent card here. Moving the database with the session is planned work.
-- Where English copy and the Chinese UI differ, the Chinese one is authoritative.
+- The annotation database is per device. A conversation can be shared across devices, but annotations sent from another device do not show a sent card here. Moving the database with the session is planned.
+- Where the English interface and the Chinese one disagree, the Chinese one wins.
 
-### Reporting issues
+## Reporting problems
 
-This plugin is polished through real usage. When opening an issue, include:
+This plugin is sharpened by real use, so issues are welcome. Please include:
 
-1. Plugin version (the build stamp in the overview panel) and DSH version.
+1. The plugin version (build stamp at the bottom of the overview panel) and the DSH version.
 2. What you did, what you expected, what actually happened.
-3. A minimal reproduction when possible.
-4. Relevant log lines: the few dozen lines near the failure in `$DSH_HOME/selection-annotations/scroll-trace.log`.
+3. A reproduction, as small as you can make it.
+4. The few dozen `scroll-trace.log` lines around the failure.
 
-Strip private conversation content before pasting logs.
+Remove private conversation content before pasting logs.
 
-### Relationship to upstream
+## About this repository
 
-This repository is a fork of [2A5F/dsh-selection-annotations](https://github.com/2A5F/dsh-selection-annotations) 1.1.0. Since then storage, anchoring and UI were rewritten for our own workflow: annotations in SQLite, replies addressed by UUID, sent-history review, the reply area, the send gate, and withdrawal markers. Upstream's later 2.x line goes in a different direction and features do not map one to one.
-
-### License
+A fork of [2A5F/dsh-selection-annotations](https://github.com/2A5F/dsh-selection-annotations) 1.1.0. Storage, anchoring and UI were rewritten for our own workflow since then: annotations in SQLite, replies addressed by UUID, sent-history review, the reply area, the send gate, withdrawal markers and more. Upstream's later 2.x line went a different way, so features do not map one to one.
 
 MIT — see [LICENSE](LICENSE).
