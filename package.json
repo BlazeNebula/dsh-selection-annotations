@@ -1,6 +1,6 @@
 {
   "name": "dsh-selection-annotations",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "DeepSeek Harness 批注插件：在 Web 界面里选中文字加批注，随消息一起发送；批注是独立的 JSON 数据块，不会混进消息正文。DSH plugin: select text in the Web UI to annotate it, and send the whole set with your message as a separate JSON content block — never mixed into your message text.",
   "type": "module",
   "license": "MIT",
@@ -23,6 +23,7 @@
     ".": "./lib/index.js",
     "./client": "./client.js",
     "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
@@ -31,6 +32,7 @@
     "src",
     "scripts",
     "icon.svg",
+    "locale/*.json",
     "cordis.patch.yml",
     "README.md",
     "README.zh-CN.md",
@@ -43,11 +45,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/2A5F/dsh-selection-annotations.git"
+    "url": "git+https://github.com/BlazeNebula/dsh-selection-annotations.git"
   },
-  "homepage": "https://github.com/2A5F/dsh-selection-annotations#readme",
+  "homepage": "https://github.com/BlazeNebula/dsh-selection-annotations#readme",
   "bugs": {
-    "url": "https://github.com/2A5F/dsh-selection-annotations/issues"
+    "url": "https://github.com/BlazeNebula/dsh-selection-annotations/issues"
   },
   "publishConfig": {
     "access": "public"

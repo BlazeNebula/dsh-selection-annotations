@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Selection annotations",
+    "description": "Select text in the Web UI to annotate it, then send the whole set with your message. Annotations travel as a separate JSON block, never mixed into your message text; the Agent answers each note in place, and a send is held back until the annotations are stored."
+  }
+}

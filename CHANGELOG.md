@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.1（2026-11-23）
+
+- 插件页与插件详情页现在显示名字与一句说明（英文 Selection annotations、中文「划选批注」），不再只显示 `dsh-selection-annotations` 这个包名。
+- `package.json` 里的仓库、主页与 issue 地址从上游 `2A5F/dsh-selection-annotations` 改成本仓库 `BlazeNebula/dsh-selection-annotations`，npm 页面上的链接与「报告问题」入口因此指向这里。
+
 ## 2.1.0（2026-11-23）
 
 首次发布到 npm。2.0.0 没有单独发布过，其内容一并包含在这里；本节另记 2.0.0 之后的新东西。
