@@ -9392,17 +9392,21 @@ ${PICK_SCRIPT}<\/script>`;
           const hit = raw !== void 0 && hoverPointExposed(event.clientX, event.clientY) ? raw : void 0;
           if (open) {
             if (popoverSource !== "hover") return;
-            if (popoverTouched || popoverHovered) return;
+            const popoverBox = safe(() => popover.getBoundingClientRect());
+            const overPopover = popoverBox !== void 0 && popoverBox !== null && event.clientX >= popoverBox.left && event.clientX <= popoverBox.right && event.clientY >= popoverBox.top && event.clientY <= popoverBox.bottom;
+            if (overPopover || popoverHovered) {
+              cancelHoverClose();
+              if (hit === void 0 || hit.id === popoverTargetId) return;
+            }
             if (hit === void 0) {
+              if (popoverTouched) return;
               scheduleHoverClose();
               return;
             }
-            cancelHoverClose();
-            const popoverBox = safe(() => popover.getBoundingClientRect());
-            if (popoverBox !== void 0 && popoverBox !== null && event.clientX >= popoverBox.left && event.clientX <= popoverBox.right && event.clientY >= popoverBox.top && event.clientY <= popoverBox.bottom) {
+            if (popoverTargetId === hit.id) {
+              cancelHoverClose();
               return;
             }
-            if (popoverTargetId === hit.id) return;
             const nextRect = unionRects(hit.rects);
             if (nextRect === null) return;
             if (popoverMode === "edit") commitPopover(true);
@@ -9487,6 +9491,7 @@ ${PICK_SCRIPT}<\/script>`;
           const target = elementOf2(event.target);
           if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return;
           if (target !== null && target.closest('[data-sa-ui="viewer"]') !== null) return;
+          if (popoverMode === "sent" && popover.dataset.dragged === "1") return;
           commitPopover(true);
         };
         document.addEventListener("pointerdown", onPopoverOutsidePointerDown, true);

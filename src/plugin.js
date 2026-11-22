@@ -6696,28 +6696,32 @@ const rewindHandled = new Map()
           if (open) {
             // 主动点开的弹层不会被悬停逻辑关掉；只有悬停预览才自动收。
             if (popoverSource !== 'hover') return
-            if (popoverTouched || popoverHovered) return
-            if (hit === undefined) {
-              scheduleHoverClose()
-              return
-            }
-            // 指针仍在某条划线上：撤销已经排上的收起，别让它到点把预览关掉。
-            cancelHoverClose()
             // 指针落在弹层自己身上时什么都不做：弹层常压在别的划线上，照几何判断会误判成「换目标」。
             const popoverBox = safe(() => popover.getBoundingClientRect())
-            if (
+            const overPopover =
               popoverBox !== undefined &&
               popoverBox !== null &&
               event.clientX >= popoverBox.left &&
               event.clientX <= popoverBox.right &&
               event.clientY >= popoverBox.top &&
               event.clientY <= popoverBox.bottom
-            ) {
+            if (overPopover || popoverHovered) {
+              cancelHoverClose()
+              if (hit === undefined || hit.id === popoverTargetId) return
+              // 已经接手的面板（拖动或改过尺寸）不随鼠标离开收起，但鼠标扫到另一条批注时
+              // 仍要换过去：否则接手过一次，后面那些批注就再也弹不出预览了。
+            }
+            if (hit === undefined) {
+              if (popoverTouched) return
+              scheduleHoverClose()
               return
             }
             // 预览开着时又扫到另一条批注：换过去。不换的话只有最先扫到的那条能弹，
             // 后面的（常常是后加的采纳批注）看起来永远弹不出来。
-            if (popoverTargetId === hit.id) return
+            if (popoverTargetId === hit.id) {
+              cancelHoverClose()
+              return
+            }
             const nextRect = unionRects(hit.rects)
             if (nextRect === null) return
             // 收掉旧预览再开新的：编辑态走保存式收起，其它态（含只读的已发送面板）直接关。
@@ -6810,6 +6814,9 @@ const rewindHandled = new Map()
           if (target !== null && target.closest('[data-sa-ui="popover"]') !== null) return
           // 大图查看层是弹层的「子视图」：关它不该连带收起批注框。
           if (target !== null && target.closest('[data-sa-ui="viewer"]') !== null) return
+          // 只读面板被拖动或改过尺寸后算用户接手：点面板外只是接着看别处，不当作关掉它。
+          // 收它靠 Esc，或者去点开另一条批注。
+          if (popoverMode === 'sent' && popover.dataset.dragged === '1') return
           // 点框外算确认这次编辑：已经写下的内容不能因为一次误点就丢掉，
           // 但一个字都没写、也没加图的新批注属于「划完就反悔」，直接丢掉。
           commitPopover(true)
