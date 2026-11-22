@@ -4787,6 +4787,9 @@ const rewindHandled = new Map()
 
         function hideToolbar() {
           toolbar.dataset.open = '0'
+          // 下次重新出现照旧瞬间到位，不从上次的旧位置滑进来。
+          delete toolbar.dataset.placed
+          toolbar.classList.remove('sa-toolbar-follow')
         }
 
         function closeContextMenu() {
@@ -4978,6 +4981,9 @@ const rewindHandled = new Map()
           const top = Math.min(rect.bottom + 8, window.innerHeight - height - 8)
           element.style.left = `${left}px`
           element.style.top = `${Math.max(8, top)}px`
+          // 第一次摆位瞬间到位；之后再换位置才滑过去，免得刚露头就从屏幕角落飞进来。
+          if (element.dataset.placed === '1') element.classList.add('sa-toolbar-follow')
+          else element.dataset.placed = '1'
         }
 
         /** 按当前选区把工具条摆出来；松手时会直接调它，不再等去抖计时。*/
@@ -4999,10 +5005,16 @@ const rewindHandled = new Map()
           placeToolbar(toolbar, rect, fresh ? lastPointerUp : null)
         }
 
+        /** 工具条已经露头之后，横向跟随等满这么久没有新动静才滑过去。*/
+        const TOOLBAR_FOLLOW_MS = 1000
+
         function onSelectionChange() {
           // 选区收了就把刚才被挡住的重绘补上（拖选期间 pointerSelecting 还为真，这里不会放行）。
           flushPendingRepaint()
           window.clearTimeout(settleTimer)
+          // 拖选途中工具条要尽快让开，别挡住选择；只有它已经在跟随时才等满 1 秒，
+          // 这样横移不会一路追着鼠标跳，停下来才滑过去。
+          const following = toolbar.dataset.open === '1' && !pointerSelecting
           settleTimer = window.setTimeout(() => {
             settleTimer = null
             if (pointerSelecting) {
@@ -5011,7 +5023,7 @@ const rewindHandled = new Map()
             }
             showSelectionToolbar()
             flushPendingRepaint()
-          }, SETTLE_MS)
+          }, following ? TOOLBAR_FOLLOW_MS : SETTLE_MS)
         }
 
         /** 弹层两种用途：新建（来自当前选区）与修改（某一条既有批注）。*/

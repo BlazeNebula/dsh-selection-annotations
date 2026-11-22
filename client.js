@@ -109,6 +109,8 @@
   border-radius: 8px; background: var(--dsw-alias-bg-layer-2, Canvas);
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); box-shadow: var(--dsw-elevation-panel, 0 4px 14px rgba(0,0,0,.18)); }
 .sa-toolbar[data-open="1"] { display: inline-flex; }
+/* 第一次露头瞬间到位；之后横向跟随改成滑过去，配合 1 秒去抖。 */
+.sa-toolbar-follow { transition: left 220ms ease, top 220ms ease; }
 .sa-menu { position: fixed; z-index: 65; display: none; min-width: 132px; padding: 4px; box-sizing: border-box;
   border-radius: 8px; color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-layer-2, Canvas);
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); box-shadow: var(--dsw-elevation-panel, 0 8px 24px rgba(0,0,0,.22)); }
@@ -7962,6 +7964,8 @@ ${PICK_SCRIPT}<\/script>`;
         }
         function hideToolbar() {
           toolbar.dataset.open = "0";
+          delete toolbar.dataset.placed;
+          toolbar.classList.remove("sa-toolbar-follow");
         }
         function closeContextMenu() {
           if (contextMenu.dataset.open !== "1") return;
@@ -8100,6 +8104,8 @@ ${PICK_SCRIPT}<\/script>`;
           const top = Math.min(rect.bottom + 8, window.innerHeight - height - 8);
           element.style.left = `${left}px`;
           element.style.top = `${Math.max(8, top)}px`;
+          if (element.dataset.placed === "1") element.classList.add("sa-toolbar-follow");
+          else element.dataset.placed = "1";
         }
         function showSelectionToolbar() {
           const selection = readSelection();
@@ -8118,9 +8124,11 @@ ${PICK_SCRIPT}<\/script>`;
           selectionPointer = fresh ? lastPointerUp : null;
           placeToolbar(toolbar, rect, fresh ? lastPointerUp : null);
         }
+        const TOOLBAR_FOLLOW_MS = 1e3;
         function onSelectionChange() {
           flushPendingRepaint();
           window.clearTimeout(settleTimer);
+          const following = toolbar.dataset.open === "1" && !pointerSelecting;
           settleTimer = window.setTimeout(() => {
             settleTimer = null;
             if (pointerSelecting) {
@@ -8129,7 +8137,7 @@ ${PICK_SCRIPT}<\/script>`;
             }
             showSelectionToolbar();
             flushPendingRepaint();
-          }, SETTLE_MS);
+          }, following ? TOOLBAR_FOLLOW_MS : SETTLE_MS);
         }
         let popoverMode = "create";
         let popoverAnchor = null;

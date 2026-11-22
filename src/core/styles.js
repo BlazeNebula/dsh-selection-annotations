@@ -107,6 +107,8 @@ export const CSS = `
   border-radius: 8px; background: var(--dsw-alias-bg-layer-2, Canvas);
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); box-shadow: var(--dsw-elevation-panel, 0 4px 14px rgba(0,0,0,.18)); }
 .sa-toolbar[data-open="1"] { display: inline-flex; }
+/* 第一次露头瞬间到位；之后横向跟随改成滑过去，配合 1 秒去抖。 */
+.sa-toolbar-follow { transition: left 220ms ease, top 220ms ease; }
 .sa-menu { position: fixed; z-index: 65; display: none; min-width: 132px; padding: 4px; box-sizing: border-box;
   border-radius: 8px; color: var(--dsw-alias-label-primary, CanvasText); background: var(--dsw-alias-bg-layer-2, Canvas);
   border: 1px solid var(--dsw-alias-border-l2, ButtonBorder); box-shadow: var(--dsw-elevation-panel, 0 8px 24px rgba(0,0,0,.22)); }
