@@ -5296,10 +5296,12 @@ const rewindHandled = new Map()
           const sentReply = readonly && popoverItem !== null ? sentReplyOf(popoverItem, popoverRecord) : null
           if (sentReply === null) {
             popReplyHead.replaceChildren(popReplyLabel)
+            popReplyBody.className = 'sa-pop-reply'
             popReplyBody.replaceChildren()
           } else {
             // 结论胶囊跟「答复」标题并排；正文与「接下来」只渲染文字，不搬答复卡的底色与内边距。
             popReplyHead.replaceChildren(popReplyLabel, cards.buildReplyVerdict(sentReply))
+            popReplyBody.className = `sa-pop-reply sa-tone-${cards.replyTone(sentReply)}`
             popReplyBody.replaceChildren(cards.buildReplyDetail(sentReply))
           }
           popReplyHead.style.display = sentReply === null ? 'none' : ''
@@ -6753,6 +6755,19 @@ const rewindHandled = new Map()
           popoverHovered = false
           scheduleHoverClose()
         })
+        // 滚轮落在弹层里没有滚动条的地方（标题、按钮、图片条）时，浏览器会把它滚到会话上，
+        // 面板本身钉在屏幕上不动，看上去就像「面板跳位置」。这里统一收给弹层正文自己滚。
+        popover.addEventListener(
+          'wheel',
+          (event) => {
+            if (popover.dataset.open !== '1') return
+            const target = elementOf(event.target)
+            if (target !== null && target.closest('.sa-pop-body, .sa-pop-quote, .sa-pop-input') !== null) return
+            event.preventDefault()
+            popBody.scrollBy({ top: event.deltaY, left: event.deltaX })
+          },
+          { passive: false },
+        )
         popover.addEventListener(
           'pointerdown',
           () => {
@@ -8277,6 +8292,11 @@ const rewindHandled = new Map()
             resizeTargets = next
           }
           const onViewport = (event) => {
+            // 弹层与面板自己内部滚动不算会话视野变化：既不用重画高亮，也不用重排弹层。
+            if (event.type === 'scroll') {
+              const origin = elementOf(event.target)
+              if (origin !== null && origin.closest('[data-sa-ui]') !== null) return
+            }
             // 滚动与窗口尺寸变化会移动正文：高亮要重新量，但会话区不必重建。
             highlightDirty = true
             scheduleRepaint('viewport')

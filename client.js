@@ -147,7 +147,7 @@
 .sa-viewer-img { max-width: 92vw; max-height: 88vh; box-sizing: border-box; border-radius: 6px;
   background: #fff; box-shadow: 0 12px 48px rgb(0 0 0 / 0.5); }
 .sa-pop-title { font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6); font-weight: 600; margin: 0 0 6px; }
-.sa-pop-quote { flex: none; max-height: 120px; overflow: auto; margin: 0 0 8px; padding: 6px 8px; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
+.sa-pop-quote { flex: none; max-height: 120px; overflow: auto; overscroll-behavior: contain; margin: 0 0 8px; padding: 6px 8px; font-size: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
   white-space: pre-wrap; word-break: break-word; color: var(--dsw-alias-label-secondary, GrayText);
   background: var(--dsw-alias-bg-layer-2, ButtonFace); border-left: 2px solid var(--dsw-alias-border-l2, ButtonBorder); border-radius: 4px; }
 .sa-pop-src { margin: 0 0 6px; font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); line-height: 1.45;
@@ -177,11 +177,15 @@
 .sa-pop-reply-reason { font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6); line-height: 1.65;
   color: var(--dsw-alias-label-primary, CanvasText); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .sa-pop-reply-reason[data-sa-md="1"] { white-space: normal; }
-.sa-pop-reply-next { display: flex; align-items: baseline; gap: 6px; }
-.sa-pop-reply-next-label { flex: none; font-size: calc(11px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 600;
-  color: var(--dsw-alias-label-secondary, GrayText); }
-.sa-pop-reply-next-text { flex: 1 1 auto; min-width: 0; font-size: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6);
-  line-height: 1.6; color: var(--dsw-alias-label-secondary, GrayText); }
+/* 「接下来」沿用答复卡里那个竖排标签，只去掉外面那层垫片与底色。*/
+.sa-pop-reply-next { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.sa-pop-reply-next-label { flex: none; writing-mode: vertical-rl; text-orientation: upright; margin: 0; padding: 4px 2px;
+  border-radius: 4px; font-size: calc(10.5px + var(--dsh-content-font-delta, 0px) * 0.4); font-weight: 400;
+  letter-spacing: .08em; line-height: 1;
+  color: var(--sa-tone, var(--dsw-alias-label-secondary, #8b949e));
+  background: color-mix(in srgb, var(--sa-tone, var(--dsw-alias-border-l1, #888)) 16%, transparent); }
+.sa-pop-reply-next-text { flex: 1 1 auto; min-width: 0; font-size: calc(12.5px + var(--dsh-content-font-delta, 0px) * 0.6);
+  line-height: 1.5; color: var(--dsw-alias-label-secondary, #8b949e); }
 .sa-pop-reply-next-text[data-sa-md="1"] { white-space: normal; }
 .sa-pop-reply-next-text[data-sa-md="1"] :where(p, ul, ol, li, div, span, strong, em, code, a, blockquote) {
   font-size: inherit; line-height: inherit; color: inherit; }
@@ -2631,6 +2635,10 @@
       verdict.textContent = t(labelKey);
       return verdict;
     }
+    function replyTone(reply) {
+      const [, tone] = VERDICT_LABELS[reply?.verdict] ?? ["verdict.unknown", "accepted"];
+      return tone;
+    }
     return {
       sectionChevron,
       buildSectionHead,
@@ -2639,7 +2647,8 @@
       buildSentCard,
       buildReplySection,
       buildReplyDetail,
-      buildReplyVerdict
+      buildReplyVerdict,
+      replyTone
     };
   }
 
@@ -8331,9 +8340,11 @@ ${PICK_SCRIPT}<\/script>`;
           const sentReply = readonly && popoverItem !== null ? sentReplyOf(popoverItem, popoverRecord) : null;
           if (sentReply === null) {
             popReplyHead.replaceChildren(popReplyLabel);
+            popReplyBody.className = "sa-pop-reply";
             popReplyBody.replaceChildren();
           } else {
             popReplyHead.replaceChildren(popReplyLabel, cards.buildReplyVerdict(sentReply));
+            popReplyBody.className = `sa-pop-reply sa-tone-${cards.replyTone(sentReply)}`;
             popReplyBody.replaceChildren(cards.buildReplyDetail(sentReply));
           }
           popReplyHead.style.display = sentReply === null ? "none" : "";
@@ -9428,6 +9439,17 @@ ${PICK_SCRIPT}<\/script>`;
           popoverHovered = false;
           scheduleHoverClose();
         });
+        popover.addEventListener(
+          "wheel",
+          (event) => {
+            if (popover.dataset.open !== "1") return;
+            const target = elementOf2(event.target);
+            if (target !== null && target.closest(".sa-pop-body, .sa-pop-quote, .sa-pop-input") !== null) return;
+            event.preventDefault();
+            popBody.scrollBy({ top: event.deltaY, left: event.deltaX });
+          },
+          { passive: false }
+        );
         popover.addEventListener(
           "pointerdown",
           () => {
@@ -10724,6 +10746,10 @@ ${PICK_SCRIPT}`;
             resizeTargets = next;
           };
           const onViewport = (event) => {
+            if (event.type === "scroll") {
+              const origin = elementOf2(event.target);
+              if (origin !== null && origin.closest("[data-sa-ui]") !== null) return;
+            }
             highlightDirty = true;
             scheduleRepaint("viewport");
             closeContextMenu();

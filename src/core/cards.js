@@ -479,6 +479,15 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     return verdict
   }
 
+  /**
+   * 答复的语气（accepted/partial/rejected/needs_info）：调用方用它给容器挂颜色。
+   * @param reply - 答复条目（verdict）。
+   */
+  function replyTone(reply) {
+    const [, tone] = VERDICT_LABELS[reply?.verdict] ?? ['verdict.unknown', 'accepted']
+    return tone
+  }
+
   return {
     sectionChevron,
     buildSectionHead,
@@ -488,5 +497,6 @@ export function createCards({ t, openImageViewer, markdown, isAdopt = () => fals
     buildReplySection,
     buildReplyDetail,
     buildReplyVerdict,
+    replyTone,
   }
 }
